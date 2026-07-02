@@ -1,8 +1,10 @@
 # Home
 
-`xarray-annotated` enables run-time validation and conversion of `xarray.DataArray` units
+`xarray-annotated` enables run-time validation of `xarray.DataArray` properties
 declared in function signatures via
-[`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated).
+[`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated):
+physical **units** (checked and converted via pint) and a DataArray's structural
+**schema** — its **dims, coords, and dtype** (checked, never mutated).
 
 It bridges [pint](https://pint.readthedocs.io/en/stable/) and
 [pint-xarray](https://pint-xarray.readthedocs.io) — which provide the units registry and the
@@ -13,10 +15,12 @@ strings.)
 
 !!! note
 
-    Right now `xarray-annotated` supports declaring and validating physical **units**
-    only. The intention is to grow it to cover a DataArray's full xarray *schema* — its
-    **dims, coords, and dtype** — under the same `typing.Annotated` mechanism (the
-    `xarray_annotated.schema` subpackage reserves this and is currently a stub).
+    `xarray-annotated` has two domains, imported separately: `xarray_annotated.units`
+    (physical units, via pint/CF) and `xarray_annotated.schema` (structural
+    properties — dims, coords, dtype). They share one `typing.Annotated` mechanism
+    and a common validation policy; units additionally *converts*, while schema is
+    validate-only. The example below uses the units domain; see the
+    [Usage](usage.md) guide for both.
 
 For example:
 
