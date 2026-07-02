@@ -1,0 +1,113 @@
+[project]
+
+use_directory_urls = false
+
+site_name = "xarray-signature-units"
+site_description = "Run-time validation of pint/CF units declared in signature annotations on xarray DataArrays"
+site_author = "Joe Marsh Rossney"
+site_url = "https://jmarshrossney.github.io/xarray-signature-units"
+
+repo_name = "jmarshrossney/xarray-signature-units"
+repo_url = "https://github.com/jmarshrossney/xarray-signature-units"
+
+copyright = """
+Copyright &copy; 2026 Joe Marsh Rossney
+"""
+
+# nav = [
+#   { "Home" = "index.md" },
+#   { "Getting Started" = "getting_started.md" },
+#   { "Example" = "example.md" },
+# ]
+
+[project.theme]
+
+#favicon = "images/favicon.png"
+
+language = "en"
+
+features = [
+    "announce.dismiss",
+    #"content.action.edit",
+    #"content.action.view",
+    "content.code.annotate",
+    "content.code.copy",
+    "content.code.select",
+    "content.footnote.tooltips",
+    "content.tabs.link",
+    "content.tooltips",
+    # "header.autohide",
+    # "navigation.expand",
+    # "navigation.footer",
+    # "navigation.indexes",
+    "navigation.instant",
+    "navigation.instant.prefetch",
+    #"navigation.instant.progress",
+    "navigation.path",
+    #"navigation.prune",
+    "navigation.sections",
+    #"navigation.tabs",
+    #"navigation.tabs.sticky",
+    # "navigation.top",
+    "navigation.tracking",
+    "search.highlight",
+    # "toc.follow",
+    #"toc.integrate",
+]
+
+[project.theme.icon]
+logo = "lucide/smile"
+
+#[project.theme.font]
+#text = "Inter"
+#code = "Jetbrains Mono"
+
+[[project.theme.palette]]
+scheme = "default"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+scheme = "slate"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to light mode"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/jmarshrossney"
+
+[project.markdown_extensions.abbr]
+[project.markdown_extensions.admonition]
+[project.markdown_extensions.attr_list]
+[project.markdown_extensions.def_list]
+[project.markdown_extensions.footnotes]
+[project.markdown_extensions.md_in_html]
+[project.markdown_extensions.toc]
+permalink = true
+[project.markdown_extensions.pymdownx.arithmatex]
+generic = true
+[project.markdown_extensions.pymdownx.betterem]
+[project.markdown_extensions.pymdownx.caret]
+[project.markdown_extensions.pymdownx.details]
+[project.markdown_extensions.pymdownx.emoji]
+emoji_generator = "zensical.extensions.emoji.to_svg"
+emoji_index = "zensical.extensions.emoji.twemoji"
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true
+[project.markdown_extensions.pymdownx.inlinehilite]
+[project.markdown_extensions.pymdownx.keys]
+[project.markdown_extensions.pymdownx.magiclink]
+[project.markdown_extensions.pymdownx.mark]
+[project.markdown_extensions.pymdownx.smartsymbols]
+[project.markdown_extensions.pymdownx.superfences]
+custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" }
+]
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
+combine_header_slug = true
+[project.markdown_extensions.pymdownx.tasklist]
+custom_checkbox = true
+[project.markdown_extensions.pymdownx.tilde]
