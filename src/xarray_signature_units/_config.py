@@ -3,14 +3,14 @@
 `check_units` handles three distinct events, and the policy exposes one independent
 control per event:
 
-- ``enabled`` — master switch; when ``False`` no validation happens at all (a true
+- `enabled` — master switch; when `False` no validation happens at all (a true
   no-op, at every layer).
-- ``on_missing`` — what to do when a ``DataArray`` has no parseable unit to check
-  against (an absent or unparseable ``units`` attribute): ``"error"`` / ``"warn"`` /
-  ``"ignore"``.
-- ``on_inexact`` — what to do when the declared and actual units are dimensionally
-  compatible but *value-changing* (e.g. ``"hPa"`` where ``"Pa"`` is declared):
-  ``"convert"`` / ``"warn"`` / ``"error"``.
+- `on_missing` — what to do when a `DataArray` has no parseable unit to check
+  against (an absent or unparseable `units` attribute): `"error"` / `"warn"` /
+  `"ignore"`.
+- `on_inexact` — what to do when the declared and actual units are dimensionally
+  compatible but *value-changing* (e.g. `"hPa"` where `"Pa"` is declared):
+  `"convert"` / `"warn"` / `"error"`.
 
 A fourth case — a *dimensional* mismatch (e.g. a mass where a pressure is declared)
 — is deliberately not configurable: it always raises, because the values cannot be
@@ -36,19 +36,19 @@ _VALID_ON_INEXACT: frozenset[str] = frozenset({"convert", "warn", "error"})
 #: Master switch default. Validation is on unless explicitly disabled.
 DEFAULT_ENABLED: bool = True
 
-#: When a ``DataArray`` carries no parseable unit, ``warn`` flags it without
+#: When a `DataArray` carries no parseable unit, `warn` flags it without
 #: failing — non-breaking for inputs that lack unit metadata, and dev-friendly.
 DEFAULT_ON_MISSING: OnMissing = "warn"
 
 #: A dimensionally compatible but value-changing unit is silently converted by
-#: default; ``warn`` also converts but says so, ``error`` refuses.
+#: default; `warn` also converts but says so, `error` refuses.
 DEFAULT_ON_INEXACT: OnInexact = "convert"
 
 ENABLED_ENV_VAR = "XARRAY_SIGNATURE_UNITS_ENABLED"
 ON_MISSING_ENV_VAR = "XARRAY_SIGNATURE_UNITS_ON_MISSING"
 ON_INEXACT_ENV_VAR = "XARRAY_SIGNATURE_UNITS_ON_INEXACT"
 
-#: String values (lower-cased) accepted for the boolean ``enabled`` env var.
+#: String values (lower-cased) accepted for the boolean `enabled` env var.
 _TRUTHY: frozenset[str] = frozenset({"1", "true", "yes", "on"})
 _FALSEY: frozenset[str] = frozenset({"0", "false", "no", "off"})
 
@@ -73,8 +73,15 @@ _UNSET = _Unset()
 class Policy:
     """The resolved validation policy — the three axes as a single value.
 
-    Returned by `get_policy`. Build overrides via `set_policy` or the `policy`
+    Returned by `get_policy`.  Build overrides via `set_policy` or the `policy`
     context manager rather than constructing this directly.
+
+    Attributes:
+        enabled: Master switch; `False` makes all validation a no-op.
+        on_missing: Behaviour when a `DataArray` has no parseable unit
+            (`"error"`, `"warn"`, or `"ignore"`).
+        on_inexact: Behaviour for a value-changing conversion
+            (`"convert"`, `"warn"`, or `"error"`).
     """
 
     enabled: bool = DEFAULT_ENABLED
@@ -126,7 +133,11 @@ def _parse_enabled_env(value: str) -> bool:
 
 
 def get_policy() -> Policy:
-    """Resolve the active validation policy (env → process → default, per axis)."""
+    """Resolve the active validation policy (env → process → default, per axis).
+
+    Returns:
+        The resolved `Policy`.
+    """
     return Policy(
         enabled=_resolve(
             ENABLED_ENV_VAR, _process_enabled, DEFAULT_ENABLED, _parse_enabled_env
@@ -154,9 +165,14 @@ def set_policy(
 ) -> None:
     """Set process-wide policy overrides for one or more axes.
 
-    Only the axes you pass are changed. Pass a value to set it, ``None`` to *clear*
-    that axis's override (so its env var / default applies again), or omit it to
-    leave it untouched.
+    Only the axes you pass are changed.  Pass a value to set it, `None` to
+    *clear* that axis's override (so its env var / default applies again), or
+    omit it to leave it untouched.
+
+    Args:
+        enabled: Override the master switch, or `None` to clear.
+        on_missing: Override the on-missing axis, or `None` to clear.
+        on_inexact: Override the on-inexact axis, or `None` to clear.
     """
     global _process_enabled, _process_on_missing, _process_on_inexact
     if not isinstance(enabled, _Unset):
@@ -180,11 +196,19 @@ def policy(
 ):
     """Temporarily override policy axes, restoring all of them on exit.
 
-    Sets every axis you pass in one go, and restores the previous process overrides
-    afterwards even if an exception is raised.
+    Sets every axis you pass in one go, and restores the previous process
+    overrides afterwards even if an exception is raised.
 
-    >>> with policy(on_missing="error", on_inexact="warn"):
-    ...     check_units(da, "Pa", "vpd")
+    Args:
+        enabled: Override the master switch, or `None` to clear.
+        on_missing: Override the on-missing axis, or `None` to clear.
+        on_inexact: Override the on-inexact axis, or `None` to clear.
+
+    >>> from xarray_signature_units import policy
+    >>> import xarray as xr
+    >>> da = xr.DataArray([1.0], attrs={"units": "Pa"})
+    >>> with policy(on_missing="error"):
+    ...     pass  # policy restored after block
     """
     global _process_enabled, _process_on_missing, _process_on_inexact
     saved = (_process_enabled, _process_on_missing, _process_on_inexact)

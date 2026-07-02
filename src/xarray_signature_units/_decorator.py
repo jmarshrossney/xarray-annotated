@@ -1,7 +1,7 @@
 """Signature-driven unit declaration decorator.
 
 `declare_units` wires the declaration side (`_annotations`) to the checking side
-(`_check`): it reads a function's ``Annotated[DataArray, "<unit>"]`` hints once, at
+(`_check`): it reads a function's `Annotated[DataArray, "<unit>"]` hints once, at
 decoration time, then on every call validates/converts the declared inputs and
 stamps the declared outputs.
 
@@ -40,35 +40,43 @@ def declare_units(
     """Apply a function's signature-declared units at runtime.
 
     Reads the decorated function's own type annotations once, via
-    `units_from_signature`: parameters annotated ``Annotated[DataArray, "<unit>"]``
-    declare input units, and a ``TypedDict`` return (or a bare
-    ``Annotated[DataArray, "<unit>"]`` return) declares output units. Those
+    `units_from_signature`: parameters annotated `Annotated[DataArray, "<unit>"]`
+    declare input units, and a `TypedDict` return (or a bare
+    `Annotated[DataArray, "<unit>"]` return) declares output units.  Those
     annotations are the single source of truth, so a unit is never written twice.
 
     On each call, under the active `Policy` (`get_policy`), the wrapper:
 
-    1. validates/converts every declared ``DataArray`` input to its unit via
+    1. validates/converts every declared `DataArray` input to its unit via
        `check_units`;
     2. runs the wrapped function;
-    3. stamps each declared output ``DataArray`` with its unit (a ``dict`` return is
-       stamped per key; a single ``DataArray`` return takes the bare declared unit).
+    3. stamps each declared output `DataArray` with its unit (a `dict` return is
+       stamped per key; a single `DataArray` return takes the bare declared unit).
 
-    Only ``DataArray`` values are touched; other arguments and returns pass through
-    unchanged. When the policy is **disabled** (``enabled=False``) the wrapper is a
-    total no-op: inputs are not converted and outputs are not stamped.
+    Only `DataArray` values are touched; other arguments and returns pass
+    through unchanged.  When the policy is **disabled** (`enabled=False`) the
+    wrapper is a total no-op: inputs are not converted and outputs are not
+    stamped.
 
-    Usable bare (``@declare_units``) or called (``@declare_units(on_missing="error")``).
-
-    Parameters
-    ----------
-    on_missing, on_inexact
-        Override the corresponding policy axes for this function. When ``None``
-        (default) each is resolved per call from `get_policy`, so process/env
-        changes are honoured. See `Policy` for the axis semantics.
+    Usable bare (`@declare_units`) or called
+    (`@declare_units(on_missing="error")`).
 
     Every declared unit string is checked against the registry **at decoration
-    time**, so a malformed or undefined unit fails fast at import — regardless of
-    policy — rather than only when the function first runs.
+    time**, so a malformed or undefined unit fails fast at import — regardless
+    of policy — rather than only when the function first runs.
+
+    Args:
+        func: The function to decorate (when used bare).  `None` when called
+            with keyword arguments, in which case a parametrised decorator is
+            returned.
+        on_missing: Override the on-missing axis for the decorated function.
+            When `None` (default) resolved per call from `get_policy`.
+        on_inexact: Override the on-inexact axis for the decorated function.
+            When `None` (default) resolved per call from `get_policy`.
+
+    Returns:
+        A wrapped function that validates inputs and stamps outputs according
+        to the active policy.
     """
     if on_missing is not None:
         _validate_on_missing(on_missing)

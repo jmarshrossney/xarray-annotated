@@ -2,8 +2,8 @@
 
 The "usage side" of the package: given a validation `Policy` and a declared unit
 string (typically read off a signature by `_annotations`), validate an actual
-``DataArray`` against it and convert it into the declared unit. Conversion is
-delegated to pint-xarray's ``.pint`` accessor via the active registry.
+`DataArray` against it and convert it into the declared unit. Conversion is
+delegated to pint-xarray's `.pint` accessor via the active registry.
 """
 
 import warnings
@@ -25,29 +25,44 @@ from ._registry import _cf_hint, get_registry
 class UnitsWarning(UserWarning):
     """Emitted when a DataArray input cannot be fully unit-validated.
 
-    Raised by `check_units` when an input has a missing or unparseable ``units``
-    attribute and ``on_missing`` is ``"warn"``, or when a value-changing conversion
-    happens under ``on_inexact="warn"``. Subclasses ``UserWarning`` so callers can
+    Raised by `check_units` when an input has a missing or unparseable `units`
+    attribute and `on_missing` is `"warn"`, or when a value-changing conversion
+    happens under `on_inexact="warn"`.  Subclasses `UserWarning` so callers can
     target it specifically::
 
-        import warnings
-        from xarray_signature_units import UnitsWarning
-        warnings.filterwarnings("error", category=UnitsWarning)
+        >>> import warnings
+        >>> from xarray_signature_units import UnitsWarning
+        >>> issubclass(UnitsWarning, UserWarning)
+        True
+        >>> warnings.filterwarnings("error", category=UnitsWarning)
     """
 
 
 def assert_valid_unit(unit: str, context: str) -> None:
-    """Raise ``ValueError`` if ``unit`` is not parseable by the active registry.
+    """Raise `ValueError` if `unit` is not parseable by the active registry.
 
     Used to fail fast at declaration time: a malformed or undefined unit string
-    (a typo such as ``"degrees_C"``, or ``"not_a_unit"``) is rejected as soon as
-    it is declared, rather than only when it is later used to validate data.
-    ``context`` names the offending site (e.g. ``"mymodel input 'vpd_weekly'"``)
-    for the message.
+    (a typo such as `"degrees_C"`, or `"not_a_unit"`) is rejected as soon as it
+    is declared, rather than only when it is later used to validate data.
 
     The registry raises a variety of exception types for bad input
-    (``pint.UndefinedUnitError``, ``AssertionError``, …); all are caught and
-    re-raised as a single, clear ``ValueError``.
+    (`pint.UndefinedUnitError`, `AssertionError`, …); all are caught and
+    re-raised as a single, clear `ValueError`.
+
+    Args:
+        unit: The unit string to validate.
+        context: Names the offending site (e.g. `"mymodel input 'vpd_weekly'"`)
+            for the error message.
+
+    Raises:
+        ValueError: If `unit` cannot be parsed by the active registry.
+
+    >>> from xarray_signature_units import assert_valid_unit
+    >>> assert_valid_unit("Pa", "test")  # no raise
+    >>> assert_valid_unit("not_a_unit", "test")  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+    ...
+    ValueError
     """
     try:
         get_registry().Unit(unit)
@@ -62,10 +77,23 @@ def assert_valid_unit(unit: str, context: str) -> None:
 def units_compatible(a: str, b: str) -> bool:
     """Return whether two unit strings are *dimensionally* compatible.
 
-    Mirrors the runtime conversion semantics of `check_units`: ``"hPa"`` and
-    ``"Pa"`` are compatible (one converts to the other), whereas ``"Pa"`` and
-    ``"kg"`` are not. Both strings are assumed already validated by
+    Mirrors the runtime conversion semantics of `check_units`: `"hPa"` and
+    `"Pa"` are compatible (one converts to the other), whereas `"Pa"` and
+    `"kg"` are not.  Both strings are assumed already validated by
     `assert_valid_unit`.
+
+    Args:
+        a: A unit string.
+        b: Another unit string.
+
+    Returns:
+        `True` if the units are dimensionally compatible.
+
+    >>> from xarray_signature_units._check import units_compatible
+    >>> units_compatible("hPa", "Pa")
+    True
+    >>> units_compatible("Pa", "kg")
+    False
     """
     return get_registry().Unit(a).is_compatible_with(get_registry().Unit(b))
 
@@ -74,10 +102,23 @@ def units_equal(a: str, b: str) -> bool:
     """Return whether two units are the *same* unit (no conversion needed).
 
     Compares the parsed units, so different spellings of the same unit are equal
-    (``"Pa"`` == ``"pascal"``, ``"1"`` == ``"dimensionless"``) while a prefixed
-    unit differs (``"hPa"`` != ``"Pa"``). This is the distinction the ``on_inexact``
-    axis turns on: a value-changing conversion is one where the units are compatible
-    but *not* equal; equivalent spellings imply no value change.
+    (`"Pa"` == `"pascal"`, `"1"` == `"dimensionless"`) while a prefixed unit
+    differs (`"hPa"` != `"Pa"`).  This is the distinction the `on_inexact`
+    axis turns on: a value-changing conversion is one where the units are
+    compatible but *not* equal; equivalent spellings imply no value change.
+
+    Args:
+        a: A unit string.
+        b: Another unit string.
+
+    Returns:
+        `True` if the units are the same (no conversion needed).
+
+    >>> from xarray_signature_units._check import units_equal
+    >>> units_equal("Pa", "pascal")
+    True
+    >>> units_equal("hPa", "Pa")
+    False
     """
     return get_registry().Unit(a) == get_registry().Unit(b)
 
@@ -90,31 +131,59 @@ def check_units(
     on_inexact: OnInexact | None = None,
     qualname: str | None = None,
 ) -> xr.DataArray:
-    """Validate and convert an input ``DataArray`` to its declared unit.
+    """Validate and convert an input `DataArray` to its declared unit.
 
-    Returns a ``DataArray`` whose data is expressed in ``declared`` and whose
-    ``units`` attribute equals ``declared``.
+    Returns a `DataArray` whose data is expressed in `declared` and whose
+    `units` attribute equals `declared`.
 
-    Behaviour follows the active `Policy` (`get_policy`); ``on_missing`` and
-    ``on_inexact`` override their axes for this call when given (``None`` defers to
-    the policy). If the policy is disabled the array is returned unchanged.
+    Behaviour follows the active `Policy` (`get_policy`); `on_missing` and
+    `on_inexact` override their axes for this call when given (`None` defers to
+    the policy).  If the policy is disabled the array is returned unchanged.
 
-    - **No parseable unit** — the input has no ``units`` attribute, or one the
-      registry cannot parse (e.g. a non-CF string like ``"fraction"``): follows
-      ``on_missing`` (``"error"`` raises, ``"warn"`` warns and returns unchanged,
-      ``"ignore"`` returns unchanged silently).
-    - **Value-changing conversion** — the unit is dimensionally compatible with
-      ``declared`` but not the same unit (e.g. ``"hPa"`` where ``"Pa"`` is
-      declared): follows ``on_inexact`` (``"error"`` raises, ``"warn"`` warns then
-      converts, ``"convert"`` converts silently). Equivalent spellings
-      (``"pascal"`` for ``"Pa"``) imply no value change and always convert.
-    - **Dimensional mismatch** — two parseable but incompatible units (e.g. a mass
-      where a pressure is declared): always raises ``pint.DimensionalityError``,
-      regardless of policy.
+    Three events are handled, each building on the one before:
 
-    ``qualname`` names the calling site; when provided it is prepended to warning
-    messages as ``[qualname] ...`` so the source of the warning is identifiable
-    without inspecting the call stack.
+    * **No parseable unit** — the input has no `units` attribute, or one the
+      registry cannot parse (e.g. a non-CF string like `"fraction"`): follows
+      `on_missing` (`"error"` raises, `"warn"` warns and returns unchanged,
+      `"ignore"` returns unchanged silently).
+    * **Value-changing conversion** — the unit is dimensionally compatible with
+      `declared` but not the same unit (e.g. `"hPa"` where `"Pa"` is
+      declared): follows `on_inexact` (`"error"` raises, `"warn"` warns then
+      converts, `"convert"` converts silently).  Equivalent spellings
+      (`"pascal"` for `"Pa"`) imply no value change and always convert.
+    * **Dimensional mismatch** — two parseable but incompatible units (e.g. a
+      mass where a pressure is declared): always raises
+      `pint.DimensionalityError`, regardless of policy.
+
+    Args:
+        da: The input `DataArray` to validate and convert.
+        declared: The expected unit string (e.g. `"Pa"`).
+        name: A label for the array, used in error/warning messages.
+        on_missing: Override the on-missing axis for this call (`None` defers
+            to the active policy).
+        on_inexact: Override the on-inexact axis for this call (`None` defers
+            to the active policy).
+        qualname: A qualifier prepended to warning messages as `[qualname]`,
+            identifying the calling site.
+
+    Returns:
+        A new `DataArray` converted to `declared`, with `attrs["units"]` set
+        to `declared`.
+
+    Raises:
+        ValueError: When `on_missing="error"` and no parseable unit is found,
+            or when `on_inexact="error"` and a value-changing conversion would occur.
+        pint.DimensionalityError: When the actual unit is dimensionally
+            incompatible with `declared` (always, regardless of policy).
+
+    >>> import numpy as np, xarray as xr
+    >>> from xarray_signature_units import check_units
+    >>> da = xr.DataArray([1013.0, 1000.0], attrs={"units": "hPa"})
+    >>> out = check_units(da, "Pa", "pressure")
+    >>> out.attrs["units"]
+    'Pa'
+    >>> out.values  # 10 * 100 = 1000
+    array([101300., 100000.])
     """
     pol = get_policy()
     if not pol.enabled:
