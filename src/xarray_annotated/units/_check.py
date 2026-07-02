@@ -43,7 +43,7 @@ class UnitsWarning(UserWarning):
 
     Example:
         >>> import warnings
-        >>> from xarray_signature_units import UnitsWarning
+        >>> from xarray_annotated.units import UnitsWarning
         >>> issubclass(UnitsWarning, UserWarning)
         True
         >>> warnings.filterwarnings("error", category=UnitsWarning)
@@ -74,7 +74,7 @@ def assert_valid_unit(unit: str | Unit, context: str) -> None:
         ValueError: If `unit` cannot be parsed by the active registry.
 
     Examples:
-        >>> from xarray_signature_units import assert_valid_unit
+        >>> from xarray_annotated.units import assert_valid_unit
         >>> assert_valid_unit("Pa", "test")  # no raise
         >>> assert_valid_unit("degC", "test")  # no raise
     """
@@ -112,7 +112,7 @@ def units_compatible(a: str, b: str) -> bool:
         `True` if the units are dimensionally compatible.
 
     Examples:
-        >>> from xarray_signature_units._check import units_compatible
+        >>> from xarray_annotated.units._check import units_compatible
         >>> units_compatible("hPa", "Pa")
         True
         >>> units_compatible("Pa", "kg")
@@ -138,7 +138,7 @@ def units_equal(a: str, b: str) -> bool:
         `True` if the units are the same (no conversion needed).
 
     Examples:
-        >>> from xarray_signature_units._check import units_equal
+        >>> from xarray_annotated.units._check import units_equal
         >>> units_equal("Pa", "pascal")
         True
         >>> units_equal("hPa", "Pa")
@@ -202,7 +202,7 @@ def check_units(
 
     Examples:
         >>> import numpy as np, xarray as xr
-        >>> from xarray_signature_units import check_units
+        >>> from xarray_annotated.units import check_units
         >>> da = xr.DataArray([1013.0, 1000.0], attrs={"units": "hPa"})
         >>> out = check_units(da, "Pa", "pressure")
         >>> out.attrs["units"]

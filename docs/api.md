@@ -1,3 +1,3 @@
 # API Reference
 
-::: xarray_signature_units
+::: xarray_annotated.units

@@ -12,8 +12,8 @@ import pint
 import pytest
 import xarray as xr
 
-import xarray_signature_units as units
-from xarray_signature_units import _annotations, _check, _config
+from xarray_annotated import units
+from xarray_annotated.units import _annotations, _check, _config
 
 
 def _da(values, unit=None):

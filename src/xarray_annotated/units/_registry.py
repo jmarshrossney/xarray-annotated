@@ -70,7 +70,7 @@ def use_cf_units() -> None:
     except ImportError as exc:
         raise ImportError(
             "use_cf_units() requires cf-xarray. Install it with "
-            "`pip install xarray-signature-units[cf]`."
+            "`pip install xarray-annotated[cf]`."
         ) from exc
     set_registry(cf_xarray.units.units)
     _using_cf = True

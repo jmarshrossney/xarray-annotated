@@ -3,9 +3,9 @@ requires = ["uv_build>=0.11.17,<0.12.0"]
 build-backend = "uv_build"
 
 [project]
-name = "xarray-signature-units"
+name = "xarray-annotated"
 version = "0.1.0"
-description = "Run-time validation of pint/CF units declared in signature annotations on xarray DataArrays"
+description = "Run-time validation of xarray DataArray properties (units, dims/coords/dtype) declared via typing.Annotated"
 authors = [
     { name = "jmarshrossney", email = "17361029+jmarshrossney@users.noreply.github.com" }
 ]
@@ -18,7 +18,7 @@ dependencies = [
     "pint-xarray>=0.6.1",
     "xarray>=2026.2.0",
 ]
-keywords = ["xarray", "pint", "units", "validation"]
+keywords = ["xarray", "pint", "units", "validation", "annotations"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
@@ -32,13 +32,13 @@ classifiers = [
 cf = ["cf-xarray>=0.11.3"]
 
 [project.urls]
-Homepage = "https://jmarshrossney.github.io/xarray-signature-units"
-Repository = "https://github.com/jmarshrossney/xarray-signature-units"
-Documentation = "https://jmarshrossney.github.io/xarray-signature-units"
+Homepage = "https://jmarshrossney.github.io/xarray-annotated"
+Repository = "https://github.com/jmarshrossney/xarray-annotated"
+Documentation = "https://jmarshrossney.github.io/xarray-annotated"
 
 [dependency-groups]
 dev = [
-    "xarray-signature-units[cf]",
+    "xarray-annotated[cf]",
     "coverage>=7.13.5",
     "pyright>=1.1.409",
     "pytest>=9.0.2",

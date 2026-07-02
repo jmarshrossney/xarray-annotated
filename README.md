@@ -1,16 +1,19 @@
-# xarray-signature-units
+# xarray-annotated
 
-`xarray-signature-units` enables run-time validation and conversion of `xarray.DataArray` units declared in function signatures via [`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated).
+`xarray-annotated` enables run-time validation and conversion of `xarray.DataArray` units declared in function signatures via [`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated).
 
 It bridges [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io) — which provide the units registry and the underlying conversion machinery — with the units you declare in a signature, so each declared unit is checked and coerced whenever the function runs.
 ([cf-xarray](https://cf-xarray.readthedocs.io) is an optional dependency for CF/UDUNITS unit strings.)
+
+> [!NOTE]
+> Right now `xarray-annotated` supports declaring and validating physical **units** only. The intention is to grow it to cover a DataArray's full xarray *schema* — its **dims, coords, and dtype** — under the same `typing.Annotated` mechanism.
 
 For example:
 
 ```python
 from typing import Annotated
 import xarray as xr
-from xarray_signature_units import declare_units
+from xarray_annotated.units import declare_units
 
 @declare_units
 def normalise_pressure(
@@ -26,7 +29,7 @@ normalise_pressure(p)
 #     units:    Pa
 ```
 
-For full user documentation please visit **[https://jmarshrossney.github.io/xarray-signature-units/](https://jmarshrossney.github.io/xarray-signature-units/)**.
+For full user documentation please visit **[https://jmarshrossney.github.io/xarray-annotated/](https://jmarshrossney.github.io/xarray-annotated/)**.
 
 ## Motivations
 
@@ -34,7 +37,7 @@ For full user documentation please visit **[https://jmarshrossney.github.io/xarr
 Nothing enforces that the array a function receives is actually in the unit that function expects, so it is quite easy to mess up — mixing `hPa`/`Pa` or `m`/`mm`, or even feeding in dimensionally incompatible data.
 Tools like [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io) offer robust mechanisms for validating and converting the units attached to a `DataArray`, but enforcement is left up to the user, and manually declaring and enforcing a units policy everywhere is quite a lot of effort.
 
-`xarray-signature-units` helps by providing a transparent and low-effort policy for the declaration and validation/conversion of units on `xarray.DataArray`s.
+`xarray-annotated` helps by providing a transparent and low-effort policy for the declaration and validation/conversion of units on `xarray.DataArray`s.
 Specifically,
 
 1. Letting you declare the expected unit of a `DataArray` **in the function signature** — `Annotated[xr.DataArray, "Pa"]` — so the unit is part of the contract, written in exactly one place.
@@ -45,22 +48,22 @@ A declared unit sits naturally alongside other typed metadata rather than in a s
 
 ## Installation
 
-`xarray-signature-units` can be installed directly from GitHub using `pip`, or tools such as `uv` that wrap around it.
+`xarray-annotated` can be installed directly from GitHub using `pip`, or tools such as `uv` that wrap around it.
 
 ```sh
-uv add git+https://github.com/jmarshrossney/xarray-signature-units.git
+uv add git+https://github.com/jmarshrossney/xarray-annotated.git
 ```
 
 or
 
 ```sh
-pip install git+https://github.com/jmarshrossney/xarray-signature-units.git
+pip install git+https://github.com/jmarshrossney/xarray-annotated.git
 ```
 
 CF-convention / UDUNITS unit strings (e.g. `"umol m-2 s-1"`) require the optional `cf` extra, which pulls in [cf-xarray](https://cf-xarray.readthedocs.io):
 
 ```sh
-uv add "xarray-signature-units[cf] @ git+https://github.com/jmarshrossney/xarray-signature-units.git"
+uv add "xarray-annotated[cf] @ git+https://github.com/jmarshrossney/xarray-annotated.git"
 ```
 
 Currently Python versions equal to or above 3.12 are supported.
@@ -72,15 +75,15 @@ There are two steps.
 1. **Declare** the expected unit of each `DataArray` in your function signatures, as `Annotated[xr.DataArray, "<unit>"]` metadata.
 2. **Apply** the declarations — decorate the function with `@declare_units` to validate and convert its inputs and stamp its outputs automatically, or call `check_units(...)` directly where you'd rather not decorate.
 
-See the [documentation](https://jmarshrossney.github.io/xarray-signature-units/) for the full walkthrough — the validation policy, choosing a pint vs. CF registry, and reading declarations off a signature for your own tooling.
+See the [documentation](https://jmarshrossney.github.io/xarray-annotated/) for the full walkthrough — the validation policy, choosing a pint vs. CF registry, and reading declarations off a signature for your own tooling.
 
 ## Philosophy
 
-`xarray-signature-units` is a deliberately thin layer over [pint-xarray](https://pint-xarray.readthedocs.io) (and, optionally, [cf-xarray](https://cf-xarray.readthedocs.io)): pint does all the arithmetic and conversion; this package only adds unit *declaration* and *validation*.
+`xarray-annotated` is a deliberately thin layer over [pint-xarray](https://pint-xarray.readthedocs.io) (and, optionally, [cf-xarray](https://cf-xarray.readthedocs.io)): pint does all the arithmetic and conversion; this package only adds unit *declaration* and *validation*.
 It is not a units engine, nor a general units accessor — that space is already well served.
 
 This is by design: the aim is to work seamlessly alongside those tools without ever getting in the way.
-I developed it to serve a specific purpose in my own work, and don't plan to make it significantly more complex or feature-rich — but please feel free to raise an [issue](https://github.com/jmarshrossney/xarray-signature-units/issues) or open a [pull request](https://github.com/jmarshrossney/xarray-signature-units/pulls) to suggest a change or feature.
+I developed it to serve a specific purpose in my own work, and don't plan to make it significantly more complex or feature-rich — but please feel free to raise an [issue](https://github.com/jmarshrossney/xarray-annotated/issues) or open a [pull request](https://github.com/jmarshrossney/xarray-annotated/pulls) to suggest a change or feature.
 
 ## Development
 

@@ -2,13 +2,13 @@
 
 use_directory_urls = false
 
-site_name = "xarray-signature-units"
-site_description = "Run-time validation of pint/CF units declared in signature annotations on xarray DataArrays"
+site_name = "xarray-annotated"
+site_description = "Run-time validation of xarray DataArray properties declared via typing.Annotated"
 site_author = "Joe Marsh Rossney"
-site_url = "https://jmarshrossney.github.io/xarray-signature-units"
+site_url = "https://jmarshrossney.github.io/xarray-annotated"
 
-repo_name = "jmarshrossney/xarray-signature-units"
-repo_url = "https://github.com/jmarshrossney/xarray-signature-units"
+repo_name = "jmarshrossney/xarray-annotated"
+repo_url = "https://github.com/jmarshrossney/xarray-annotated"
 
 copyright = """
 Copyright &copy; 2026 Joe Marsh Rossney

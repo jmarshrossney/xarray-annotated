@@ -15,7 +15,7 @@ follows whatever the application registry currently is.
 import pint
 import pytest
 
-from xarray_signature_units import _registry
+from xarray_annotated.units import _registry
 
 
 @pytest.fixture(autouse=True)

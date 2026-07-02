@@ -147,7 +147,7 @@ def annotated_unit(hint: Any) -> str | None:
     Examples:
         >>> from typing import Annotated
         >>> import xarray as xr
-        >>> from xarray_signature_units._annotations import Unit, annotated_unit
+        >>> from xarray_annotated.units._annotations import Unit, annotated_unit
         >>> annotated_unit(Annotated[xr.DataArray, "degC"])
         'degC'
         >>> annotated_unit(Annotated[xr.DataArray, Unit("degC")])

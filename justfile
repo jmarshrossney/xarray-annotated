@@ -20,11 +20,11 @@ test:
 
 # Run tests with coverage report.
 test-cov:
-  pytest --cov=xarray_signature_units --cov-report=term-missing --cov-fail-under=95
+  pytest --cov=xarray_annotated --cov-report=term-missing --cov-fail-under=95
 
 # Run doctest examples embedded in source docstrings.
 doctest:
-  pytest --doctest-modules src/xarray_signature_units --verbose
+  pytest --doctest-modules src/xarray_annotated --verbose
 
 # Build the documentation using Zensical.
 docs:

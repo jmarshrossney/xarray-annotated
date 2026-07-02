@@ -907,7 +907,7 @@ wheels = [
 ]
 
 [[package]]
-name = "xarray-signature-units"
+name = "xarray-annotated"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
@@ -931,7 +931,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
     { name = "rust-just" },
-    { name = "xarray-signature-units", extra = ["cf"] },
+    { name = "xarray-annotated", extra = ["cf"] },
     { name = "zensical" },
 ]
 docs = [
@@ -958,7 +958,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "ruff", specifier = ">=0.15.4" },
     { name = "rust-just", specifier = ">=1.46.0" },
-    { name = "xarray-signature-units", extras = ["cf"] },
+    { name = "xarray-annotated", extras = ["cf"] },
     { name = "zensical", specifier = ">=0.0.46" },
 ]
 docs = [

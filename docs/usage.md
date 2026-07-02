@@ -20,7 +20,7 @@ even when other typed metadata shares the annotation — useful when composing
 with other `Annotated`-based tooling.
 
 ```python
-from xarray_signature_units import Unit
+from xarray_annotated.units import Unit
 
 Annotated[xr.DataArray, Unit("degC")]
 Annotated[xr.DataArray, "note", Unit("Pa")]  # marker wins regardless of order → "Pa"
@@ -47,7 +47,7 @@ annotation and nowhere else:
 ```python
 from typing import Annotated
 import xarray as xr
-from xarray_signature_units import declare_units
+from xarray_annotated.units import declare_units
 
 @declare_units
 def normalise_pressure(
@@ -125,13 +125,14 @@ and a `@declare_units` wrapper becomes a total no-op (no conversion, no stamping
 ### Setting the policy
 
 Each axis resolves once per call from (in order): its environment variable
-(`XARRAY_SIGNATURE_UNITS_ON_MISSING` / `_ON_INEXACT` / `_ENABLED`), a process-wide
+(`XARRAY_ANNOTATED_UNITS_ON_MISSING`, `XARRAY_ANNOTATED_UNITS_ON_INEXACT`, and the
+package-wide `XARRAY_ANNOTATED_ENABLED` master switch), a process-wide
 override set with `set_policy(...)`, or the default (`on_missing="warn"`,
 `on_inexact="convert"`, `enabled=True`). Use `policy(...)` as a context manager to
 scope overrides — all axes in one call — across every call inside the block:
 
 ```python
-from xarray_signature_units import policy, check_units
+from xarray_annotated.units import policy, check_units
 
 with policy(on_missing="error", on_inexact="warn"):
     check_units(da, "Pa", "vpd")
@@ -174,7 +175,7 @@ UDUNITS-aware registry instead. Install the `[cf]` extra and activate it **once,
 startup**:
 
 ```python
-from xarray_signature_units import use_cf_units
+from xarray_annotated.units import use_cf_units
 
 use_cf_units()   # now "umol m-2 s-1", "g m-2 d-1" parse
 ```
@@ -183,7 +184,7 @@ Or supply any registry yourself:
 
 ```python
 import pint
-from xarray_signature_units import set_registry
+from xarray_annotated.units import set_registry
 
 set_registry(pint.UnitRegistry())
 ```
@@ -202,7 +203,7 @@ extracts them without needing to call the function:
 ```python
 from typing import Annotated, TypedDict
 import xarray as xr
-from xarray_signature_units import units_from_signature
+from xarray_annotated.units import units_from_signature
 
 class Output(TypedDict):
     gpp: Annotated[xr.DataArray, "g m-2 d-1"]

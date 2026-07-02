@@ -1,6 +1,7 @@
-"""Public API for the xarray_signature_units package.
+"""Public API for the units domain of xarray-annotated.
 
-Run-time validation of pint/CF units declared in signature annotations on xarray DataArrays.
+Run-time validation of pint/CF units declared via ``typing.Annotated`` on xarray
+DataArrays.
 """
 
 from ._annotations import Unit, units_from_signature

@@ -7,8 +7,8 @@ pytest.importorskip("cf_xarray")
 
 import xarray as xr
 
-import xarray_signature_units as units
-from xarray_signature_units import _check
+from xarray_annotated import units
+from xarray_annotated.units import _check
 
 
 def _da(values, unit=None):

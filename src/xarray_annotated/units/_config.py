@@ -44,9 +44,13 @@ DEFAULT_ON_MISSING: OnMissing = "warn"
 #: default; `warn` also converts but says so, `error` refuses.
 DEFAULT_ON_INEXACT: OnInexact = "convert"
 
-ENABLED_ENV_VAR = "XARRAY_SIGNATURE_UNITS_ENABLED"
-ON_MISSING_ENV_VAR = "XARRAY_SIGNATURE_UNITS_ON_MISSING"
-ON_INEXACT_ENV_VAR = "XARRAY_SIGNATURE_UNITS_ON_INEXACT"
+#: Master switch is package-wide (gates every annotation-validation domain, not
+#: just units), so it is deliberately un-namespaced; the behavioural knobs below
+#: stay units-scoped. When a second domain (e.g. `schema`) gains a policy, this
+#: `enabled` axis moves to a shared `xarray_annotated/_config.py`.
+ENABLED_ENV_VAR = "XARRAY_ANNOTATED_ENABLED"
+ON_MISSING_ENV_VAR = "XARRAY_ANNOTATED_UNITS_ON_MISSING"
+ON_INEXACT_ENV_VAR = "XARRAY_ANNOTATED_UNITS_ON_INEXACT"
 
 #: String values (lower-cased) accepted for the boolean `enabled` env var.
 _TRUTHY: frozenset[str] = frozenset({"1", "true", "yes", "on"})
@@ -205,7 +209,7 @@ def policy(
         on_inexact: Override the on-inexact axis, or `None` to clear.
 
     Examples:
-        >>> from xarray_signature_units import policy
+        >>> from xarray_annotated.units import policy
         >>> import xarray as xr
         >>> da = xr.DataArray([1.0], attrs={"units": "Pa"})
         >>> with policy(on_missing="error"):
