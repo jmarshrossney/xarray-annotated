@@ -27,11 +27,13 @@ def _da(values, unit=None):
 
 @pytest.fixture(autouse=True)
 def _cf_registry():
-    """Activate the CF registry for each test, then restore the prior one."""
-    previous = _check.get_registry()
+    """Activate the CF registry for each test in this module.
+
+    Cleanup (restoring the process-global registry) is handled by the autouse
+    ``_isolate_registry`` fixture in ``conftest.py``, which snapshots and
+    restores the full registry state around every test.
+    """
     units.use_cf_units()
-    yield
-    units.set_registry(previous)
 
 
 class TestAssertValidUnit:

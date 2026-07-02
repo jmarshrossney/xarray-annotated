@@ -38,7 +38,7 @@ class TestBareDecorator:
 
     def test_stamps_typeddict_outputs(self):
         class Out(TypedDict):
-            gpp: Annotated[xr.DataArray, "g m-2 d-1"]
+            gpp: Annotated[xr.DataArray, "g / m**2 / d"]
             plain: xr.DataArray  # no declared unit
 
         @units.declare_units
@@ -46,13 +46,13 @@ class TestBareDecorator:
             return {"gpp": _da([[1.0]]), "plain": _da([[2.0]])}
 
         out = f()
-        assert out["gpp"].attrs["units"] == "g m-2 d-1"
+        assert out["gpp"].attrs["units"] == "g / m**2 / d"
         assert "units" not in out["plain"].attrs
 
     def test_stamps_dataclass_outputs(self):
         @dataclass
         class Out:
-            gpp: Annotated[xr.DataArray, "g m-2 d-1"]
+            gpp: Annotated[xr.DataArray, "g / m**2 / d"]
             plain: xr.DataArray  # no declared unit
 
         @units.declare_units
@@ -60,7 +60,7 @@ class TestBareDecorator:
             return Out(gpp=_da([[1.0]]), plain=_da([[2.0]]))
 
         out = f()
-        assert out.gpp.attrs["units"] == "g m-2 d-1"
+        assert out.gpp.attrs["units"] == "g / m**2 / d"
         assert "units" not in out.plain.attrs
 
     def test_non_dataarray_args_pass_through(self):

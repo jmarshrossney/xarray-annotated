@@ -299,8 +299,8 @@ class TestUnitsEqual:
 class TestUnitsFromSignature:
     def test_extracts_inputs_and_typeddict_outputs(self):
         class Out(TypedDict):
-            gpp: Annotated[xr.DataArray, "g m-2 d-1"]
-            lue: Annotated[xr.DataArray, "g MJ-1"]
+            gpp: Annotated[xr.DataArray, "g / m**2 / d"]
+            lue: Annotated[xr.DataArray, "g / MJ"]
 
         def node(
             temp: Annotated[xr.DataArray, "degC"],
@@ -311,7 +311,7 @@ class TestUnitsFromSignature:
         inputs, outputs = units.units_from_signature(node)
         # Only Annotated params with a string unit contribute; others are ignored.
         assert inputs == {"temp": "degC"}
-        assert outputs == {"gpp": "g m-2 d-1", "lue": "g MJ-1"}
+        assert outputs == {"gpp": "g / m**2 / d", "lue": "g / MJ"}
 
     def test_bare_annotated_return(self):
         def node(x: Annotated[xr.DataArray, "1"]) -> Annotated[xr.DataArray, "1"]: ...
@@ -331,19 +331,19 @@ class TestUnitsFromSignature:
         # A node with a mix of unit-carrying and metadata-free outputs: only the
         # annotated fields appear in the declared output units.
         class Out(TypedDict):
-            gpp: Annotated[xr.DataArray, "g m-2 d-1"]
+            gpp: Annotated[xr.DataArray, "g / m**2 / d"]
             diagnostic: xr.DataArray  # no unit annotation
 
         def node() -> Out: ...
 
         _, outputs = units.units_from_signature(node)
-        assert outputs == {"gpp": "g m-2 d-1"}
+        assert outputs == {"gpp": "g / m**2 / d"}
 
     def test_extracts_dataclass_outputs(self):
         @dataclass
         class Out:
-            gpp: Annotated[xr.DataArray, "g m-2 d-1"]
-            lue: Annotated[xr.DataArray, "g MJ-1"]
+            gpp: Annotated[xr.DataArray, "g / m**2 / d"]
+            lue: Annotated[xr.DataArray, "g / MJ"]
 
         def node(
             temp: Annotated[xr.DataArray, "degC"],
@@ -351,18 +351,18 @@ class TestUnitsFromSignature:
 
         inputs, outputs = units.units_from_signature(node)
         assert inputs == {"temp": "degC"}
-        assert outputs == {"gpp": "g m-2 d-1", "lue": "g MJ-1"}
+        assert outputs == {"gpp": "g / m**2 / d", "lue": "g / MJ"}
 
     def test_partial_dataclass_only_annotated_fields_contribute(self):
         @dataclass
         class Out:
-            gpp: Annotated[xr.DataArray, "g m-2 d-1"]
+            gpp: Annotated[xr.DataArray, "g / m**2 / d"]
             diagnostic: xr.DataArray
 
         def node() -> Out: ...
 
         _, outputs = units.units_from_signature(node)
-        assert outputs == {"gpp": "g m-2 d-1"}
+        assert outputs == {"gpp": "g / m**2 / d"}
 
     def test_dataclass_skipped_when_not_return_annotation(self):
         @dataclass
@@ -389,27 +389,27 @@ class TestUnitsFromSignature:
         # ignored: the unit is the first string. This is the supported way to
         # attach both a unit and a description to a parameter.
         def node(
-            v: Annotated[xr.DataArray, "m s-1", "z component of velocity"],
+            v: Annotated[xr.DataArray, "m / s", "z component of velocity"],
         ) -> xr.DataArray: ...
 
         inputs, _ = units.units_from_signature(node)
-        assert inputs == {"v": "m s-1"}
+        assert inputs == {"v": "m / s"}
         units.assert_valid_unit(inputs["v"], "v")  # no raise: description ignored
 
     def test_non_string_metadata_before_unit_is_skipped(self):
         # Only strings are considered; a non-string marker before the unit string
         # does not shadow it.
-        def node(v: Annotated[xr.DataArray, 42, "m s-1"]) -> xr.DataArray: ...
+        def node(v: Annotated[xr.DataArray, 42, "m / s"]) -> xr.DataArray: ...
 
         inputs, _ = units.units_from_signature(node)
-        assert inputs == {"v": "m s-1"}
+        assert inputs == {"v": "m / s"}
 
     def test_description_before_unit_is_misread_and_fails_fast(self):
         # The convention is unit-first. A description placed *before* the unit is
         # mis-read as the unit -- but it fails loudly rather than passing silently
         # (unless the description itself parses as a unit).
         def node(
-            v: Annotated[xr.DataArray, "z component of velocity", "m s-1"],
+            v: Annotated[xr.DataArray, "z component of velocity", "m / s"],
         ) -> xr.DataArray: ...
 
         inputs, _ = units.units_from_signature(node)
@@ -420,11 +420,11 @@ class TestUnitsFromSignature:
     def test_unit_on_optional_dataarray_param_is_read(self):
         # An optional DataArray (DataArray | None) still carries its declared unit.
         def node(
-            x: Annotated[xr.DataArray | None, "g m-2"] = None,
+            x: Annotated[xr.DataArray | None, "g / m**2"] = None,
         ) -> xr.DataArray: ...
 
         inputs, _ = units.units_from_signature(node)
-        assert inputs == {"x": "g m-2"}
+        assert inputs == {"x": "g / m**2"}
 
 
 # ---------------------------------------------------------------------------
@@ -490,7 +490,7 @@ class TestUnitMarker:
 
     def test_marker_round_trips_through_signature_as_str(self):
         class Out(TypedDict):
-            gpp: Annotated[xr.DataArray, units.Unit("g m-2 d-1")]
+            gpp: Annotated[xr.DataArray, units.Unit("g / m**2 / d")]
 
         def node(
             temp: Annotated[xr.DataArray, units.Unit("degC")],
@@ -500,7 +500,7 @@ class TestUnitMarker:
         # Resolved to plain strings, exactly as the bare-string form.
         assert inputs == {"temp": "degC"}
         assert isinstance(inputs["temp"], str)
-        assert outputs == {"gpp": "g m-2 d-1"}
+        assert outputs == {"gpp": "g / m**2 / d"}
 
     def test_marker_bare_return_round_trips_as_str(self):
         def node(

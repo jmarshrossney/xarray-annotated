@@ -34,7 +34,11 @@ def set_registry(ureg: pint.UnitRegistry | pint.registry.ApplicationRegistry) ->
     """Set the process-wide pint registry used by this module and pint-xarray.
 
     Also calls `pint_xarray.setup_registry(ureg)` so the `.pint` accessor and
-    this module's parse/compat helpers never drift apart.
+    this module's parse/compat helpers never drift apart, and
+    `pint.set_application_registry(ureg)` so pint's global application registry
+    (which pint-xarray follows for `.pint.quantify()`) stays in sync with this
+    module's choice. Without the latter, switching back to plain pint after
+    `use_cf_units` would leave the application registry pointing at the CF one.
 
     pint has a single process-global application registry, so this is a
     one-time, startup choice, not a per-array setting: quantities created under
@@ -47,6 +51,7 @@ def set_registry(ureg: pint.UnitRegistry | pint.registry.ApplicationRegistry) ->
     _UREG = ureg
     _using_cf = False
     pint_xarray.setup_registry(ureg)
+    pint.set_application_registry(ureg)
 
 
 def use_cf_units() -> None:
