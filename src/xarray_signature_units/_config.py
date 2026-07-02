@@ -204,11 +204,12 @@ def policy(
         on_missing: Override the on-missing axis, or `None` to clear.
         on_inexact: Override the on-inexact axis, or `None` to clear.
 
-    >>> from xarray_signature_units import policy
-    >>> import xarray as xr
-    >>> da = xr.DataArray([1.0], attrs={"units": "Pa"})
-    >>> with policy(on_missing="error"):
-    ...     pass  # policy restored after block
+    Examples:
+        >>> from xarray_signature_units import policy
+        >>> import xarray as xr
+        >>> da = xr.DataArray([1.0], attrs={"units": "Pa"})
+        >>> with policy(on_missing="error"):
+        ...     pass  # policy restored after block
     """
     global _process_enabled, _process_on_missing, _process_on_inexact
     saved = (_process_enabled, _process_on_missing, _process_on_inexact)

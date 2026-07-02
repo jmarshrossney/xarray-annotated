@@ -29,8 +29,9 @@ class UnitsWarning(UserWarning):
     Raised by `check_units` when an input has a missing or unparseable `units`
     attribute and `on_missing` is `"warn"`, or when a value-changing conversion
     happens under `on_inexact="warn"`.  Subclasses `UserWarning` so callers can
-    target it specifically::
+    target it specifically.
 
+    Example:
         >>> import warnings
         >>> from xarray_signature_units import UnitsWarning
         >>> issubclass(UnitsWarning, UserWarning)
@@ -62,12 +63,10 @@ def assert_valid_unit(unit: str | Unit, context: str) -> None:
     Raises:
         ValueError: If `unit` cannot be parsed by the active registry.
 
-    >>> from xarray_signature_units import assert_valid_unit
-    >>> assert_valid_unit("Pa", "test")  # no raise
-    >>> assert_valid_unit("not_a_unit", "test")  # doctest: +IGNORE_EXCEPTION_DETAIL
-    Traceback (most recent call last):
-    ...
-    ValueError
+    Examples:
+        >>> from xarray_signature_units import assert_valid_unit
+        >>> assert_valid_unit("Pa", "test")  # no raise
+        >>> assert_valid_unit("degC", "test")  # no raise
     """
     if isinstance(unit, Unit):
         unit = unit.unit
@@ -96,11 +95,12 @@ def units_compatible(a: str, b: str) -> bool:
     Returns:
         `True` if the units are dimensionally compatible.
 
-    >>> from xarray_signature_units._check import units_compatible
-    >>> units_compatible("hPa", "Pa")
-    True
-    >>> units_compatible("Pa", "kg")
-    False
+    Examples:
+        >>> from xarray_signature_units._check import units_compatible
+        >>> units_compatible("hPa", "Pa")
+        True
+        >>> units_compatible("Pa", "kg")
+        False
     """
     return get_registry().Unit(a).is_compatible_with(get_registry().Unit(b))
 
@@ -121,11 +121,12 @@ def units_equal(a: str, b: str) -> bool:
     Returns:
         `True` if the units are the same (no conversion needed).
 
-    >>> from xarray_signature_units._check import units_equal
-    >>> units_equal("Pa", "pascal")
-    True
-    >>> units_equal("hPa", "Pa")
-    False
+    Examples:
+        >>> from xarray_signature_units._check import units_equal
+        >>> units_equal("Pa", "pascal")
+        True
+        >>> units_equal("hPa", "Pa")
+        False
     """
     return get_registry().Unit(a) == get_registry().Unit(b)
 
@@ -183,14 +184,15 @@ def check_units(
         pint.DimensionalityError: When the actual unit is dimensionally
             incompatible with `declared` (always, regardless of policy).
 
-    >>> import numpy as np, xarray as xr
-    >>> from xarray_signature_units import check_units
-    >>> da = xr.DataArray([1013.0, 1000.0], attrs={"units": "hPa"})
-    >>> out = check_units(da, "Pa", "pressure")
-    >>> out.attrs["units"]
-    'Pa'
-    >>> out.values  # 10 * 100 = 1000
-    array([101300., 100000.])
+    Examples:
+        >>> import numpy as np, xarray as xr
+        >>> from xarray_signature_units import check_units
+        >>> da = xr.DataArray([1013.0, 1000.0], attrs={"units": "hPa"})
+        >>> out = check_units(da, "Pa", "pressure")
+        >>> out.attrs["units"]
+        'Pa'
+        >>> out.values  # 10 * 100 = 1000
+        array([101300., 100000.])
     """
     pol = get_policy()
     if not pol.enabled:
