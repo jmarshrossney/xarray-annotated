@@ -4,7 +4,9 @@
 control per event:
 
 - `enabled` — master switch; when `False` no validation happens at all (a true
-  no-op, at every layer).
+  no-op, at every layer).  This is the **package-wide** switch shared with every
+  other domain; it lives in `xarray_annotated._config` and is merely surfaced on
+  this domain's `Policy`.
 - `on_missing` — what to do when a `DataArray` has no parseable unit to check
   against (an absent or unparseable `units` attribute): `"error"` / `"warn"` /
   `"ignore"`.
@@ -17,24 +19,34 @@ A fourth case — a *dimensional* mismatch (e.g. a mass where a pressure is decl
 converted and continuing would corrupt results silently.
 
 Each axis resolves independently: environment variable, then a process override set
-via `set_policy` / the `policy` context manager, then the module default. `_resolve`
-encodes that shared precedence.
+via `set_policy` / the `policy` context manager, then the module default. The
+shared `_resolve` helper encodes that precedence.
 """
 
-import os
-from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Literal, TypeVar
+from typing import Literal
+
+from .._config import (
+    DEFAULT_ENABLED,
+    ENABLED_ENV_VAR,
+    _resolve,
+    _Unset,
+    _UNSET,
+    get_enabled_override,
+    resolve_enabled,
+    set_enabled_override,
+)
+
+# `ENABLED_ENV_VAR` / `DEFAULT_ENABLED` are re-exported (the master switch is
+# shared but callers still reach it as `units._config.ENABLED_ENV_VAR`).
+__all__ = ["ENABLED_ENV_VAR", "Policy", "get_policy", "policy", "set_policy"]
 
 OnMissing = Literal["error", "warn", "ignore"]
 OnInexact = Literal["convert", "warn", "error"]
 
 _VALID_ON_MISSING: frozenset[str] = frozenset({"error", "warn", "ignore"})
 _VALID_ON_INEXACT: frozenset[str] = frozenset({"convert", "warn", "error"})
-
-#: Master switch default. Validation is on unless explicitly disabled.
-DEFAULT_ENABLED: bool = True
 
 #: When a `DataArray` carries no parseable unit, `warn` flags it without
 #: failing — non-breaking for inputs that lack unit metadata, and dev-friendly.
@@ -44,33 +56,11 @@ DEFAULT_ON_MISSING: OnMissing = "warn"
 #: default; `warn` also converts but says so, `error` refuses.
 DEFAULT_ON_INEXACT: OnInexact = "convert"
 
-#: Master switch is package-wide (gates every annotation-validation domain, not
-#: just units), so it is deliberately un-namespaced; the behavioural knobs below
-#: stay units-scoped. When a second domain (e.g. `schema`) gains a policy, this
-#: `enabled` axis moves to a shared `xarray_annotated/_config.py`.
-ENABLED_ENV_VAR = "XARRAY_ANNOTATED_ENABLED"
 ON_MISSING_ENV_VAR = "XARRAY_ANNOTATED_UNITS_ON_MISSING"
 ON_INEXACT_ENV_VAR = "XARRAY_ANNOTATED_UNITS_ON_INEXACT"
 
-#: String values (lower-cased) accepted for the boolean `enabled` env var.
-_TRUTHY: frozenset[str] = frozenset({"1", "true", "yes", "on"})
-_FALSEY: frozenset[str] = frozenset({"0", "false", "no", "off"})
-
-_process_enabled: bool | None = None
 _process_on_missing: OnMissing | None = None
 _process_on_inexact: OnInexact | None = None
-
-_T = TypeVar("_T")
-
-
-class _Unset:
-    """Sentinel distinguishing 'argument omitted' from 'explicitly set to None'."""
-
-    def __repr__(self) -> str:
-        return "<unset>"
-
-
-_UNSET = _Unset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,21 +83,6 @@ class Policy:
     on_inexact: OnInexact = DEFAULT_ON_INEXACT
 
 
-def _resolve(
-    env_var: str,
-    process_value: _T | None,
-    default: _T,
-    parse: Callable[[str], _T],
-) -> _T:
-    """Resolve one axis: env var (parsed) → process override → default."""
-    env = os.environ.get(env_var)
-    if env:
-        return parse(env)
-    if process_value is not None:
-        return process_value
-    return default
-
-
 def _validate_on_missing(value: str) -> OnMissing:
     if value not in _VALID_ON_MISSING:
         raise ValueError(
@@ -124,18 +99,6 @@ def _validate_on_inexact(value: str) -> OnInexact:
     return value  # type: ignore[return-value]
 
 
-def _parse_enabled_env(value: str) -> bool:
-    lowered = value.lower()
-    if lowered in _TRUTHY:
-        return True
-    if lowered in _FALSEY:
-        return False
-    raise ValueError(
-        f"Invalid {ENABLED_ENV_VAR} value {value!r}. "
-        f"Use one of {sorted(_TRUTHY | _FALSEY)}."
-    )
-
-
 def get_policy() -> Policy:
     """Resolve the active validation policy (env → process → default, per axis).
 
@@ -143,9 +106,7 @@ def get_policy() -> Policy:
         The resolved `Policy`.
     """
     return Policy(
-        enabled=_resolve(
-            ENABLED_ENV_VAR, _process_enabled, DEFAULT_ENABLED, _parse_enabled_env
-        ),
+        enabled=resolve_enabled(),
         on_missing=_resolve(
             ON_MISSING_ENV_VAR,
             _process_on_missing,
@@ -174,13 +135,13 @@ def set_policy(
     omit it to leave it untouched.
 
     Args:
-        enabled: Override the master switch, or `None` to clear.
+        enabled: Override the (package-wide) master switch, or `None` to clear.
         on_missing: Override the on-missing axis, or `None` to clear.
         on_inexact: Override the on-inexact axis, or `None` to clear.
     """
-    global _process_enabled, _process_on_missing, _process_on_inexact
+    global _process_on_missing, _process_on_inexact
     if not isinstance(enabled, _Unset):
-        _process_enabled = None if enabled is None else bool(enabled)
+        set_enabled_override(enabled)
     if not isinstance(on_missing, _Unset):
         _process_on_missing = (
             None if on_missing is None else _validate_on_missing(on_missing)
@@ -204,7 +165,7 @@ def policy(
     overrides afterwards even if an exception is raised.
 
     Args:
-        enabled: Override the master switch, or `None` to clear.
+        enabled: Override the (package-wide) master switch, or `None` to clear.
         on_missing: Override the on-missing axis, or `None` to clear.
         on_inexact: Override the on-inexact axis, or `None` to clear.
 
@@ -215,10 +176,11 @@ def policy(
         >>> with policy(on_missing="error"):
         ...     pass  # policy restored after block
     """
-    global _process_enabled, _process_on_missing, _process_on_inexact
-    saved = (_process_enabled, _process_on_missing, _process_on_inexact)
+    global _process_on_missing, _process_on_inexact
+    saved = (get_enabled_override(), _process_on_missing, _process_on_inexact)
     set_policy(enabled=enabled, on_missing=on_missing, on_inexact=on_inexact)
     try:
         yield
     finally:
-        _process_enabled, _process_on_missing, _process_on_inexact = saved
+        enabled_saved, _process_on_missing, _process_on_inexact = saved
+        set_enabled_override(enabled_saved)

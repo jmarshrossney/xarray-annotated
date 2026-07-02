@@ -5,16 +5,17 @@ Annotation is the unifying technology: a declared property is read off an
 property is a domain subpackage, imported explicitly:
 
 * ``xarray_annotated.units`` — physical units (pint / CF), the mature domain.
-* ``xarray_annotated.schema`` — structural properties (dims, coords, dtype).
-  Currently a stub reserving the API shape.
+* ``xarray_annotated.schema`` — structural properties (dims, coords, dtype);
+  validate-only (never mutates).
 
 The top level is deliberately thin — nothing domain-specific is re-exported
 here, so the domains never collide in a shared namespace::
 
-    from xarray_annotated import units
+    from xarray_annotated import schema, units
     from xarray_annotated.units import declare_units, check_units
+    from xarray_annotated.schema import declare_schema, Dims, Dtype
 """
 
-from . import units
+from . import schema, units
 
-__all__ = ["units"]
+__all__ = ["schema", "units"]

@@ -10,19 +10,21 @@ metadata in the `Annotated` args, e.g.
 `Annotated[DataArray, "m s-1", "description"]`.
 """
 
-import dataclasses
-import types
 from typing import (
     Annotated,
     Any,
-    Union,
     get_args,
     get_origin,
-    get_type_hints,
-    is_typeddict,
 )
 
-import xarray as xr
+from .._annotations import (
+    _is_dataarray_type,
+    unwrap_annotated,
+    walk_signature,
+)
+
+# Re-exported so `units._annotations.unwrap_annotated` stays a stable import.
+__all__ = ["Unit", "annotated_unit", "units_from_signature", "unwrap_annotated"]
 
 
 class Unit:
@@ -65,44 +67,6 @@ class Unit:
         # Annotated[...] hint carrying a Unit marker stays hashable (typing and
         # downstream tools cache/hash annotations).
         return hash(self._unit)
-
-
-def unwrap_annotated(hint: Any) -> Any:
-    """Return the underlying type of an `Annotated` hint, else the hint itself.
-
-    `Annotated[DataArray, "degC"]` → `DataArray`; a non-`Annotated` hint is
-    returned unchanged.  Lets type comparisons (e.g. `t is DataArray`) see
-    through the unit metadata that signature-native declarations attach to
-    parameters.
-
-    Args:
-        hint: A type hint, possibly `Annotated`.
-
-    Returns:
-        The base type if `hint` is `Annotated`; otherwise `hint` unchanged.
-    """
-    return get_args(hint)[0] if get_origin(hint) is Annotated else hint
-
-
-def _is_dataarray_type(tp: Any) -> bool:
-    """Return whether `tp` is `DataArray` (possibly wrapped in a Union).
-
-    Accepts a bare `DataArray` as well as `DataArray | None` /
-    `Optional[DataArray]` (and any other union that includes `DataArray`), so
-    an optional DataArray parameter can still carry a declared unit.  Anything
-    else (scalars, `str`, `bool`, `Dataset`, …) is not a unit-bearing type.
-
-    Args:
-        tp: A type annotation to inspect.
-
-    Returns:
-        `True` if `tp` is or contains `DataArray`.
-    """
-    if tp is xr.DataArray:
-        return True
-    if get_origin(tp) in (Union, types.UnionType):
-        return any(_is_dataarray_type(arg) for arg in get_args(tp))
-    return False
 
 
 def annotated_unit(hint: Any) -> str | None:
@@ -191,34 +155,7 @@ def units_from_signature(
             declared unit strings.  Only parameters whose hint is `Annotated`
             with a string unit contribute.
         * `output_units` — a `dict[str, str]` (per-field units) if the
-            return hint is a `TypedDict`; a bare `str` if the return is a
-            single `Annotated[DataArray, unit]`; `None` otherwise.
+            return hint is a `TypedDict` or dataclass; a bare `str` if the return
+            is a single `Annotated[DataArray, unit]`; `None` otherwise.
     """
-    hints = get_type_hints(func, include_extras=True)
-    ret = hints.pop("return", None)
-
-    input_units = {
-        name: unit
-        for name, hint in hints.items()
-        if (unit := annotated_unit(hint)) is not None
-    }
-
-    output_units: dict[str, str] | str | None
-    if is_typeddict(ret):
-        ret_hints = get_type_hints(ret, include_extras=True)
-        output_units = {
-            name: unit
-            for name, hint in ret_hints.items()
-            if (unit := annotated_unit(hint)) is not None
-        }
-    elif dataclasses.is_dataclass(ret):
-        hints = get_type_hints(ret, include_extras=True)
-        output_units = {
-            f.name: unit
-            for f in dataclasses.fields(ret)
-            if (unit := annotated_unit(hints.get(f.name))) is not None
-        }
-    else:
-        output_units = annotated_unit(ret)
-
-    return input_units, output_units
+    return walk_signature(func, annotated_unit)
