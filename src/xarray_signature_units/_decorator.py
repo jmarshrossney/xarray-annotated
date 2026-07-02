@@ -13,6 +13,7 @@ its own consumer from the same public primitives — `units_from_signature`,
 does. The two knobs most callers want are exposed as keyword arguments below.
 """
 
+import dataclasses
 import functools
 import inspect
 from collections.abc import Callable
@@ -101,11 +102,17 @@ def declare_units(
             if isinstance(output_units, str):
                 if isinstance(result, xr.DataArray):
                     result.attrs["units"] = output_units
-            elif isinstance(output_units, dict) and isinstance(result, dict):
-                for name, value in result.items():
-                    declared = output_units.get(name)
-                    if declared is not None and isinstance(value, xr.DataArray):
-                        value.attrs["units"] = declared
+            elif isinstance(output_units, dict):
+                if isinstance(result, dict):
+                    for name, value in result.items():
+                        declared = output_units.get(name)
+                        if declared is not None and isinstance(value, xr.DataArray):
+                            value.attrs["units"] = declared
+                elif dataclasses.is_dataclass(result):
+                    for name, declared in output_units.items():
+                        value = getattr(result, name)
+                        if isinstance(value, xr.DataArray):
+                            value.attrs["units"] = declared
             return result
 
         @functools.wraps(fn)

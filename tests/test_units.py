@@ -4,6 +4,7 @@ CF/UDUNITS-only cases live in ``test_cf.py``.
 """
 
 import warnings
+from dataclasses import dataclass
 from typing import Annotated, TypedDict
 
 import numpy as np
@@ -337,6 +338,42 @@ class TestUnitsFromSignature:
 
         _, outputs = units.units_from_signature(node)
         assert outputs == {"gpp": "g m-2 d-1"}
+
+    def test_extracts_dataclass_outputs(self):
+        @dataclass
+        class Out:
+            gpp: Annotated[xr.DataArray, "g m-2 d-1"]
+            lue: Annotated[xr.DataArray, "g MJ-1"]
+
+        def node(
+            temp: Annotated[xr.DataArray, "degC"],
+        ) -> Out: ...
+
+        inputs, outputs = units.units_from_signature(node)
+        assert inputs == {"temp": "degC"}
+        assert outputs == {"gpp": "g m-2 d-1", "lue": "g MJ-1"}
+
+    def test_partial_dataclass_only_annotated_fields_contribute(self):
+        @dataclass
+        class Out:
+            gpp: Annotated[xr.DataArray, "g m-2 d-1"]
+            diagnostic: xr.DataArray
+
+        def node() -> Out: ...
+
+        _, outputs = units.units_from_signature(node)
+        assert outputs == {"gpp": "g m-2 d-1"}
+
+    def test_dataclass_skipped_when_not_return_annotation(self):
+        @dataclass
+        class Params:
+            temp: Annotated[xr.DataArray, "degC"]
+
+        def node(p: Params) -> xr.DataArray: ...
+
+        inputs, outputs = units.units_from_signature(node)
+        assert inputs == {}  # Params is not DataArray, so no input unit
+        assert outputs is None  # bare DataArray return has no unit annotation
 
     def test_metadata_on_non_dataarray_param_is_not_a_unit(self):
         # A descriptive string on a *non-DataArray* parameter is metadata, not a

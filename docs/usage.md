@@ -59,7 +59,8 @@ def normalise_pressure(
 On each call, under the active [policy](#the-validation-policy), the wrapper validates
 and converts every declared `DataArray` **input** via `check_units`, runs the
 function, then stamps each declared `DataArray` **output** with its unit. A
-`TypedDict` return is stamped per-key; a bare `Annotated[DataArray, unit]` return takes
+`TypedDict` or `dataclass` return is stamped per-field; a bare
+`Annotated[DataArray, unit]` return takes
 that unit. Non-`DataArray` arguments and returns pass through untouched.
 
 Every declared unit is checked against the registry **at decoration time**, so a typo
@@ -217,6 +218,28 @@ inputs, outputs = units_from_signature(node)
 # outputs == {"gpp": "g m-2 d-1", "lue": "g MJ-1"}
 ```
 
-Only parameters (or `TypedDict` fields) with a string-annotated unit contribute; a
-plain `xr.DataArray` hint with no unit is ignored. A bare `Annotated[DataArray, unit]`
-return annotation yields a single unit string rather than a dict.
+Dataclass return types work identically — `units_from_signature` reads per-field
+annotations the same way:
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class Output:
+    gpp: Annotated[xr.DataArray, "g m-2 d-1"]
+    lue: Annotated[xr.DataArray, "g MJ-1"]
+
+def node(
+    temp: Annotated[xr.DataArray, "degC"],
+    plain: xr.DataArray,
+) -> Output: ...
+
+inputs, outputs = units_from_signature(node)
+# inputs  == {"temp": "degC"}
+# outputs == {"gpp": "g m-2 d-1", "lue": "g MJ-1"}
+```
+
+Only parameters — or fields of a `TypedDict`/`dataclass` return type — with a
+unit-annotated `DataArray` contribute; a plain `xr.DataArray` hint with no unit
+is ignored. A bare `Annotated[DataArray, unit]` return annotation yields a single
+unit string rather than a dict.

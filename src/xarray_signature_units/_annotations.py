@@ -10,6 +10,7 @@ metadata in the `Annotated` args, e.g.
 `Annotated[DataArray, "m s-1", "description"]`.
 """
 
+import dataclasses
 import types
 from typing import (
     Annotated,
@@ -209,6 +210,13 @@ def units_from_signature(
             name: unit
             for name, hint in ret_hints.items()
             if (unit := annotated_unit(hint)) is not None
+        }
+    elif dataclasses.is_dataclass(ret):
+        hints = get_type_hints(ret, include_extras=True)
+        output_units = {
+            f.name: unit
+            for f in dataclasses.fields(ret)
+            if (unit := annotated_unit(hints.get(f.name))) is not None
         }
     else:
         output_units = annotated_unit(ret)
