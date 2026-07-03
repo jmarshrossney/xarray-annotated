@@ -50,7 +50,7 @@ dev = [
 ]
 docs = [
     "marimo>=0.23.11",
-    "marimo-md-export>=0.6.0",
+    "marimo-md-export>=0.7.0",
     "mkdocstrings-python>=2.0.5",
     "zensical>=0.0.46",
 ]
@@ -76,3 +76,4 @@ target-version = "py312"
 
 [tool.uv]
 exclude-newer = "1 week"
+exclude-newer-package = { marimo-md-export = false }
