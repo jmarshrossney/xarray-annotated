@@ -2,11 +2,12 @@
 
 Pure `typing` introspection with no dependency on the active registry or
 configuration: this is the "declaration side" of the package, turning
-`Annotated[DataArray, "degC"]` metadata into plain unit strings that the
+`Annotated[DataArray, Unit("degC")]` metadata into plain unit strings that the
 checking layer later validates.
 
-The convention is **unit-first**: a unit string must precede any descriptive
-metadata in the `Annotated` args, e.g.
+The canonical declaration is the self-identifying `Unit` marker.  A bare unit
+string is accepted as a shorthand under a **unit-first** convention: the unit
+must precede any descriptive metadata, e.g.
 `Annotated[DataArray, "m s-1", "description"]`.
 """
 
@@ -30,15 +31,17 @@ __all__ = ["Unit", "annotated_unit", "units_from_signature", "unwrap_annotated"]
 class Unit:
     """Typed marker declaring the expected unit of a DataArray.
 
-    Use inside ``Annotated`` to make the unit self-identifying and independent
-    of metadata ordering, so it composes with other typed markers::
+    This is the **recommended** way to declare a unit.  Inside ``Annotated`` it is
+    self-identifying and independent of metadata ordering, so it composes cleanly
+    with schema markers or other ``Annotated``-based tooling::
 
         Annotated[xr.DataArray, Unit("degC"), SomeOtherMarker(...)]
 
-    A bare string ``Annotated[xr.DataArray, "degC"]`` remains accepted as a
-    shorthand (the first string in metadata, by convention).  The two forms are
-    equivalent; the marker only removes the ambiguity that a bare string has when
-    other string/typed metadata shares the annotation.
+    A bare string ``Annotated[xr.DataArray, "degC"]`` is also accepted as a
+    shorthand (the first string in metadata, by convention) and resolves to the
+    same unit.  Prefer the marker whenever the annotation is shared: it removes
+    both the order dependence and the ambiguity a bare string has against a
+    description string.
 
     The unit string is *not* validated here — parsing is deferred to
     `assert_valid_unit` at decoration time, exactly as for the bare-string form.
@@ -112,9 +115,9 @@ def annotated_unit(hint: Any) -> str | None:
         >>> from typing import Annotated
         >>> import xarray as xr
         >>> from xarray_annotated.units._annotations import Unit, annotated_unit
-        >>> annotated_unit(Annotated[xr.DataArray, "degC"])
-        'degC'
         >>> annotated_unit(Annotated[xr.DataArray, Unit("degC")])
+        'degC'
+        >>> annotated_unit(Annotated[xr.DataArray, "degC"])  # shorthand
         'degC'
         >>> annotated_unit(Annotated[bool, "toggles X"]) is None
         True
@@ -141,21 +144,22 @@ def units_from_signature(
 ) -> tuple[dict[str, str], dict[str, str] | str | None]:
     """Extract declared units from a function's type annotations.
 
-    Reads `get_type_hints(func, include_extras=True)` and interprets
-    `Annotated[..., "<unit>"]` metadata as unit declarations.
+    Reads `get_type_hints(func, include_extras=True)` and interprets a
+    `Unit(...)` marker (or its bare-string shorthand) in the `Annotated`
+    metadata as a unit declaration.
 
     Args:
-        func: A callable whose type hints carry `Annotated[DataArray, "<unit>"]`
-            metadata.
+        func: A callable whose type hints carry `Annotated[DataArray, Unit(...)]`
+            metadata (or the bare-string shorthand).
 
     Returns:
         A `(input_units, output_units)` pair:
 
         * `input_units` — `dict[str, str]` mapping parameter names to their
-            declared unit strings.  Only parameters whose hint is `Annotated`
-            with a string unit contribute.
+            declared unit strings.  Only parameters whose hint carries a unit
+            declaration contribute.
         * `output_units` — a `dict[str, str]` (per-field units) if the
             return hint is a `TypedDict` or dataclass; a bare `str` if the return
-            is a single `Annotated[DataArray, unit]`; `None` otherwise.
+            is a single `Annotated[DataArray, Unit(...)]`; `None` otherwise.
     """
     return walk_signature(func, annotated_unit)

@@ -24,8 +24,8 @@ others.
 
 **Declare once, in the signature.** A property is declared as `Annotated` metadata on a
 `DataArray` parameter or return — `Annotated[xr.DataArray, Dims("time", "x")]` (a
-structural marker) or `Annotated[xr.DataArray, "Pa"]` (a unit). The annotation is the
-single source of truth, read once and never written twice.
+structural marker) or `Annotated[xr.DataArray, Unit("Pa")]` (a unit). The annotation is
+the single source of truth, read once and never written twice.
 
 **Two decorators.** The structural properties — **dims**, **coords**, and **dtype** —
 are validated by `@declare_schema`; physical **units** by `@declare_units`. `schema`
@@ -201,49 +201,54 @@ Severity follows the shared schema policy `on_mismatch`
 
 ### Declaring units
 
-A unit is the first `str` found in a `DataArray`'s `Annotated` metadata. Apply
-`@declare_units` to validate, convert, and stamp declared inputs and outputs on each
-call:
+Declare a unit with the self-identifying `Unit` marker, and apply `@declare_units` to
+validate, convert, and stamp declared inputs and outputs on each call:
 
 ```python
 from typing import Annotated
 import xarray as xr
-from xarray_annotated.units import declare_units
+from xarray_annotated.units import declare_units, Unit
 
 @declare_units
 def normalise_pressure(
-    p: Annotated[xr.DataArray, "Pa"],
-) -> Annotated[xr.DataArray, "Pa"]:
+    p: Annotated[xr.DataArray, Unit("Pa")],
+) -> Annotated[xr.DataArray, Unit("Pa")]:
     return p
 ```
 
 On each call, under the active [policy](#the-units-policy), `@declare_units` validates
 and converts every declared `DataArray` **input**, runs the function, then stamps each
 declared `DataArray` **output** with its unit. A `TypedDict` or `dataclass` return is
-stamped per-field; a bare `Annotated[DataArray, unit]` return takes that unit.
+stamped per-field; a bare `Annotated[DataArray, ...]` return takes that unit.
 Non-`DataArray` arguments and returns pass through untouched.
 
-A description after the unit is ignored, so you can annotate for humans too:
+`Unit` is the **recommended** form: it owns its own slot in the metadata, so it stays
+unambiguous and order-independent even when other `Annotated`-based tooling — or a schema
+marker (see [Combining multiple checks](#combining-multiple-checks)) — shares the
+annotation.
+
+#### Bare-string shorthand
+
+When you're checking **only** units — no schema markers, no other `Annotated` metadata to
+collide with — a bare string is accepted as a convenient shorthand:
 
 ```python
-Annotated[xr.DataArray, "m s-1", "z component of velocity"]  # unit is "m s-1"
+Annotated[xr.DataArray, "Pa"]
+Annotated[xr.DataArray, "m s-1", "z component of velocity"]  # unit first; later string ignored
 ```
 
-Equivalently, wrap the unit in the self-identifying `Unit` marker. This is the
-order-independent form: the unit owns its own slot, so it stays unambiguous even when
-other typed metadata shares the annotation — useful when composing with other
-`Annotated`-based tooling.
+The unit must come **first**; any later string is treated as a human description and
+ignored. A `Unit` marker always wins over a bare string when both are present:
 
 ```python
-from xarray_annotated.units import Unit
-
-Annotated[xr.DataArray, Unit("degC")]
-Annotated[xr.DataArray, "note", Unit("Pa")]  # marker wins regardless of order → "Pa"
+Annotated[xr.DataArray, "note", Unit("Pa")]  # resolves to "Pa"
 ```
 
-Both forms resolve to the same unit string; use whichever reads better. A `Unit` marker
-takes priority over a bare string when both are present, and a description string still
-comes *after* the unit in the bare-string form.
+Reach for `Unit(...)` as soon as the annotation is shared — its self-identifying slot
+removes both the order dependence and any clash with a description string. This is also
+why the schema markers have **no** bare-string form: a unit has a canonical string
+spelling like `"Pa"`, whereas a structural property does not, so there a string can only
+ever be prose (see [Dims](#dims)).
 
 ### The units policy
 
@@ -344,21 +349,23 @@ def detrend(
     return x
 ```
 
-To check **structure and units together**, stack the two decorators. Structural markers
-and a unit string coexist in one `Annotated`: `@declare_schema` reads the typed markers
-and ignores the string, while `@declare_units` reads the string and ignores the markers.
+To check **structure and units together**, stack the two decorators. The schema markers
+and the `Unit` marker coexist in one `Annotated`: `@declare_schema` reads the typed
+markers and ignores `Unit`, while `@declare_units` reads `Unit` and ignores the schema
+markers. Prefer the `Unit` marker over the bare-string shorthand here, precisely because
+the annotation is shared (see [Declaring units](#declaring-units)).
 
 ```python
 from typing import Annotated
 import xarray as xr
 from xarray_annotated.schema import declare_schema, Dims, Coords, Dtype
-from xarray_annotated.units import declare_units
+from xarray_annotated.units import declare_units, Unit
 
 @declare_units
 @declare_schema
 def process(
-    x: Annotated[xr.DataArray, Dims("time", "x"), Coords("time"), Dtype("float64"), "degC"],
-) -> Annotated[xr.DataArray, Dims("time", "x"), "degC"]:
+    x: Annotated[xr.DataArray, Dims("time", "x"), Coords("time"), Dtype("float64"), Unit("degC")],
+) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("degC")]:
     return x
 ```
 

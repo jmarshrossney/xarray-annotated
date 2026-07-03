@@ -1,7 +1,7 @@
 """Signature-driven unit declaration decorator.
 
 `declare_units` wires the declaration side (`_annotations`) to the checking side
-(`_check`): it reads a function's `Annotated[DataArray, "<unit>"]` hints once, at
+(`_check`): it reads a function's `Annotated[DataArray, Unit(...)]` hints once, at
 decoration time, then on every call validates/converts the declared inputs and
 stamps the declared outputs.
 
@@ -41,10 +41,11 @@ def declare_units(
     """Apply a function's signature-declared units at runtime.
 
     Reads the decorated function's own type annotations once, via
-    `units_from_signature`: parameters annotated `Annotated[DataArray, "<unit>"]`
-    declare input units, and a `TypedDict` return (or a bare
-    `Annotated[DataArray, "<unit>"]` return) declares output units.  Those
-    annotations are the single source of truth, so a unit is never written twice.
+    `units_from_signature`: parameters annotated `Annotated[DataArray, Unit(...)]`
+    (or the bare-string shorthand) declare input units, and a `TypedDict` return
+    (or a bare `Annotated[DataArray, Unit(...)]` return) declares output units.
+    Those annotations are the single source of truth, so a unit is never written
+    twice.
 
     On each call, under the active `Policy` (`get_policy`), the wrapper:
 

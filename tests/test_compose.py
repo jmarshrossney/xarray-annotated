@@ -9,9 +9,11 @@ checks"):
    validates the converted array; on the way out schema validates before units
    stamps.
 
-The two markers/unit string coexist in one ``Annotated``: ``annotated_schema``
-skips bare strings and ``annotated_unit`` reads the first ``str``, so each reader
-ignores the other's metadata. This is test-only; no source changes are involved.
+The schema markers and the unit declaration coexist in one ``Annotated``:
+``annotated_schema`` collects only the typed schema markers, and ``annotated_unit``
+reads the ``Unit`` marker (or, as shorthand, the first bare ``str``) — so each reader
+ignores the other's metadata. Both unit forms are exercised below. This is test-only;
+no source changes are involved.
 """
 
 from typing import Annotated
@@ -23,6 +25,7 @@ import xarray as xr
 
 from xarray_annotated import schema, units
 from xarray_annotated.schema import Coords, Dims, Dtype
+from xarray_annotated.units import Unit
 
 
 def _da(dims=("time", "x"), dtype="float64", coords=(), unit=None, fill=0.0):
@@ -86,6 +89,20 @@ class TestComposeDecorators:
     """Stacked ``@declare_units`` (outer) + ``@declare_schema`` (inner)."""
 
     def test_dims_and_units_converts_and_validates(self):
+        # recommended form: the Unit marker alongside a schema marker
+        @units.declare_units
+        @schema.declare_schema
+        def f(
+            x: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")],
+        ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
+            return x
+
+        out = f(_da(("time", "x"), unit="hPa", fill=10.0))
+        assert out.attrs["units"] == "Pa"
+        np.testing.assert_allclose(out.values, np.full(out.shape, 1000.0))
+
+    def test_bare_string_unit_coexists_with_markers(self):
+        # shorthand form: a bare unit string still coexists with schema markers
         @units.declare_units
         @schema.declare_schema
         def f(
@@ -126,9 +143,9 @@ class TestComposeDecorators:
                 Dims("time", "x"),
                 Coords("time"),
                 Dtype("float64"),
-                "Pa",
+                Unit("Pa"),
             ],
-        ) -> Annotated[xr.DataArray, Dims("time", "x"), "Pa"]:
+        ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
             return x
 
         out = f(_da(("time", "x"), coords=("time",), unit="hPa", fill=10.0))
