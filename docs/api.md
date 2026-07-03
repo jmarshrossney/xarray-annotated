@@ -1,5 +1,9 @@
 # API Reference
 
+## xarray_annotated
+
+::: xarray_annotated
+
 ## units
 
 ::: xarray_annotated.units
