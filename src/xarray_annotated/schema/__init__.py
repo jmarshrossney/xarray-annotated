@@ -27,6 +27,7 @@ from ._check import (
     dtype_compatible,
 )
 from ._config import (
+    OnMismatch,
     Policy,
     get_policy,
     policy,
@@ -38,6 +39,7 @@ __all__ = [
     "Coords",
     "Dims",
     "Dtype",
+    "OnMismatch",
     "Policy",
     "SchemaError",
     "SchemaWarning",

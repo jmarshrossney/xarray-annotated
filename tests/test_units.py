@@ -81,6 +81,12 @@ class TestPolicy:
         with pytest.raises(ValueError, match=_config.ENABLED_ENV_VAR):
             units.get_policy()
 
+    def test_policy_axis_types_are_public(self):
+        # The exact types of set_policy's keyword arguments are importable
+        # from the public surface (no private _config import needed).
+        assert units.OnMissing is _config.OnMissing
+        assert units.OnInexact is _config.OnInexact
+
 
 # ---------------------------------------------------------------------------
 # Declared-unit validation (fail fast)

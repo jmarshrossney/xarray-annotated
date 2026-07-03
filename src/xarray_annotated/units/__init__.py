@@ -13,6 +13,8 @@ from ._check import (
     units_equal,
 )
 from ._config import (
+    OnInexact,
+    OnMissing,
     Policy,
     get_policy,
     policy,
@@ -25,6 +27,8 @@ from ._registry import (
 )
 
 __all__ = [
+    "OnInexact",
+    "OnMissing",
     "Policy",
     "Unit",
     "UnitsWarning",

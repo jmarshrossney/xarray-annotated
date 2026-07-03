@@ -353,6 +353,11 @@ class TestSchemaPolicy:
         with pytest.raises(ValueError, match=_config.ENABLED_ENV_VAR):
             schema.get_policy()
 
+    def test_policy_axis_type_is_public(self):
+        # OnMismatch (the type of set_policy's on_mismatch arg) is importable
+        # from the public surface (no private _config import needed).
+        assert schema.OnMismatch is _config.OnMismatch
+
 
 # ---------------------------------------------------------------------------
 # declare_schema decorator
