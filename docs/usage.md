@@ -1,10 +1,12 @@
 # Usage
 
-`xarray-annotated` has two domains, imported and used independently: **`units`**
-(physical units, checked and converted via pint/CF) and **`schema`** (structural
-properties — dims, coords, dtype — checked, never mutated). Both work the same way:
-declare a property on a `DataArray` in a function signature with `typing.Annotated`,
-then apply it — with a decorator or a `check_*` primitive.
+`xarray-annotated` lets you declare a property of a `DataArray` in a function
+signature with `typing.Annotated`, then validate it automatically with a decorator.
+There are four kinds of property, in two groups:
+
+- **structural** — **dims**, **coords**, and **dtype** — checked (never mutated) by
+  `@declare_schema`;
+- **physical units** — checked *and converted* (via pint/CF) by `@declare_units`.
 
 !!! warning
 
@@ -17,25 +19,30 @@ then apply it — with a decorator or a `check_*` primitive.
 
 ## Concepts
 
-The two domains share a common shape, so what you learn for one transfers to the other.
+All four properties work the same way, so what you learn for one transfers to the
+others.
 
 **Declare once, in the signature.** A property is declared as `Annotated` metadata on a
-`DataArray` parameter or return — `Annotated[xr.DataArray, "Pa"]` (units) or
-`Annotated[xr.DataArray, Dims("time", "x")]` (schema). The annotation is the single
-source of truth, read once and never written twice.
+`DataArray` parameter or return — `Annotated[xr.DataArray, Dims("time", "x")]` (a
+structural marker) or `Annotated[xr.DataArray, "Pa"]` (a unit). The annotation is the
+single source of truth, read once and never written twice.
 
-**Apply it two ways.** Decorate the function (`@declare_units` / `@declare_schema`) to
-validate the declared inputs and outputs automatically on every call, or call the
-primitive (`check_units` / `check_schema`) to validate a single array by hand.
+**Two decorators.** The structural properties — **dims**, **coords**, and **dtype** —
+are validated by `@declare_schema`; physical **units** by `@declare_units`. `schema`
+only ever *checks* (arrays pass through unchanged); `units` also *converts* (e.g.
+`"hPa"` → `"Pa"`). Stack both decorators to check structure and units at once — see
+[Combining multiple checks](#combining-multiple-checks). Each decorator is a thin layer
+over a public primitive (`check_schema` / `check_units`) that you can call by hand; see
+[Advanced usage](#advanced-usage).
 
 **Fail fast at decoration.** Each decorator validates its *declarations* when it is
 applied (at import) — a typo'd unit or an unparseable dtype raises immediately, rather
 than only when the function is first called, and regardless of policy.
 
-**Policy.** Each domain has a small **policy** governing what happens on a validation
-event. Every policy shares the package-wide **`enabled`** master switch: `enabled=False`
-makes *both* domains a total no-op (no validation, conversion, or stamping). Each axis
-resolves once per call, in order:
+**Policy.** Each decorator follows a small **policy** governing what happens on a
+validation event. Every policy shares the package-wide **`enabled`** master switch:
+`enabled=False` makes *both* decorators a total no-op (no validation, conversion, or
+stamping). Each axis resolves once per call, in order:
 
 1. its environment variable,
 2. a process-wide override set with `set_policy(...)`,
@@ -47,25 +54,182 @@ restore them on exit:
 ```python
 from xarray_annotated.units import policy as units_policy
 
-with units_policy(enabled=False):   # disables *both* domains for the block
+with units_policy(enabled=False):   # disables *both* decorators for the block
     ...
 ```
 
-The `enabled` switch (env `XARRAY_ANNOTATED_ENABLED`) is shared across domains; the
-behavioural axes described under each domain below are domain-specific.
+The `enabled` switch (env `XARRAY_ANNOTATED_ENABLED`) is shared; the behavioural axes
+described under each property below are domain-specific — `on_mismatch` for schema,
+`on_missing`/`on_inexact` for units.
+
+## Dims
+
+### Declaring dims
+
+Declare a DataArray's dimensions with the `Dims` marker in its `Annotated` metadata, and
+apply `@declare_schema` to check every declared input and output on each call:
+
+```python
+from typing import Annotated
+import xarray as xr
+from xarray_annotated.schema import declare_schema, Dims
+
+@declare_schema
+def standardise(
+    x: Annotated[xr.DataArray, Dims("time", "x")],
+) -> Annotated[xr.DataArray, Dims("time", "x")]:
+    return x
+```
+
+`@declare_schema` reads the markers off the signature and, on each call, validates every
+declared `DataArray` input and output. **It never mutates** — arrays pass through
+unchanged; a mismatch raises, warns, or is ignored per policy. A `TypedDict` or
+`dataclass` return is validated per-field; a bare `Annotated[DataArray, ...]` return is
+validated directly. Non-`DataArray` arguments and returns pass through untouched.
+
+Unlike units there is **no bare-string shorthand** — a plain string in the metadata is
+treated as a description and ignored; only the typed markers are read.
+
+### Strictness and the schema policy
+
+**`Dims(*names, ordered=False)`** — by default the *set* of dims must match (extra or
+missing dims fail); order is free, because xarray operations are order-independent until
+you drop to numpy. Pass `ordered=True` to also pin the order (e.g. before `.values`,
+`.stack`, or `apply_ufunc`):
+
+```python
+Annotated[xr.DataArray, Dims("time", "x", ordered=True)]
+```
+
+Because structural validation never converts, the schema policy has a single behavioural
+axis on top of the shared [`enabled`](#concepts) switch: **`on_mismatch`**, governing
+what happens when an array doesn't match a declaration. It is shared by all three
+structural markers (`Dims`, `Coords`, `Dtype`).
+
+| `on_mismatch`     | on a structural mismatch                           |
+|-------------------|----------------------------------------------------|
+| `error` (default) | raises `SchemaError`                               |
+| `warn`            | emits `SchemaWarning`, returns the array unchanged |
+| `ignore`          | silently returns the array unchanged               |
+
+The axis resolves via `XARRAY_ANNOTATED_SCHEMA_ON_MISMATCH` (default `error` — a
+structural mismatch usually signals a genuine wiring bug) as described under
+[Concepts](#concepts). `SchemaError` is deliberately **not** a `ValueError`, so catching
+a mismatch never accidentally swallows a malformed-declaration `ValueError`.
+
+Override the policy per function:
+
+```python
+@declare_schema(on_mismatch="warn")
+def lenient(x: Annotated[xr.DataArray, Dims("time", "x")]) -> xr.DataArray: ...
+```
+
+**Per-marker override.** Any marker may carry its own `on_mismatch`, which wins over the
+decorator/call argument and the policy default — so a wrong dtype can be a warning while
+a wrong set of dims stays an error:
+
+```python
+Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64", on_mismatch="warn")]
+```
+
+Effective severity resolves: **marker override → decorator/call argument → policy
+default**.
+
+## Coords
+
+### Declaring coords
+
+Declare required coordinates with the `Coords` marker, applied the same way with
+`@declare_schema`:
+
+```python
+from typing import Annotated
+import xarray as xr
+from xarray_annotated.schema import declare_schema, Coords
+
+@declare_schema
+def anomalies(
+    x: Annotated[xr.DataArray, Coords("time")],
+) -> Annotated[xr.DataArray, Coords("time")]:
+    return x - x.mean("time")
+```
+
+### Strictness
+
+**`Coords(*names)`** — the named coordinates must be *present* (as labels, not merely
+dims — a dim can exist without coordinate values). Extra coordinates are allowed.
+
+Severity follows the shared schema policy `on_mismatch`
+([above](#strictness-and-the-schema-policy)): a missing coordinate raises `SchemaError`
+by default, or warns / is ignored per policy. A `Coords` marker may also carry its own
+`on_mismatch` override.
+
+## Dtype
+
+### Declaring dtype
+
+Declare an expected dtype with the `Dtype` marker, again applied with `@declare_schema`:
+
+```python
+from typing import Annotated
+import xarray as xr
+from xarray_annotated.schema import declare_schema, Dtype
+
+@declare_schema
+def to_float(
+    x: Annotated[xr.DataArray, Dtype("float64")],
+) -> Annotated[xr.DataArray, Dtype("float64")]:
+    return x
+```
+
+### Strictness
+
+**`Dtype(dtype, exact=False)`** — by default matches by numpy *kind*: any float satisfies
+`Dtype("float64")`, any integer `Dtype("int32")` — enough to catch an int/float or
+bool/float mix-up without firing on `float64` vs `float32`. Pass `exact=True` to require
+the precise dtype (e.g. to pin memory footprint or a typed sink):
+
+```python
+Annotated[xr.DataArray, Dtype("float32", exact=True)]
+```
+
+Severity follows the shared schema policy `on_mismatch`
+([above](#strictness-and-the-schema-policy)), and a `Dtype` marker may carry its own
+`on_mismatch` override.
 
 ## Units
 
 ### Declaring units
 
-A unit is the first `str` found in a `DataArray`'s `Annotated` metadata:
+A unit is the first `str` found in a `DataArray`'s `Annotated` metadata. Apply
+`@declare_units` to validate, convert, and stamp declared inputs and outputs on each
+call:
 
 ```python
-Annotated[xr.DataArray, "degC"]
-Annotated[xr.DataArray, "m s-1", "z component of velocity"]  # description after the unit is ignored
+from typing import Annotated
+import xarray as xr
+from xarray_annotated.units import declare_units
+
+@declare_units
+def normalise_pressure(
+    p: Annotated[xr.DataArray, "Pa"],
+) -> Annotated[xr.DataArray, "Pa"]:
+    return p
 ```
 
-Equivalently, wrap it in the self-identifying `Unit` marker. This is the
+On each call, under the active [policy](#the-units-policy), `@declare_units` validates
+and converts every declared `DataArray` **input**, runs the function, then stamps each
+declared `DataArray` **output** with its unit. A `TypedDict` or `dataclass` return is
+stamped per-field; a bare `Annotated[DataArray, unit]` return takes that unit.
+Non-`DataArray` arguments and returns pass through untouched.
+
+A description after the unit is ignored, so you can annotate for humans too:
+
+```python
+Annotated[xr.DataArray, "m s-1", "z component of velocity"]  # unit is "m s-1"
+```
+
+Equivalently, wrap the unit in the self-identifying `Unit` marker. This is the
 order-independent form: the unit owns its own slot, so it stays unambiguous even when
 other typed metadata shares the annotation — useful when composing with other
 `Annotated`-based tooling.
@@ -81,37 +245,11 @@ Both forms resolve to the same unit string; use whichever reads better. A `Unit`
 takes priority over a bare string when both are present, and a description string still
 comes *after* the unit in the bare-string form.
 
-The declared units of a whole function are read back with
-[`units_from_signature`](#reading-declarations-units_from_signature) — the single source
-that both `@declare_units` and any static checker consume, so a unit is never written
-twice.
+### The units policy
 
-`assert_valid_unit(unit, context)` fails fast at declaration time — a typo like
-`"degrees_C"` raises `ValueError` immediately, rather than only surfacing when the
-annotation is later used to validate data.
-
-### Applying units: `declare_units`
-
-`@declare_units` reads the declared unit off the signature, so it lives in the annotation
-and nowhere else:
-
-```python
-from typing import Annotated
-import xarray as xr
-from xarray_annotated.units import declare_units
-
-@declare_units
-def normalise_pressure(
-    p: Annotated[xr.DataArray, "Pa"],
-) -> Annotated[xr.DataArray, "Pa"]:
-    return p
-```
-
-On each call, under the active [policy](#the-units-policy), the wrapper validates and
-converts every declared `DataArray` **input** via `check_units`, runs the function, then
-stamps each declared `DataArray` **output** with its unit. A `TypedDict` or `dataclass`
-return is stamped per-field; a bare `Annotated[DataArray, unit]` return takes that unit.
-Non-`DataArray` arguments and returns pass through untouched.
+`@declare_units` follows the units policy, which has two behavioural axes on top of the
+shared [`enabled`](#concepts) switch. Dimensional mismatches (e.g. `"kg"` where `"Pa"`
+is declared) are never negotiable — they always raise `pint.DimensionalityError`.
 
 Override the policy per function with keyword arguments (each defaults to the active
 policy when omitted):
@@ -120,19 +258,6 @@ policy when omitted):
 @declare_units(on_missing="error", on_inexact="error")
 def strict_node(x: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray: ...
 ```
-
-`declare_units` is intentionally a thin convenience built from the public primitives. If
-you need behaviour it doesn't cover — a build-time/static check, a custom value type —
-assemble your own consumer from
-[`units_from_signature`](#reading-declarations-units_from_signature),
-[`check_units`](#validating-directly-check_units), and `assert_valid_unit` rather than
-subclassing anything.
-
-### The units policy
-
-Both `@declare_units` and `check_units` follow the units policy, which has two
-behavioural axes on top of the shared [`enabled`](#concepts) switch. Dimensional
-mismatches are never negotiable — they always raise.
 
 #### `on_missing` — no parseable unit to check against
 
@@ -167,37 +292,13 @@ The axes resolve via the environment variables `XARRAY_ANNOTATED_UNITS_ON_MISSIN
 `policy(...)`:
 
 ```python
-from xarray_annotated.units import policy, check_units
+from xarray_annotated.units import policy
 
 with policy(on_missing="error", on_inexact="warn"):
-    check_units(da, "Pa", "vpd")
+    ...
 ```
 
-### Validating directly: `check_units`
-
-`@declare_units` is the recommended entry point, but the `check_units` primitive it calls
-is public too — reach for it when you want to validate an array by hand rather than
-decorate a function:
-
-```python
-check_units(da, declared, name, on_missing=None, on_inexact=None, qualname=None)
-```
-
-Given an input `da`, `check_units`:
-
-1. reads `da.attrs["units"]`;
-2. if present and parseable, converts `da` to `declared` and re-stamps
-   `attrs["units"] = declared` on the result;
-3. if missing or unparseable, follows the
-   [`on_missing`](#on_missing-no-parseable-unit-to-check-against) axis;
-4. if present but **dimensionally incompatible** with `declared` (e.g. `"kg"` where
-   `"Pa"` is declared), raises `pint.DimensionalityError` naming the offending variable —
-   always, regardless of policy.
-
-`on_missing` and `on_inexact` may be passed per call; each defaults to the active policy
-when `None`. `name` names the array for error/warning messages.
-
-### Choosing a registry: pint vs. CF/UDUNITS
+#### Choosing a registry: pint vs. CF/UDUNITS
 
 Out of the box you get **plain pint** (`pint.get_application_registry()`), so standard
 pint unit strings ("Pa", "degC", "m/s") parse with no setup.
@@ -226,11 +327,96 @@ choice — not a per-array setting. Quantities created under two different regis
 cannot be mixed (pint raises). Choose pint units *or* CF units for your entire codebase,
 not a mixture.
 
-### Reading declarations: `units_from_signature`
+## Combining multiple checks
 
-For tools that want to inspect a function's declared units statically (e.g. to generate
-documentation, or to wire up validation automatically), `units_from_signature` extracts
-them without needing to call the function:
+A single `Annotated` hint can carry several markers, since a DataArray has all of dims,
+coords, and dtype at once. `@declare_schema` reads and checks them all:
+
+```python
+from typing import Annotated
+import xarray as xr
+from xarray_annotated.schema import declare_schema, Dims, Coords
+
+@declare_schema
+def detrend(
+    x: Annotated[xr.DataArray, Dims("time", "x"), Coords("time")],
+) -> Annotated[xr.DataArray, Dims("time", "x")]:
+    return x
+```
+
+To check **structure and units together**, stack the two decorators. Structural markers
+and a unit string coexist in one `Annotated`: `@declare_schema` reads the typed markers
+and ignores the string, while `@declare_units` reads the string and ignores the markers.
+
+```python
+from typing import Annotated
+import xarray as xr
+from xarray_annotated.schema import declare_schema, Dims, Coords, Dtype
+from xarray_annotated.units import declare_units
+
+@declare_units
+@declare_schema
+def process(
+    x: Annotated[xr.DataArray, Dims("time", "x"), Coords("time"), Dtype("float64"), "degC"],
+) -> Annotated[xr.DataArray, Dims("time", "x"), "degC"]:
+    return x
+```
+
+The outer decorator's input handling runs first: here `@declare_units` converts the
+input to `"degC"`, then `@declare_schema` validates the converted array's dims, coords,
+and dtype before the body runs — and on the way out, the schema check runs before
+`@declare_units` stamps the output unit. Both orders work; put `@declare_units` outermost
+when you want the structural checks to see the array in its declared units.
+
+## Advanced usage
+
+The decorators are the recommended entry point. The primitives they call are public too,
+for tools that need to validate an array by hand or inspect declarations statically
+(e.g. build-time checks, documentation generation, custom consumers). Most users won't
+need these.
+
+### Validating directly: `check_schema` and `check_units`
+
+`check_schema` validates a single array against a marker or list of markers and returns
+it **unchanged** (or raises `SchemaError`):
+
+```python
+from xarray_annotated.schema import check_schema, Dims
+
+check_schema(da, Dims("time", "x"), name="da", on_mismatch=None, qualname=None)
+```
+
+`on_mismatch` defaults to the active policy when `None`; `name` labels the array in
+messages; it is a total no-op when the policy is disabled.
+
+`check_units` validates *and converts* a single array:
+
+```python
+from xarray_annotated.units import check_units
+
+check_units(da, declared, name, on_missing=None, on_inexact=None, qualname=None)
+```
+
+Given an input `da`, `check_units`:
+
+1. reads `da.attrs["units"]`;
+2. if present and parseable, converts `da` to `declared` and re-stamps
+   `attrs["units"] = declared` on the result;
+3. if missing or unparseable, follows the [`on_missing`](#on_missing-no-parseable-unit-to-check-against)
+   axis;
+4. if present but **dimensionally incompatible** with `declared` (e.g. `"kg"` where
+   `"Pa"` is declared), raises `pint.DimensionalityError` naming the offending
+   variable — always, regardless of policy.
+
+`on_missing` and `on_inexact` may be passed per call; each defaults to the active policy
+when `None`. `assert_valid_unit(unit, context)` / `assert_valid_schema(marker, context)`
+provide the same fail-fast declaration checks the decorators run at import.
+
+### Reading declarations: `schema_from_signature` and `units_from_signature`
+
+These extract a function's declared properties without calling it — the single source
+that both the decorators and any static checker consume, so a declaration is never
+written twice.
 
 ```python
 from typing import Annotated, TypedDict
@@ -251,123 +437,13 @@ inputs, outputs = units_from_signature(node)
 # outputs == {"gpp": "g m-2 d-1", "lue": "g MJ-1"}
 ```
 
-Dataclass return types work identically. Only parameters — or fields of a
-`TypedDict`/`dataclass` return type — with a unit-annotated `DataArray` contribute; a
-plain `xr.DataArray` hint with no unit is ignored. A bare `Annotated[DataArray, unit]`
-return annotation yields a single unit string rather than a dict.
+Only parameters — or fields of a `TypedDict`/`dataclass` return type — with a
+unit-annotated `DataArray` contribute; a plain `xr.DataArray` hint with no unit is
+ignored. A bare `Annotated[DataArray, unit]` return annotation yields a single unit
+string rather than a dict.
 
-## Schema
-
-### Declaring structure: `Dims`, `Coords`, `Dtype`
-
-Declare a DataArray's structure with typed markers in its `Annotated` metadata — several
-at once, since a DataArray has all of dims, coords, and dtype:
-
-```python
-from typing import Annotated
-import xarray as xr
-from xarray_annotated.schema import Dims, Coords, Dtype
-
-Annotated[xr.DataArray, Dims("time", "x")]
-Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64")]   # several markers at once
-Annotated[xr.DataArray, Coords("time"), Dtype("float32")]
-```
-
-Unlike units there is **no bare-string shorthand** — a string in the metadata is treated
-as a description and ignored; only the typed markers are read.
-
-Each marker carries the strictness of its own check:
-
-- **`Dims(*names, ordered=False)`** — by default the *set* of dims must match (extra or
-  missing dims fail); order is free, because xarray operations are order-independent
-  until you drop to numpy. Pass `ordered=True` to also pin the order (e.g. before
-  `.values`, `.stack`, or `apply_ufunc`).
-- **`Coords(*names)`** — the named coordinates must be *present* (as labels, not merely
-  dims — a dim can exist without coordinate values). Extra coordinates are allowed.
-- **`Dtype(dtype, exact=False)`** — by default matches by numpy *kind*: any float
-  satisfies `Dtype("float64")`, any integer `Dtype("int32")` — enough to catch an
-  int/float or bool/float mix-up without firing on `float64` vs `float32`. Pass
-  `exact=True` to require the precise dtype (e.g. to pin memory footprint or a typed
-  sink).
-
-The declared markers of a whole function are read back with
-[`schema_from_signature`](#reading-declarations-schema_from_signature).
-`assert_valid_schema(marker, context)` fails fast at declaration time — an unparseable
-dtype string or duplicate dim names raise `ValueError` immediately.
-
-### Applying schema: `declare_schema`
-
-`@declare_schema` reads the declared markers off the signature and, on each call,
-validates every declared `DataArray` input and output. **It never mutates** — arrays pass
-through unchanged; a mismatch raises, warns, or is ignored per policy.
-
-```python
-from typing import Annotated
-import xarray as xr
-from xarray_annotated.schema import declare_schema, Dims, Dtype
-
-@declare_schema
-def standardise(
-    x: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64")],
-) -> Annotated[xr.DataArray, Dims("time", "x")]:
-    return x
-```
-
-A `TypedDict` or `dataclass` return is validated per-field; a bare
-`Annotated[DataArray, ...]` return is validated directly. Non-`DataArray` arguments and
-returns pass through untouched.
-
-Override the policy per function:
-
-```python
-@declare_schema(on_mismatch="warn")
-def lenient(x: Annotated[xr.DataArray, Dims("time", "x")]) -> xr.DataArray: ...
-```
-
-### The schema policy
-
-Because structural validation never converts, the schema policy has a single behavioural
-axis on top of the shared [`enabled`](#concepts) switch: **`on_mismatch`**, governing what
-happens when an array doesn't match a declaration.
-
-| `on_mismatch`     | on a structural mismatch                          |
-|-------------------|---------------------------------------------------|
-| `error` (default) | raises `SchemaError`                              |
-| `warn`            | emits `SchemaWarning`, returns the array unchanged |
-| `ignore`          | silently returns the array unchanged              |
-
-The axis resolves via `XARRAY_ANNOTATED_SCHEMA_ON_MISMATCH` (default `error` — a
-structural mismatch usually signals a genuine wiring bug) as described under
-[Concepts](#concepts). `SchemaError` is deliberately **not** a `ValueError`, so catching a
-mismatch never accidentally swallows a malformed-declaration `ValueError`.
-
-**Per-marker override.** Any marker may carry its own `on_mismatch`, which wins over the
-decorator/call argument and the policy default — so a wrong dtype can be a warning while a
-wrong set of dims stays an error:
-
-```python
-Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64", on_mismatch="warn")]
-```
-
-Effective severity resolves: **marker override → decorator/call argument → policy
-default**.
-
-### Validating directly: `check_schema`
-
-Like `check_units`, the primitive is public — use it to validate an array by hand:
-
-```python
-check_schema(da, declared, name, on_mismatch=None, qualname=None)
-```
-
-`declared` is a marker or a list of markers; `check_schema` runs each under the effective
-severity and returns `da` **unchanged** (or raises `SchemaError`). `name` labels the array
-in messages, and it is a total no-op when the policy is disabled.
-
-### Reading declarations: `schema_from_signature`
-
-Mirroring `units_from_signature`, `schema_from_signature` extracts a function's declared
-markers without calling it:
+`schema_from_signature` mirrors it, returning the *list* of markers on each
+parameter/field (since a hint may declare several):
 
 ```python
 from typing import Annotated
@@ -384,5 +460,4 @@ inputs, output = schema_from_signature(node)
 # output == [Dims("time", "x")]
 ```
 
-Each declaration is the *list* of markers on that parameter/field, since a hint may
-declare several. `TypedDict`/`dataclass` returns are read per-field, exactly as for units.
+`TypedDict`/`dataclass` returns are read per-field, exactly as for units.

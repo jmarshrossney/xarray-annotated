@@ -5,9 +5,6 @@
 It bridges [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io) — which provide the units registry and the underlying conversion machinery — with the units you declare in a signature, so each declared unit is checked and coerced whenever the function runs.
 ([cf-xarray](https://cf-xarray.readthedocs.io) is an optional dependency for CF/UDUNITS unit strings.)
 
-> [!NOTE]
-> Right now `xarray-annotated` supports declaring and validating physical **units** only. The intention is to grow it to cover a DataArray's full xarray *schema* — its **dims, coords, and dtype** — under the same `typing.Annotated` mechanism.
-
 For example:
 
 ```python
