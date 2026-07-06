@@ -81,6 +81,12 @@ class TestPolicy:
         with pytest.raises(ValueError, match=_config.ENABLED_ENV_VAR):
             units.get_policy()
 
+    def test_policy_axis_types_are_public(self):
+        # The exact types of set_policy's keyword arguments are importable
+        # from the public surface (no private _config import needed).
+        assert units.OnMissing is _config.OnMissing
+        assert units.OnInexact is _config.OnInexact
+
 
 # ---------------------------------------------------------------------------
 # Declared-unit validation (fail fast)
@@ -270,25 +276,30 @@ class TestCheckUnits:
 
 
 class TestUnitsCompatible:
+    def test_public_api(self):
+        # units_compatible / units_equal are part of the public units surface.
+        assert units.units_compatible is _check.units_compatible
+        assert units.units_equal is _check.units_equal
+
     @pytest.mark.parametrize(("a", "b"), [("Pa", "hPa"), ("1", "dimensionless")])
     def test_compatible(self, a, b):
-        assert _check.units_compatible(a, b)
+        assert units.units_compatible(a, b)
 
     @pytest.mark.parametrize(("a", "b"), [("Pa", "kg"), ("mm", "1")])
     def test_incompatible(self, a, b):
-        assert not _check.units_compatible(a, b)
+        assert not units.units_compatible(a, b)
 
 
 class TestUnitsEqual:
     @pytest.mark.parametrize(("a", "b"), [("Pa", "pascal"), ("1", "dimensionless")])
     def test_equal(self, a, b):
-        assert _check.units_equal(a, b)
+        assert units.units_equal(a, b)
 
     @pytest.mark.parametrize(("a", "b"), [("hPa", "Pa"), ("g", "kg"), ("degC", "K")])
     def test_not_equal(self, a, b):
         # Compatible but value-changing → not equal.
-        assert _check.units_compatible(a, b)
-        assert not _check.units_equal(a, b)
+        assert units.units_compatible(a, b)
+        assert not units.units_equal(a, b)
 
 
 # ---------------------------------------------------------------------------

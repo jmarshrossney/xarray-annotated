@@ -14,8 +14,28 @@ here, so the domains never collide in a shared namespace::
     from xarray_annotated import schema, units
     from xarray_annotated.units import declare_units, check_units
     from xarray_annotated.schema import declare_schema, Dims, Dtype
+
+The only names surfaced at the top level are domain-*agnostic* helpers that
+belong to no single domain: the shared declaration *writer* ``annotate`` and its
+inverse *reader* ``declarations_from_signature`` (which reads every facet declared
+on a signature into one uniform ``Declared`` value), plus the ``Annotated``
+introspection kernel (``unwrap_annotated``, ``walk_signature``).
+``walk_signature`` is the shared driver behind both domains' readers, so a
+third-party facet author can use it to build their own ``*_from_signature``
+reader.  No domain-specific name is re-exported here.
 """
 
 from . import schema, units
+from ._annotations import unwrap_annotated, walk_signature
+from ._reader import Declared, declarations_from_signature
+from ._writer import annotate
 
-__all__ = ["schema", "units"]
+__all__ = [
+    "Declared",
+    "annotate",
+    "declarations_from_signature",
+    "schema",
+    "units",
+    "unwrap_annotated",
+    "walk_signature",
+]

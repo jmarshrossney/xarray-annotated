@@ -9,8 +9,12 @@ from ._check import (
     UnitsWarning,
     assert_valid_unit,
     check_units,
+    units_compatible,
+    units_equal,
 )
 from ._config import (
+    OnInexact,
+    OnMissing,
     Policy,
     get_policy,
     policy,
@@ -23,6 +27,8 @@ from ._registry import (
 )
 
 __all__ = [
+    "OnInexact",
+    "OnMissing",
     "Policy",
     "Unit",
     "UnitsWarning",
@@ -33,6 +39,8 @@ __all__ = [
     "policy",
     "set_policy",
     "set_registry",
+    "units_compatible",
+    "units_equal",
     "units_from_signature",
     "use_cf_units",
 ]

@@ -104,6 +104,71 @@ def check_dtype(da: xr.DataArray, marker: Dtype) -> tuple[bool, str]:
     return ok, detail
 
 
+def dims_compatible(a: Dims, b: Dims) -> bool:
+    """Return whether two `Dims` declarations can describe the same array.
+
+    The marker-vs-marker counterpart to `check_dims` (no array in hand), for a
+    static / build-time check of a producer/consumer edge: two declarations are
+    *provably inconsistent* only if their dim **sets** differ, or if both pin the
+    order (`ordered=True`) and the orders disagree.  A loose declaration on either
+    side can always be satisfied, so it never conflicts.
+
+    Args:
+        a: A `Dims` marker.
+        b: Another `Dims` marker.
+
+    Returns:
+        `True` unless the two are provably inconsistent.
+
+    Examples:
+        >>> from xarray_annotated.schema import Dims, dims_compatible
+        >>> dims_compatible(Dims("x", "y"), Dims("y", "x"))
+        True
+        >>> dims_compatible(Dims("x"), Dims("x", "y"))
+        False
+        >>> dims_compatible(Dims("x", "y", ordered=True), Dims("y", "x", ordered=True))
+        False
+    """
+    if set(a.names) != set(b.names):
+        return False
+    return not (a.ordered and b.ordered and a.names != b.names)
+
+
+def dtype_compatible(a: Dtype, b: Dtype) -> bool:
+    """Return whether two `Dtype` declarations can describe the same array.
+
+    The marker-vs-marker counterpart to `check_dtype` (no array in hand): two
+    declarations are *provably inconsistent* only if their numpy **kinds** differ
+    (float vs int), or if both require the exact dtype (`exact=True`) and those
+    dtypes differ (`f8` vs `f4`).  A kind-only declaration matches any width, so
+    it never conflicts on width alone.
+
+    Args:
+        a: A `Dtype` marker.
+        b: Another `Dtype` marker.
+
+    Returns:
+        `True` unless the two are provably inconsistent.
+
+    Examples:
+        >>> from xarray_annotated.schema import Dtype, dtype_compatible
+        >>> dtype_compatible(Dtype("float64"), Dtype("float32"))
+        True
+        >>> dtype_compatible(Dtype("float64"), Dtype("int64"))
+        False
+        >>> dtype_compatible(Dtype("float64", exact=True), Dtype("float32", exact=True))
+        False
+    """
+    if np.dtype(a.dtype).kind != np.dtype(b.dtype).kind:
+        return False
+    return not (a.exact and b.exact and np.dtype(a.dtype) != np.dtype(b.dtype))
+
+
+# There is deliberately no `coords_compatible`: two `Coords` declarations are
+# lower bounds (each merely requires its names be present, extras allowed), so
+# they can never be *proven* inconsistent — a build-time edge check skips coords.
+
+
 _CHECKERS: dict[type, Callable[[xr.DataArray, Any], tuple[bool, str]]] = {
     Dims: check_dims,
     Coords: check_coords,
