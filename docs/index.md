@@ -2,74 +2,69 @@
 
 `xarray-annotated` enables run-time validation of `xarray.DataArray` properties
 declared in function signatures via
-[`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated):
-physical **units** (checked and converted via pint) and a DataArray's structural
-**schema** — its **dims, coords, and dtype** (checked, never mutated).
-
-It bridges [pint](https://pint.readthedocs.io/en/stable/) and
-[pint-xarray](https://pint-xarray.readthedocs.io) — which provide the units registry and the
-underlying conversion machinery — with the units you declare in a signature, so each declared
-unit is checked and coerced whenever the function runs.
-([cf-xarray](https://cf-xarray.readthedocs.io) is an optional dependency for CF/UDUNITS unit
-strings.)
+[`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated).
+A DataArray has several properties that matter for correctness — its dimensions,
+coordinates, dtype, and physical units — and `xarray-annotated` lets you declare
+all of them in one place and validate them automatically.
 
 !!! note
 
-    `xarray-annotated` has two domains, imported separately: `xarray_annotated.units`
-    (physical units, via pint/CF) and `xarray_annotated.schema` (structural
-    properties — dims, coords, dtype). They share one `typing.Annotated` mechanism
-    and a common validation policy; units additionally *converts*, while schema is
-    validate-only. The example below uses the units domain; see the
-    [Usage](usage.md) guide for both.
+    Imports are namespaced into two domains, imported separately:
+    `xarray_annotated.schema` (structural properties — dims, coords, dtype;
+    validate-only, never mutates) and `xarray_annotated.units` (physical units,
+    checked *and converted* via pint/CF). They share the same `typing.Annotated`
+    mechanism and a common validation policy, so both decorators compose and toggle
+    together. See the [Usage](usage.md) guide for the full walkthrough.
 
 For example:
 
 ```python
 from typing import Annotated
 import xarray as xr
-from xarray_annotated.units import declare_units
+from xarray_annotated.units import declare_units, Unit
+from xarray_annotated.schema import declare_schema, Dims, Dtype
 
 @declare_units
+@declare_schema
 def normalise_pressure(
-    p: Annotated[xr.DataArray, "Pa"],
-) -> Annotated[xr.DataArray, "Pa"]:
+    p: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64"), Unit("Pa")],
+) -> Annotated[xr.DataArray, Unit("Pa")]:
     return p
 
-p = xr.DataArray([1013.0, 1000.0], attrs={"units": "hPa"})
+p = xr.DataArray([[1013.0, 1000.0]], dims=["time", "x"], attrs={"units": "hPa"})
 normalise_pressure(p)
-# <xarray.DataArray (dim_0: 2)>
-# array([101300., 100000.])
+# <xarray.DataArray (time: 1, x: 2)>
+# array([[101300., 100000.]])
 # Attributes:
 #     units:    Pa
 ```
 
 ## Motivations
 
-`xarray.DataArray`s often carry a physical unit as a free-form string in their `units` attribute
-(`"hPa"`, `"degC"`, `"g m-2 d-1"`).
-Nothing enforces that the array a function receives is actually in the unit that function expects,
-so it is quite easy to mess up — mixing `hPa`/`Pa` or `m`/`mm`, or even feeding in dimensionally
-incompatible data.
-Tools like [pint](https://pint.readthedocs.io/en/stable/) and
-[pint-xarray](https://pint-xarray.readthedocs.io) offer robust mechanisms for validating and
-converting the units attached to a `DataArray`, but enforcement is left up to the user, and
-manually declaring and enforcing a units policy everywhere is quite a lot of effort.
+`xarray.DataArray` objects carry properties that matter for correctness but are invisible to
+the type system: dimensions, coordinates, and dtype are structural assertions every array makes,
+and the `units` attribute (`"hPa"`, `"degC"`, `"g m-2 d-1"`) carries a physical unit. xarray
+itself doesn't enforce any of these contracts at call sites — it's easy to swap dims, feed an
+integer array where a float is expected, or mistakenly mix `hPa`/`Pa`.
 
-`xarray-annotated` helps by providing a transparent and low-effort policy for the
-declaration and validation/conversion of units on `xarray.DataArray`s.
-Specifically,
+Existing tools address pieces of this: [pint](https://pint.readthedocs.io/en/stable/) and
+[pint-xarray](https://pint-xarray.readthedocs.io) provide unit arithmetic and conversion but
+don't *declare* or *enforce* expectations in signatures; for structural properties there is no
+equivalent. `xarray-annotated` fills the gap — it moves all of these expectations into the
+function signature, the single source of truth, and enforces them transparently at run time
+under a swtichable policy:
 
-1. Letting you declare the expected unit of a `DataArray` **in the function signature** —
-   `Annotated[xr.DataArray, "Pa"]`, or the self-identifying `Annotated[xr.DataArray, Unit("Pa")]`
-   marker that composes cleanly with other `Annotated` metadata markers — so the unit is part of
-   the contract, written in exactly one place.
-2. Validating and converting arrays against those declarations at run time, under a switchable
-   policy, via the `@declare_units` decorator (or the `check_units` primitive it is built on).
+1. **Declare properties in one place** — `Annotated[xr.DataArray, Dims("time", "x"),
+   Dtype("float64"), Unit("Pa")]` — so the contract is written once, in the signature.
+2. **Validate automatically** via `@declare_schema` (structural: dims, coords, dtype) and
+   `@declare_units` (physical units, via pint/CF), or their public primitives `check_schema`
+   / `check_units` when a decorator doesn't fit.
 
-Attaching metadata to type hints with `typing.Annotated` is an increasingly common pattern in the
-Python ecosystem, used by libraries such as [Pydantic](https://docs.pydantic.dev/),
+Attaching metadata to type hints with `typing.Annotated` is an increasingly common pattern in
+the Python ecosystem, used by libraries such as [Pydantic](https://docs.pydantic.dev/),
 [FastAPI](https://fastapi.tiangolo.com/) and [Typer](https://typer.tiangolo.com/).
-A declared unit sits naturally alongside other typed metadata rather than in a separate schema.
+Declared properties sit naturally alongside other typed metadata rather than in a separate
+schema.
 
 ## Installation
 
@@ -107,31 +102,35 @@ Currently Python versions equal to or above 3.12 are supported.
 
 ## Overview of usage
 
-There are two steps.
+The workflow is the same for every property.
 
-1. **Declare** the expected unit of each `DataArray` in your function signatures, as
-   `Annotated[xr.DataArray, "<unit>"]` metadata.
-2. **Apply** the declarations — decorate the function with `@declare_units` to
-   validate and convert its inputs and stamp its outputs automatically, or call
-   `check_units(...)` directly where you'd rather not decorate.
+1. **Declare** properties in the signature with typed markers inside `Annotated` —
+   `Unit("Pa")`, `Dims("time", "x")`, `Dtype("float64")`, `Coords("time")`. A single
+   hint can carry several markers at once.
+2. **Apply** the declarations — decorate with `@declare_schema` (validates dims, coords,
+   dtype; passes through unchanged) and/or `@declare_units` (validates + converts units;
+   stamps outputs). Stack both to check everything, or call `check_schema(...)` /
+   `check_units(...)` directly where a decorator doesn't fit.
 
 See the [Usage](usage.md) guide for the full walkthrough — the validation policy, choosing a pint
-vs. CF registry, and reading declarations off a signature for your own tooling — and the
-[API reference](api.md) for the complete surface.
+vs. CF registry, reading declarations off a signature for your own tooling, and the cross-domain
+`annotate` / `declarations_from_signature` API — and the
+[API reference](api/package.md) for the complete surface.
 
 ## Philosophy
 
-`xarray-annotated` is a deliberately thin layer over
-[pint-xarray](https://pint-xarray.readthedocs.io) (and, optionally,
-[cf-xarray](https://cf-xarray.readthedocs.io)): pint does all the arithmetic and conversion; this
-package only adds unit *declaration* and *validation*.
-It is not a units engine, nor a general units accessor (that space is already served, e.g. by the
-Astropy-based [xarray-units](https://github.com/astropenguin/xarray-units)).
+`xarray-annotated` is a deliberately thin validation layer: it adds property *declaration* (via
+`Annotated` markers) and *enforcement* (via decorators and policy) on top of the libraries that
+already handle the heavy lifting — pint/pint-xarray for unit arithmetic, xarray for data
+structures. It is not a units engine, a type checker, or a general accessor; those spaces are
+already well served. Schema is validate-only by design (it asserts structural properties without
+ever converting or mutating), while units validates *and* converts. Both domains share the same
+annotation mechanism and the same global policy switch, so they compose cleanly and toggle
+together.
 
-This is by design: the aim is to work seamlessly alongside those tools without ever getting in the
-way.
-I developed it to serve a specific purpose in my own work, and don't plan to make it significantly
-more complex or feature-rich — but please feel free to raise an
+This is by design: the aim is to work seamlessly alongside those tools without ever getting in
+the way. I developed it to serve a specific purpose in my own work, and don't plan to make it
+significantly more complex or feature-rich — but please feel free to raise an
 [issue](https://github.com/jmarshrossney/xarray-annotated/issues) or open a
 [pull request](https://github.com/jmarshrossney/xarray-annotated/pulls) to suggest a change
 or feature.

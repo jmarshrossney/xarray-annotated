@@ -18,7 +18,11 @@ nav = [
   { "Home" = "index.md" },
   { "Usage" = "usage.md" },
   { "Example" = "example.md" },
-  { "API Reference" = "api.md"},
+  { "API Reference" = [
+    { "xarray_annotated" = "api/package.md" },
+    { "xarray_annotated.units" = "api/units.md" },
+    { "xarray_annotated.schema" = "api/schema.md" },
+  ]},
 ]
 
 [project.theme]
@@ -48,14 +52,14 @@ features = [
     #"navigation.instant.progress",
     "navigation.path",
     #"navigation.prune",
-    "navigation.sections",
+    # "navigation.sections",
     #"navigation.tabs",
     #"navigation.tabs.sticky",
     # "navigation.top",
     "navigation.tracking",
     "search.highlight",
     # "toc.follow",
-    "toc.integrate",
+    # "toc.integrate",
 ]
 
 [project.theme.icon]

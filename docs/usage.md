@@ -468,3 +468,57 @@ inputs, output = schema_from_signature(node)
 ```
 
 `TypedDict`/`dataclass` returns are read per-field, exactly as for units.
+
+### Cross-domain reader: `declarations_from_signature`
+
+`declarations_from_signature` (from the package root) reads *all* declared facets — unit, dims,
+dtype, and coords — into a single uniform `Declared` value per parameter. This is the read-side
+counterpart to `annotate` (below), and their round-trip is exact:
+
+```python
+from typing import Annotated
+import xarray as xr
+from xarray_annotated import declarations_from_signature
+from xarray_annotated.schema import Dims, Dtype
+from xarray_annotated.units import Unit
+
+def node(
+    x: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64"), Unit("degC")],
+) -> Annotated[xr.DataArray, Dims("time", "x")]: ...
+
+inputs, output = declarations_from_signature(node)
+# inputs == {"x": Declared(dims=Dims("time", "x"), dtype=Dtype("float64"), unit=Unit("degC"))}
+# output == Declared(dims=Dims("time", "x"))
+```
+
+A bare-string unit shorthand is normalised to a `Unit` marker on read, so `.unit.unit` always
+recovers the string. Parameters with no declared facet are omitted entirely.
+
+### Writing annotations programmatically: `annotate`
+
+`annotate` (from the package root) is the inverse of the readers: given facet values it returns a
+real `Annotated` hint — useful for code generation or tools that build function signatures
+dynamically:
+
+```python
+from typing import Annotated, get_args, get_origin
+import xarray as xr
+from xarray_annotated import annotate
+
+hint = annotate(unit="Pa", dims=("time", "x"), dtype="float64")
+# Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x"), Dtype("float64")]
+
+annotate() is xr.DataArray  # no-op when no facets given
+```
+
+Each facet accepts either a raw value or an already-built marker, so a caller holding a mix can
+pass both without unwrapping:
+
+```python
+from xarray_annotated.units import Unit
+
+annotate(unit=Unit("degC"), dims=("time", "x"))
+```
+
+Assign the result to a function's `__annotations__` and the `@declare_units` / `@declare_schema`
+decorators read it back exactly as if it were hand-written.
