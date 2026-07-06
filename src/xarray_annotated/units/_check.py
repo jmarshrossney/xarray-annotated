@@ -96,32 +96,39 @@ def assert_valid_unit(unit: str | Unit, context: str) -> None:
         ) from exc
 
 
-def units_compatible(a: str, b: str) -> bool:
-    """Return whether two unit strings are *dimensionally* compatible.
+def units_compatible(a: str | Unit, b: str | Unit) -> bool:
+    """Return whether two units are *dimensionally* compatible.
 
     Mirrors the runtime conversion semantics of `check_units`: `"hPa"` and
     `"Pa"` are compatible (one converts to the other), whereas `"Pa"` and
-    `"kg"` are not.  Both strings are assumed already validated by
-    `assert_valid_unit`.
+    `"kg"` are not.  Both are assumed already validated by `assert_valid_unit`.
+
+    Accepts either a bare unit string or a `Unit` marker on each side (its
+    `.unit` string is used), so a consumer holding markers — e.g. `Declared`
+    values from `declarations_from_signature` — can compare them directly.
 
     Args:
-        a: A unit string.
-        b: Another unit string.
+        a: A unit string or `Unit` marker.
+        b: Another unit string or `Unit` marker.
 
     Returns:
         `True` if the units are dimensionally compatible.
 
     Examples:
-        >>> from xarray_annotated.units import units_compatible
+        >>> from xarray_annotated.units import Unit, units_compatible
         >>> units_compatible("hPa", "Pa")
+        True
+        >>> units_compatible(Unit("hPa"), "Pa")  # markers accepted too
         True
         >>> units_compatible("Pa", "kg")
         False
     """
+    a = a.unit if isinstance(a, Unit) else a
+    b = b.unit if isinstance(b, Unit) else b
     return get_registry().Unit(a).is_compatible_with(get_registry().Unit(b))
 
 
-def units_equal(a: str, b: str) -> bool:
+def units_equal(a: str | Unit, b: str | Unit) -> bool:
     """Return whether two units are the *same* unit (no conversion needed).
 
     Compares the parsed units, so different spellings of the same unit are equal
@@ -130,20 +137,27 @@ def units_equal(a: str, b: str) -> bool:
     axis turns on: a value-changing conversion is one where the units are
     compatible but *not* equal; equivalent spellings imply no value change.
 
+    Accepts either a bare unit string or a `Unit` marker on each side (its
+    `.unit` string is used), matching `units_compatible`.
+
     Args:
-        a: A unit string.
-        b: Another unit string.
+        a: A unit string or `Unit` marker.
+        b: Another unit string or `Unit` marker.
 
     Returns:
         `True` if the units are the same (no conversion needed).
 
     Examples:
-        >>> from xarray_annotated.units import units_equal
+        >>> from xarray_annotated.units import Unit, units_equal
         >>> units_equal("Pa", "pascal")
+        True
+        >>> units_equal(Unit("Pa"), Unit("pascal"))  # markers accepted too
         True
         >>> units_equal("hPa", "Pa")
         False
     """
+    a = a.unit if isinstance(a, Unit) else a
+    b = b.unit if isinstance(b, Unit) else b
     return get_registry().Unit(a) == get_registry().Unit(b)
 
 

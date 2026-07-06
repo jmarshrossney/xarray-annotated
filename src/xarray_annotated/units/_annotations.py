@@ -60,6 +60,10 @@ class Unit:
     def __repr__(self) -> str:
         return f"Unit({self._unit!r})"
 
+    def __str__(self) -> str:
+        # The bare unit string, for readable interpolation (e.g. f"expected {m}").
+        return self._unit
+
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Unit):
             return self._unit == other._unit
