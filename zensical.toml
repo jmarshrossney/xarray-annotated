@@ -22,6 +22,7 @@ nav = [
     { "xarray_annotated" = "api/package.md" },
     { "xarray_annotated.units" = "api/units.md" },
     { "xarray_annotated.schema" = "api/schema.md" },
+    { "xarray_annotated.temporal" = "api/temporal.md" },
   ]},
 ]
 

@@ -4,17 +4,20 @@
 declared in function signatures via
 [`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated).
 A DataArray has several properties that matter for correctness — its dimensions,
-coordinates, dtype, and physical units — and `xarray-annotated` lets you declare
-all of them in one place and validate them automatically.
+coordinates, dtype, physical units, and the frequency of its time axis — and
+`xarray-annotated` lets you declare all of them in one place and validate them
+automatically.
 
 !!! note
 
-    Imports are namespaced into two domains, imported separately:
+    Imports are namespaced into three domains, imported separately:
     `xarray_annotated.schema` (structural properties — dims, coords, dtype;
-    validate-only, never mutates) and `xarray_annotated.units` (physical units,
-    checked *and converted* via pint/CF). They share the same `typing.Annotated`
-    mechanism and a common validation policy, so both decorators compose and toggle
-    together. See the [Usage](usage.md) guide for the full walkthrough.
+    validate-only, never mutates), `xarray_annotated.units` (physical units,
+    checked *and converted* via pint/CF), and `xarray_annotated.temporal` (the
+    frequency and phase of a time axis; validate-only). They share the same
+    `typing.Annotated` mechanism and a common validation policy, so the decorators
+    compose and toggle together. See the [Usage](usage.md) guide for the full
+    walkthrough.
 
 For example:
 

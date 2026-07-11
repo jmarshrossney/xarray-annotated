@@ -4,8 +4,9 @@
 
 - **`xarray_annotated.schema`** — structural **schema** (dims, coords, dtype), validate-only — checked, never mutated.
 - **`xarray_annotated.units`** — physical **units**, checked and *converted* via [pint](https://pint.readthedocs.io/en/stable/) / [pint-xarray](https://pint-xarray.readthedocs.io). ([cf-xarray](https://cf-xarray.readthedocs.io) is an optional dependency for CF/UDUNITS unit strings.)
+- **`xarray_annotated.temporal`** — the **frequency** (and phase) of a time axis, validate-only — e.g. `Freq("W-SUN")` catches a weekly series that landed on Wednesdays.
 
-These share a common `typing.Annotated` mechanism and a global policy switch, so both decorators can be stacked and toggled together.
+These share a common `typing.Annotated` mechanism and a global policy switch, so the decorators can be stacked and toggled together.
 
 For example:
 
@@ -67,14 +68,16 @@ Currently Python versions equal to or above 3.12 are supported.
 
 Each domain works the same way:
 
-1. **Declare** properties in the signature with typed markers inside `Annotated` — `Unit("Pa")`, `Dims("time", "x")`, `Dtype("float64")`, `Coords("time")`. A single hint can carry several markers at once.
-2. **Apply** the declarations — decorate with `@declare_units` (validates + converts units, stamps outputs) and/or `@declare_schema` (validates dims/coords/dtype, passes through unchanged). Stack both to check everything.
+1. **Declare** properties in the signature with typed markers inside `Annotated` — `Unit("Pa")`, `Dims("time", "x")`, `Dtype("float64")`, `Coords("time")`, `Freq("7D")`. A single hint can carry several markers at once.
+2. **Apply** the declarations — decorate with `@declare_units` (validates + converts units, stamps outputs), `@declare_schema` (validates dims/coords/dtype, passes through unchanged), and/or `@declare_freq` (validates the time axis, passes through unchanged). Stack them to check everything.
 
 **Units** validate and convert: `check_units` reads the array's `attrs["units"]`, converts to the declared unit, and re-stamps the attribute. A dimensional mismatch (`kg` where `Pa` is declared) always raises; the policy controls the response to missing units and inexact conversions.
 
 **Schema** validates only: `check_schema` checks dims, coords, and dtype against the declared markers and returns the array unchanged (or raises `SchemaError`). Each marker carries its own strictness — dim order, exact vs. kind-matching dtype — and an optional per-marker severity override.
 
-Under the hood each decorator is a thin layer over a public primitive (`check_units` / `check_schema`), so you can validate by hand where a decorator doesn't fit. Both domains also expose a signature-reader (`units_from_signature` / `schema_from_signature`) for static inspection.
+**Temporal** validates only: `check_freq` infers the frequency of the array's time coordinate and compares it with the declaration. Spacing is compared semantically (a `7D` axis satisfies `Freq("7D")` *and* `Freq("W-WED")`), while the phase is compared only where you spell it — so `Freq("W")` means "weekly, any weekday" but `Freq("W-SUN")` rejects a Wednesday-anchored series. `freq_compatible` applies the same comparison to two declarations with no array in hand.
+
+Under the hood each decorator is a thin layer over a public primitive (`check_units` / `check_schema` / `check_freq`), so you can validate by hand where a decorator doesn't fit. Each domain also exposes a signature-reader (`units_from_signature` / `schema_from_signature` / `freq_from_signature`) for static inspection.
 
 The package-level `annotate` function builds `Annotated` hints programmatically from facet values — the inverse of the readers — and `declarations_from_signature` reads all declared facets into a uniform `Declared` value.
 
@@ -82,7 +85,7 @@ See the [documentation](https://jmarshrossney.github.io/xarray-annotated/) for t
 
 ## Philosophy
 
-`xarray-annotated` is a deliberately thin validation layer: it adds property *declaration* (via `Annotated` markers) and *enforcement* (via decorators and policy) on top of the libraries that already handle the heavy lifting — pint/pint-xarray for unit arithmetic, xarray for data structures. It is not a units engine, a type checker, or a general accessor; those spaces are already well served. Schema is validate-only by design (it asserts structural properties without ever converting or mutating), while units validates *and* converts. Both domains share the same annotation mechanism and the same global policy switch, so they compose cleanly and toggle together.
+`xarray-annotated` is a deliberately thin validation layer: it adds property *declaration* (via `Annotated` markers) and *enforcement* (via decorators and policy) on top of the libraries that already handle the heavy lifting — pint/pint-xarray for unit arithmetic, xarray for data structures. It is not a units engine, a type checker, or a general accessor; those spaces are already well served. Schema and temporal are validate-only by design (they assert properties without ever converting, resampling, or mutating), while units validates *and* converts. All the domains share the same annotation mechanism and the same global policy switch, so they compose cleanly and toggle together.
 
 I developed it to serve a specific purpose in my own work, and don't plan to make it significantly more complex or feature-rich — but please feel free to raise an [issue](https://github.com/jmarshrossney/xarray-annotated/issues) or open a [pull request](https://github.com/jmarshrossney/xarray-annotated/pulls) to suggest a change or feature.
 

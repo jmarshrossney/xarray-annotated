@@ -15,6 +15,7 @@ import xarray as xr
 
 from xarray_annotated import Declared, annotate, declarations_from_signature
 from xarray_annotated.schema import Coords, Dims, Dtype
+from xarray_annotated.temporal import Freq
 from xarray_annotated.units import Unit, units_compatible, units_equal
 
 
@@ -44,6 +45,29 @@ class TestInputs:
         assert inputs["u"] == Declared(unit=Unit("Pa"))
         assert inputs["s"] == Declared(dims=Dims("time", "x"), dtype=Dtype("float64"))
         assert inputs["both"] == Declared(unit=Unit("degC"), coords=Coords("time"))
+
+    def test_freq_only_declaration(self):
+        def node(a: Annotated[xr.DataArray, Freq("7D")]) -> None: ...
+
+        inputs, _ = declarations_from_signature(node)
+        assert inputs["a"] == Declared(freq=Freq("7D"))
+
+    def test_freq_alongside_other_facets(self):
+        def node(
+            a: Annotated[xr.DataArray, Unit("degC"), Dims("time"), Freq("W-SUN")],
+        ): ...
+
+        inputs, _ = declarations_from_signature(node)
+        assert inputs["a"] == Declared(
+            unit=Unit("degC"), dims=Dims("time"), freq=Freq("W-SUN")
+        )
+
+    def test_bare_string_is_never_a_freq(self):
+        # The bare-string shorthand belongs to units; temporal has none.
+        def node(a: Annotated[xr.DataArray, "7D"]) -> None: ...
+
+        inputs, _ = declarations_from_signature(node)
+        assert inputs["a"].freq is None
 
     def test_bare_string_unit_normalises_to_marker(self):
         def node(a: Annotated[xr.DataArray, "Pa"]) -> None: ...
@@ -95,35 +119,55 @@ class TestOutputShapes:
 
 class TestDeclared:
     def test_defaults_are_all_none(self):
-        assert Declared() == Declared(None, None, None, None)
+        assert Declared() == Declared(None, None, None, None, None)
 
     def test_field_order_matches_annotate_kwargs(self):
-        # Positional construction follows (unit, dims, dtype, coords).
-        d = Declared(Unit("Pa"), Dims("t"), Dtype("f8"), Coords("t"))
-        assert (d.unit, d.dims, d.dtype, d.coords) == (
+        # Positional construction follows (unit, dims, dtype, coords, freq).
+        d = Declared(Unit("Pa"), Dims("t"), Dtype("f8"), Coords("t"), Freq("D"))
+        assert (d.unit, d.dims, d.dtype, d.coords, d.freq) == (
             Unit("Pa"),
             Dims("t"),
             Dtype("f8"),
             Coords("t"),
+            Freq("D"),
         )
 
 
 class TestRoundTripWithAnnotate:
     def test_reader_is_inverse_of_writer(self):
-        hint = annotate(unit="Pa", dims=("time",), dtype="float64", coords=("time",))
+        hint = annotate(
+            unit="Pa",
+            dims=("time",),
+            dtype="float64",
+            coords=("time",),
+            freq="7D",
+        )
         _, output = declarations_from_signature(_return_hint(hint))
         assert output == Declared(
             unit=Unit("Pa"),
             dims=Dims("time"),
             dtype=Dtype("float64"),
             coords=Coords("time"),
+            freq=Freq("7D"),
         )
 
     def test_declared_rebuilds_its_own_hint(self):
-        d = Declared(Unit("hPa"), Dims("x", ordered=True), Dtype("i4"), Coords("x"))
-        hint = annotate(unit=d.unit, dims=d.dims, dtype=d.dtype, coords=d.coords)
+        d = Declared(
+            Unit("hPa"),
+            Dims("x", ordered=True),
+            Dtype("i4"),
+            Coords("x"),
+            Freq("W-SUN", anchored=True),
+        )
+        hint = annotate(
+            unit=d.unit, dims=d.dims, dtype=d.dtype, coords=d.coords, freq=d.freq
+        )
         _, output = declarations_from_signature(_return_hint(hint))
         assert output == d
+
+    def test_undeclared_hint_still_yields_none(self):
+        _, output = declarations_from_signature(_return_hint(annotate()))
+        assert output is None
 
 
 class TestUnitStr:

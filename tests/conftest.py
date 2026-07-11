@@ -17,6 +17,7 @@ import pytest
 
 from xarray_annotated import _config as _shared_config
 from xarray_annotated.schema import _config as _schema_config
+from xarray_annotated.temporal import _config as _temporal_config
 from xarray_annotated.units import _config as _units_config
 from xarray_annotated.units import _registry
 
@@ -51,6 +52,8 @@ def _isolate_policy():
         _units_config._process_on_missing,
         _units_config._process_on_inexact,
         _schema_config._process_on_mismatch,
+        _temporal_config._process_on_mismatch,
+        _temporal_config._process_on_uninferable,
     )
     try:
         yield
@@ -60,4 +63,6 @@ def _isolate_policy():
             _units_config._process_on_missing,
             _units_config._process_on_inexact,
             _schema_config._process_on_mismatch,
+            _temporal_config._process_on_mismatch,
+            _temporal_config._process_on_uninferable,
         ) = saved

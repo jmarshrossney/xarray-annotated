@@ -15,6 +15,7 @@ import xarray_annotated
 from xarray_annotated import annotate, unwrap_annotated, walk_signature
 from xarray_annotated import _annotations
 from xarray_annotated.schema import Coords, Dims, Dtype, schema_from_signature
+from xarray_annotated.temporal import Freq, freq_from_signature
 from xarray_annotated.units import Unit, units_from_signature
 
 
@@ -37,19 +38,36 @@ class TestNoOp:
 
 class TestMarkers:
     def test_builds_markers_in_fixed_order(self):
-        hint = annotate(unit="Pa", dims=("time", "x"), dtype="float64", coords=("x",))
+        hint = annotate(
+            unit="Pa", dims=("time", "x"), dtype="float64", coords=("x",), freq="7D"
+        )
         assert get_origin(hint) is Annotated
         base, *markers = get_args(hint)
         assert base is xr.DataArray
-        assert markers == [Unit("Pa"), Dims("time", "x"), Dtype("float64"), Coords("x")]
+        assert markers == [
+            Unit("Pa"),
+            Dims("time", "x"),
+            Dtype("float64"),
+            Coords("x"),
+            Freq("7D"),
+        ]
 
     def test_prebuilt_markers_pass_through(self):
         # An already-built marker is used as-is, not re-wrapped.
-        hint = annotate(unit=Unit("degC"), dims=Dims("t", ordered=True))
-        assert get_args(hint)[1:] == (Unit("degC"), Dims("t", ordered=True))
+        hint = annotate(
+            unit=Unit("degC"),
+            dims=Dims("t", ordered=True),
+            freq=Freq("W", anchored=True),
+        )
+        assert get_args(hint)[1:] == (
+            Unit("degC"),
+            Dims("t", ordered=True),
+            Freq("W", anchored=True),
+        )
 
     def test_only_given_facets_contribute(self):
         assert get_args(annotate(dtype="int32"))[1:] == (Dtype("int32"),)
+        assert get_args(annotate(freq="ME"))[1:] == (Freq("ME"),)
 
 
 class TestTopLevelKernelExports:
@@ -69,7 +87,13 @@ class TestTopLevelKernelExports:
 
 class TestRoundTrip:
     def test_reads_back_through_signature_readers(self):
-        hint = annotate(unit="Pa", dims=("time",), dtype="float64", coords=("time",))
+        hint = annotate(
+            unit="Pa",
+            dims=("time",),
+            dtype="float64",
+            coords=("time",),
+            freq="7D",
+        )
         fn = _return_hint(hint)
         assert units_from_signature(fn)[1] == "Pa"
         assert schema_from_signature(fn)[1] == [
@@ -77,3 +101,4 @@ class TestRoundTrip:
             Dtype("float64"),
             Coords("time"),
         ]
+        assert freq_from_signature(fn)[1] == Freq("7D")
