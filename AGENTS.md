@@ -1,88 +1,32 @@
-# CLAUDE.md
-
-Guidance for Claude Code (claude.ai/code) working in this repository.
+# AGENTS.md
 
 ## Commands
 
-```sh
-just               # lint, typecheck, test, docs (full check)
-just lint          # ruff format + ruff check --fix
-just lint-check    # ruff format --check + ruff check (CI, no mutation)
-just typecheck     # pyright
-just test          # pytest --verbose
-just test-cov      # pytest with coverage (fails under 95%)
-just doctest       # pytest --doctest-modules src/xarray_annotated
-just docs          # marimo-md-export examples/notebook.py docs/example.md && zensical build
-```
+- See justfile.
 
 ## Gotchas
 
-### Do not use `from __future__ import annotations`
-
-This stringizes annotations. `get_type_hints(..., include_extras=True)` can no longer resolve markers — declarations are silently lost, and the decorators validate nothing. Don't use it in any module that carries `Annotated` declarations (or their aliases).
-
-### Do not alias declarations with `type`
-
-```python
-Pressure = Annotated[xr.DataArray, Unit("Pa")]         # ✅ read
-type Pressure = Annotated[xr.DataArray, Unit("Pa")]    # ❌ silently ignored
-```
-
-PEP 695 `type` aliases are lazy: `get_type_hints` returns the alias object itself rather than the `Annotated` it wraps, so markers inside are never seen. Use plain assignment.
-
-### pint registry / policy state are process-global
-
-pint's application registry is a single process-global object. `use_cf_units()` / `set_registry()` is a one-time startup choice — quantities from two registries can't mix. The test suite snapshots and restores it per test via `conftest.py:_isolate_registry`. Policy override globals are also process-wide and isolated per test (`conftest.py:_isolate_policy`).
-
-### `enabled` is package-wide — one switch gates every domain
-
-Toggling `enabled` via any domain's `set_policy` or `policy` context manager toggles every decorator across all domains. The master switch lives in the shared `_config.py`, and each domain's `Policy` resolves it from there.
-
-### `check_units` re-stamps `attrs["units"]`
-
-After conversion, `pint.dequantify` writes its own canonical spelling (e.g. `"pascal"` for `"Pa"`). `check_units` overwrites it with the *declared* unit to preserve the caller's spelling. If you bypass it and convert yourself, the attribute drifts.
-
-### `Freq.freq` stores the raw string — never normalise
-
-`pandas.tseries.frequencies.to_offset("W").freqstr` silently expands to `"W-SUN"`. `Freq` stores the verbatim declared string because the raw spelling is the only place anchoredness survives. The comparison model uses the raw string to determine whether the anchor was explicitly spelled. Never store or compare the normalised `freqstr`.
-
-### Mismatch errors are never `ValueError`
-
-`SchemaError` and `FreqError` both extend `Exception` directly (not `ValueError`). A malformed *declaration* (bad dtype string, unparseable offset) raises `ValueError` at decoration time. This is deliberate: catching a mismatch must never accidentally swallow a declaration error.
-
-### `check_units` on a dimensional mismatch always raises
-
-There is no policy knob for dimensional incompatibility (e.g. `"kg"` where `"Pa"` is declared). It always raises `pint.DimensionalityError` regardless of `on_missing` / `on_inexact`.
-
-### No bare-string shorthand for schema or temporal
-
-Only `units` accepts a bare string (`Annotated[DataArray, "Pa"]`). For schema and temporal, a string in `Annotated` metadata is always a description — only the typed markers (`Dims(...)`, `Dtype(...)`, `Coords(...)`, `Freq(...)`) are read. If you add a bare-string `"my freq"` it will be silently ignored.
+- **No `from __future__ import annotations`** — stringizes annotations; `get_type_hints` loses markers silently.
+- **No `type Foo = Annotated[...]`** — PEP 695 lazy alias; `get_type_hints` returns alias object, not wrapped `Annotated`.
+- **pint registry / policy state are process-global** — `use_cf_units()`/`set_registry()` is one-time startup; two registries can't mix. Tests isolate per test via `conftest.py:_isolate_registry` / `_isolate_policy`.
+- **`enabled` is package-wide** — one switch gates all domains. Master switch in shared `_config.py`; each domain's `Policy` resolves from there.
+- **`check_units` re-stamps `attrs["units"]`** — pint dequantify writes canonical spelling (e.g. `"pascal"` for `"Pa"`); `check_units` overwrites with declared unit. Bypassing it causes attribute drift.
+- **`Freq.freq` stores raw string — never normalise** — pandas `to_offset("W").freqstr` silently becomes `"W-SUN"`. Raw spelling preserves anchoredness. Never store/compare normalised `freqstr`.
+- **Mismatch errors are never `ValueError`** — `SchemaError`/`FreqError` extend `Exception` directly. Malformed declaration raises `ValueError` at decoration time so catching mismatch never swallows declaration error.
+- **`check_units` on dimensional mismatch always raises** — no policy knob; always raises `pint.DimensionalityError` regardless of `on_missing`/`on_inexact`.
+- **No bare-string shorthand for schema or temporal** — only units accepts bare `Annotated[DataArray, "Pa"]`. Bare strings in schema/temporal `Annotated` are silently ignored as descriptions.
 
 ## Design steers
 
-### Adding a domain facet: touch `_writer.py` and `_reader.py`
-
-Every facet touches both cross-domain files at the package root. `annotate(...)` is the writer (facet values → `Annotated` hint); `declarations_from_signature(...)` is the reader (signature → per-parameter `Declared`). Their round-trip is intended to be exact.
-
-### Adding a property within a domain: use the existing patterns
-
-Schema's `_CHECKERS` dict (in `_check.py`) dispatches marker type → checker function — a 4th structural property is additive via this registry. Each domain mirrors the same internal layout: `_annotations.py` / `_check.py` / `_config.py` / `_decorator.py`, all re-exported flat from the domain's `__init__.py` via `__all__`.
-
-### `walk_signature` is the shared driver for all `*_from_signature` readers
-
-`xarray_annotated._annotations.walk_signature(func, extract)` is the generic kernel. Each domain supplies an extractor (one `Annotated` hint → its payload or `None`); `walk_signature` handles `TypedDict`/dataclass/single return shapes once. A third-party facet author reuses this to build their own reader.
-
-### Decorator scaffold is triplicated (deferred consolidation)
-
-Each domain's `_decorator.py` has the same structure but a different leaf verb (units converts+stamps; schema and temporal validate only). This is acknowledged duplication — collapsing it into a shared generic is deferred.
-
-### Package root `__init__.py` imports subpackages but never re-exports domain names
-
-`from xarray_annotated import units; units.declare_units` — the subpackage is the namespace. This prevents domain names from ever colliding in a shared top-level namespace.
+- **New domain facet: touch `_writer.py` and `_reader.py`** — `annotate()` writes facet values → `Annotated`; `declarations_from_signature()` reads signature → per-parameter `Declared`. Round-trip exact.
+- **New property within domain: follow existing patterns** — Schema's `_CHECKERS` dict dispatches marker type → checker; additive via registry. Each domain mirrors layout: `_annotations.py` / `_check.py` / `_config.py` / `_decorator.py`, flat re-export via `__all__`.
+- **`walk_signature` is the shared reader kernel** — `_annotations.walk_signature(func, extract)`. Each domain supplies an extractor (one `Annotated` hint → payload or `None`); handles `TypedDict`/dataclass/single return shapes once.
+- **Decorator scaffold triplicated (deferred consolidation)** — same structure per domain, different leaf verb (units converts+stamps; schema/temporal validate only). Collapsing to shared generic deferred.
+- **Root `__init__.py` imports subpackages, never re-exports domain names** — `from xarray_annotated import units; units.declare_units`. Prevents name collisions.
 
 ## Conventions
 
-- **Docs**: zensical (mkdocs-material), **not** Sphinx/rst. API pages use `::: xarray_annotated.units` directive syntax. Docstrings are Google-style.
-- **Doctests**: embedded in source docstrings; run with `just doctest`.
-- **Examples**: `examples/notebook.py` is a marimo notebook. `just docs` exports it to `docs/example.md` via `marimo-md-export` before building.
-- **Formatting**: ruff (line-length 88), pyright. Python ≥3.12.
+- **Docs**: mkdocs-material, Google-style docstrings. API pages use `::: xarray_annotated.units` directive.
+- **Doctests**: embedded in docstrings; `just doctest`.
+- **Examples**: `examples/notebook.py` is a marimo notebook; `just docs` exports to `docs/example.md` via `marimo-md-export`.
+- **Formatting**: ruff (line-length 88), pyright, Python ≥3.12.
