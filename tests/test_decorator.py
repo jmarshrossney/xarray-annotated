@@ -1,8 +1,9 @@
 """Tests for the ``declare_units`` signature-driven decorator (plain-pint registry)."""
 
+import typing
 import warnings
 from dataclasses import dataclass
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 
 import numpy as np
 import pint
@@ -188,3 +189,29 @@ class TestInexact:
         with pytest.warns(units.UnitsWarning, match="value-changing"):
             out = f(_da([[10.0]], unit="hPa"))
         np.testing.assert_allclose(out.values, [[1000.0]])
+
+
+class TestAnnotationsSurviveWraps:
+    """PEP 749 changed functools.wraps to copy __annotate__ instead of
+    __annotations__ on Python 3.14, which can lose annotations that were
+    injected after the function was compiled.  The decorator must explicitly
+    restore fn.__annotations__ on the wrapper."""
+
+    def test_annotations_in_source_survive(self):
+        @units.declare_units
+        def f(p: Annotated[xr.DataArray, "Pa"]) -> Annotated[xr.DataArray, "Pa"]:
+            return p
+
+        hints = typing.get_type_hints(f, include_extras=True)
+        assert "return" in hints
+
+    def test_injected_annotations_survive(self):
+        src = "def f(p):\n    return p\n"
+        ns: dict[str, Any] = {}
+        exec(src, ns)
+        fn = ns["f"]
+        fn.__annotations__["return"] = Annotated[xr.DataArray, "Pa"]
+
+        wrapped = units.declare_units(fn)
+        hints = typing.get_type_hints(wrapped, include_extras=True)
+        assert "return" in hints

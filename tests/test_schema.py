@@ -471,3 +471,18 @@ class TestDeclareSchema:
             @schema.declare_schema
             def f(n: int) -> Annotated[xr.DataArray, Dtype("bogus")]:
                 return _da()
+
+
+class TestAnnotationsSurviveWraps:
+    def test_injected_annotations_survive(self):
+        import typing
+
+        src = "def f(p):\n    return p\n"
+        ns: dict[str, typing.Any] = {}
+        exec(src, ns)
+        fn = ns["f"]
+        fn.__annotations__["return"] = Annotated[xr.DataArray, Dims("time")]
+
+        wrapped = schema.declare_schema(fn)
+        hints = typing.get_type_hints(wrapped, include_extras=True)
+        assert "return" in hints

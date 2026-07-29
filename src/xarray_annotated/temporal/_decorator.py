@@ -112,6 +112,7 @@ def declare_freq(
                         check_freq(val, marker, pname, eff, unin, qualname)
             return _check_output(fn(*args, **kwargs), eff, unin)
 
+        wrapper.__annotations__ = dict(fn.__annotations__)
         return wrapper
 
     return decorate if func is None else decorate(func)

@@ -135,6 +135,7 @@ def declare_units(
                 args, kwargs = bound.args, bound.kwargs
             return _stamp(fn(*args, **kwargs))
 
+        wrapper.__annotations__ = dict(fn.__annotations__)
         return wrapper
 
     # @declare_units  →  func is the decorated function;
