@@ -101,6 +101,7 @@ def declare_schema(
                         check_schema(val, markers, pname, eff, qualname)
             return _check_output(fn(*args, **kwargs), eff)
 
+        wrapper.__annotations__ = dict(fn.__annotations__)
         return wrapper
 
     return decorate if func is None else decorate(func)

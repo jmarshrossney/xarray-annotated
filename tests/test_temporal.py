@@ -555,3 +555,18 @@ class TestDeclareFreq:
             @temporal.declare_freq
             def f(n: int) -> Annotated[xr.DataArray, Freq("nonsense")]:
                 return _da(pd.date_range("2020-01-01", periods=5, freq="D"))
+
+
+class TestAnnotationsSurviveWraps:
+    def test_injected_annotations_survive(self):
+        import typing
+
+        src = "def f(p):\n    return p\n"
+        ns: dict[str, typing.Any] = {}
+        exec(src, ns)
+        fn = ns["f"]
+        fn.__annotations__["return"] = Annotated[xr.DataArray, Freq("D")]
+
+        wrapped = temporal.declare_freq(fn)
+        hints = typing.get_type_hints(wrapped, include_extras=True)
+        assert "return" in hints
