@@ -7,6 +7,7 @@ DataArrays.
 from ._annotations import Unit, units_from_signature
 from ._check import (
     UnitsWarning,
+    apply_output_units,
     assert_valid_unit,
     check_units,
     units_compatible,
@@ -15,6 +16,7 @@ from ._check import (
 from ._config import (
     OnInexact,
     OnMissing,
+    OnOutput,
     Policy,
     get_policy,
     policy,
@@ -30,9 +32,11 @@ from ._registry import (
 __all__ = [
     "OnInexact",
     "OnMissing",
+    "OnOutput",
     "Policy",
     "Unit",
     "UnitsWarning",
+    "apply_output_units",
     "assert_valid_unit",
     "check_units",
     "declare_units",

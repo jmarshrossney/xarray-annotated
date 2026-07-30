@@ -22,12 +22,14 @@ from typing import Any
 import xarray as xr
 
 from ._annotations import units_from_signature
-from ._check import assert_valid_unit, check_units
+from ._check import apply_output_units, assert_valid_unit, check_units
 from ._config import (
     OnInexact,
     OnMissing,
+    OnOutput,
     _validate_on_inexact,
     _validate_on_missing,
+    _validate_on_output,
     get_policy,
 )
 
@@ -37,6 +39,7 @@ def declare_units(
     *,
     on_missing: OnMissing | None = None,
     on_inexact: OnInexact | None = None,
+    on_output: OnOutput | None = None,
 ) -> Callable[..., Any]:
     """Apply a function's signature-declared units at runtime.
 
@@ -52,8 +55,16 @@ def declare_units(
     1. validates/converts every declared `DataArray` input to its unit via
        `check_units`;
     2. runs the wrapped function;
-    3. stamps each declared output `DataArray` with its unit (a `dict` return is
-       stamped per key; a single `DataArray` return takes the bare declared unit).
+    3. applies each declared output unit to the returned `DataArray` (a `dict`
+       return is handled per key; a single `DataArray` return takes the bare
+       declared unit).
+
+    Note the asymmetry in step 3: an output is **stamped**, not converted.  A
+    body that does its own unit arithmetic (`return p * 100.0`) leaves `attrs`
+    holding the *input's* unit, so converting on the strength of that label would
+    scale correct values a second time.  The `on_output` axis can require the
+    label to match instead (`"strict"`), which suits only bodies that maintain
+    their own units; see `apply_output_units` for the trade-off.
 
     Only `DataArray` values are touched; other arguments and returns pass
     through unchanged.  When the policy is **disabled** (`enabled=False`) the
@@ -75,6 +86,8 @@ def declare_units(
             When `None` (default) resolved per call from `get_policy`.
         on_inexact: Override the on-inexact axis for the decorated function.
             When `None` (default) resolved per call from `get_policy`.
+        on_output: Override the on-output axis for the decorated function.
+            When `None` (default) resolved per call from `get_policy`.
 
     Returns:
         A wrapped function that validates inputs and stamps outputs according
@@ -84,6 +97,8 @@ def declare_units(
         _validate_on_missing(on_missing)
     if on_inexact is not None:
         _validate_on_inexact(on_inexact)
+    if on_output is not None:
+        _validate_on_output(on_output)
 
     def decorate(fn: Callable[..., Any]) -> Callable[..., Any]:
         input_units, output_units = units_from_signature(fn)
@@ -99,21 +114,24 @@ def declare_units(
             for name, unit in output_units.items():
                 assert_valid_unit(unit, f"{qualname} output {name!r}")
 
-        def _stamp(result: Any) -> Any:
+        def _stamp(result: Any, eff_output: OnOutput | None) -> Any:
+            def apply(value: xr.DataArray, declared: str, name: str) -> None:
+                apply_output_units(value, declared, name, eff_output, qualname)
+
             if isinstance(output_units, str):
                 if isinstance(result, xr.DataArray):
-                    result.attrs["units"] = output_units
+                    apply(result, output_units, "return")
             elif isinstance(output_units, dict):
                 if isinstance(result, dict):
                     for name, value in result.items():
                         declared = output_units.get(name)
                         if declared is not None and isinstance(value, xr.DataArray):
-                            value.attrs["units"] = declared
+                            apply(value, declared, name)
                 elif dataclasses.is_dataclass(result):
                     for name, declared in output_units.items():
                         value = getattr(result, name)
                         if isinstance(value, xr.DataArray):
-                            value.attrs["units"] = declared
+                            apply(value, declared, name)
             return result
 
         @functools.wraps(fn)
@@ -133,7 +151,8 @@ def declare_units(
                             val, declared, name, eff_missing, eff_inexact, qualname
                         )
                 args, kwargs = bound.args, bound.kwargs
-            return _stamp(fn(*args, **kwargs))
+            eff_output = on_output if on_output is not None else pol.on_output
+            return _stamp(fn(*args, **kwargs), eff_output)
 
         wrapper.__annotations__ = dict(fn.__annotations__)
         return wrapper
