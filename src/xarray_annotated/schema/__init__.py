@@ -17,7 +17,13 @@ Declare several at once inside ``Annotated`` and apply them with ``declare_schem
         ...
 """
 
-from ._annotations import Coords, Dims, Dtype, schema_from_signature
+from ._annotations import (
+    Coords,
+    Dims,
+    Dtype,
+    annotated_schema,
+    schema_from_signature,
+)
 from ._check import (
     SchemaError,
     SchemaWarning,
@@ -43,6 +49,7 @@ __all__ = [
     "Policy",
     "SchemaError",
     "SchemaWarning",
+    "annotated_schema",
     "assert_valid_schema",
     "check_schema",
     "declare_schema",

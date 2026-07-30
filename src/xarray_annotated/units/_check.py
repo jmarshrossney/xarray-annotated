@@ -16,8 +16,10 @@ from ._annotations import Unit
 from ._config import (
     OnInexact,
     OnMissing,
+    OnOutput,
     _validate_on_inexact,
     _validate_on_missing,
+    _validate_on_output,
     get_policy,
 )
 from ._registry import _cf_hint, get_registry
@@ -319,3 +321,117 @@ def check_units(
     # declared unit string so downstream re-parsing uses our spelling.
     converted.attrs["units"] = declared
     return converted
+
+
+def apply_output_units(
+    da: xr.DataArray,
+    declared: str,
+    name: str,
+    on_output: OnOutput | None = None,
+    qualname: str | None = None,
+) -> xr.DataArray:
+    """Apply a declared unit to a *returned* `DataArray`, per the on-output axis.
+
+    The output counterpart to `check_units`, and deliberately **not** symmetric
+    with it: a declared output is *stamped*, never converted.
+
+    The reason is that xarray's `attrs` are inert under arithmetic.  A body that
+    converts by scalar multiplication — `return p * 100.0`, or `flux * F` for a
+    molar-mass factor — produces an array still labelled with its *input's* unit,
+    because multiplying by a float cannot update a string.  So for the dominant
+    idiom the returned label describes neither the values nor the declaration,
+    and converting on the strength of it would rescale correct values a second
+    time.
+
+    Two modes follow from that:
+
+    - `"stamp"` (default) — overwrite `attrs["units"]` with `declared`, no checks.
+      The only sound default, because a stale label is the norm rather than a
+      symptom.
+    - `"strict"` — a label that is present, parseable, and not equal to
+      `declared` raises.
+
+    **`"strict"` is only meaningful for bodies that maintain their own units** —
+    pass-through and subsetting functions, or computations on pint-quantified
+    arrays.  A body doing manual scalar arithmetic will fail it *whether or not
+    it is correct*, so this is an opt-in for unit-aware code, not a general
+    verification mode.  (If a body must do manual arithmetic and you still want
+    `"strict"` elsewhere, have it drop the stale label — `attrs` cleared, or
+    `keep_attrs=False` — since an absent label is always stamped.)
+
+    Note what no mode can do: distinguish `flux * F` from `flux` when both are
+    labelled the same.  Output *values* are never inspected, so a forgotten
+    conversion factor is not detectable here — only at a consumer that declares
+    the quantity and receives an array that was never stamped.
+
+    An absent, over-long, or unparseable label is always stamped: absence is not
+    evidence of a mismatch.
+
+    Args:
+        da: The returned `DataArray`.
+        declared: The declared unit string (e.g. `"Pa"`).
+        name: A label for the value, used in error messages.
+        on_output: Override the on-output axis for this call (`None` defers to
+            the active policy).
+        qualname: A qualifier prepended to messages as `[qualname]`.
+
+    Returns:
+        `da`, with `attrs["units"]` set to `declared`.
+
+    Raises:
+        pint.DimensionalityError: Under `"strict"`, when the returned array's own
+            unit is dimensionally incompatible with `declared`.
+        ValueError: Under `"strict"`, when the returned array's unit is
+            compatible with but not equal to `declared`.
+
+    Examples:
+        >>> import xarray as xr
+        >>> from xarray_annotated.units._check import apply_output_units
+        >>> da = xr.DataArray([1.0])
+        >>> apply_output_units(da, "Pa", "return").attrs["units"]
+        'Pa'
+    """
+    pol = get_policy()
+    if not pol.enabled:
+        return da
+    on_output = pol.on_output if on_output is None else _validate_on_output(on_output)
+
+    have = da.attrs.get("units")
+    if on_output == "stamp" or have is None:
+        da.attrs["units"] = declared
+        return da
+    if not isinstance(have, str) or len(have) > _MAX_UNIT_LEN:
+        # Unverifiable for the same reasons as on the input path; stamp regardless.
+        da.attrs["units"] = declared
+        return da
+    try:
+        get_registry().Unit(have)
+    except Exception:
+        da.attrs["units"] = declared
+        return da
+
+    prefix = f"[{qualname}] " if qualname else ""
+    if not units_equal(have, declared):
+        if not units_compatible(have, declared):
+            try:
+                get_registry().Quantity(1.0, have).to(declared)
+            except pint.DimensionalityError as exc:
+                raise pint.DimensionalityError(
+                    exc.units1,
+                    exc.units2,
+                    exc.dim1,
+                    exc.dim2,
+                    extra_msg=(
+                        f" ({prefix}output {name!r} is labelled {have!r} but declares "
+                        f"{declared!r}, and on_output='strict' requires them to match; "
+                        f"if the body converts by scalar arithmetic, clear its 'units' "
+                        f"attribute or use on_output='stamp')"
+                    ),
+                ) from None
+        else:
+            raise ValueError(
+                f"{prefix}output {name!r}: unit {have!r} differs from declared "
+                f"{declared!r} and on_output='strict' requires them to match"
+            )
+    da.attrs["units"] = declared
+    return da

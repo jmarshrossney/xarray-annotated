@@ -68,7 +68,7 @@ def assert_valid_schema(marker: SchemaMarker, context: str) -> None:
             raise ValueError(f"{context}: {kind} has duplicate names {marker.names!r}.")
 
 
-def check_dims(da: xr.DataArray, marker: Dims) -> tuple[bool, str]:
+def _check_dims(da: xr.DataArray, marker: Dims) -> tuple[bool, str]:
     """Check a DataArray's dims against a `Dims` marker. Returns (ok, detail)."""
     actual = tuple(da.dims)
     if marker.ordered:
@@ -80,7 +80,7 @@ def check_dims(da: xr.DataArray, marker: Dims) -> tuple[bool, str]:
     return ok, detail
 
 
-def check_coords(da: xr.DataArray, marker: Coords) -> tuple[bool, str]:
+def _check_coords(da: xr.DataArray, marker: Coords) -> tuple[bool, str]:
     """Check a DataArray carries the declared coords. Returns (ok, detail)."""
     actual = set(map(str, da.coords))
     missing = [n for n in marker.names if n not in actual]
@@ -88,7 +88,7 @@ def check_coords(da: xr.DataArray, marker: Coords) -> tuple[bool, str]:
     return not missing, detail
 
 
-def check_dtype(da: xr.DataArray, marker: Dtype) -> tuple[bool, str]:
+def _check_dtype(da: xr.DataArray, marker: Dtype) -> tuple[bool, str]:
     """Check a DataArray's dtype against a `Dtype` marker. Returns (ok, detail)."""
     declared = np.dtype(marker.dtype)
     actual = da.dtype
@@ -107,8 +107,9 @@ def check_dtype(da: xr.DataArray, marker: Dtype) -> tuple[bool, str]:
 def dims_compatible(a: Dims, b: Dims) -> bool:
     """Return whether two `Dims` declarations can describe the same array.
 
-    The marker-vs-marker counterpart to `check_dims` (no array in hand), for a
-    static / build-time check of a producer/consumer edge: two declarations are
+    The marker-vs-marker counterpart to validating an array against a `Dims`
+    declaration (no array in hand), for a static / build-time check of a
+    producer/consumer edge: two declarations are
     *provably inconsistent* only if their dim **sets** differ, or if both pin the
     order (`ordered=True`) and the orders disagree.  A loose declaration on either
     side can always be satisfied, so it never conflicts.
@@ -137,7 +138,8 @@ def dims_compatible(a: Dims, b: Dims) -> bool:
 def dtype_compatible(a: Dtype, b: Dtype) -> bool:
     """Return whether two `Dtype` declarations can describe the same array.
 
-    The marker-vs-marker counterpart to `check_dtype` (no array in hand): two
+    The marker-vs-marker counterpart to validating an array against a `Dtype`
+    declaration (no array in hand): two
     declarations are *provably inconsistent* only if their numpy **kinds** differ
     (float vs int), or if both require the exact dtype (`exact=True`) and those
     dtypes differ (`f8` vs `f4`).  A kind-only declaration matches any width, so
@@ -170,9 +172,9 @@ def dtype_compatible(a: Dtype, b: Dtype) -> bool:
 
 
 _CHECKERS: dict[type, Callable[[xr.DataArray, Any], tuple[bool, str]]] = {
-    Dims: check_dims,
-    Coords: check_coords,
-    Dtype: check_dtype,
+    Dims: _check_dims,
+    Coords: _check_coords,
+    Dtype: _check_dtype,
 }
 
 
