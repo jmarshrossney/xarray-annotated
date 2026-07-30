@@ -66,5 +66,14 @@ With that out of the way, please feel free to raise an [issue](https://github.co
 
 ## See also
 
+**Uses:**
+
+- [xarray](https://xarray.dev/)
+- [pint](https://pint.readthedocs.io/en/stable/)
+- [pint-xarray](https://pint-xarray.readthedocs.io)
+- [cf-xarray](https://cf-xarray.readthedocs.io/en/latest/)
+
+**Used by:**
+
 - [nerc-ceh/conduit](https://github.com/nerc-ceh/conduit) --- DAGs
 - nerc-ceh/breadboard --- WIP
