@@ -24,7 +24,7 @@ nav = [
     { "Reading and writing declarations" = "guides/tooling.md" },
     { "Troubleshooting" = "guides/troubleshooting.md" },
   ]},
-  { "A worked pipeline" = "example.md" },
+  { "Worked example" = "example.md" },
   { "API Reference" = [
     { "xarray_annotated" = "api/package.md" },
     { "xarray_annotated.units" = "api/units.md" },

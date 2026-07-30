@@ -31,8 +31,7 @@ def _(mo):
     2. **weekly GPP**, validated against a satellite retrieval.
 
     It is a realistic pipeline with a realistic set of bugs — the kind that survive code
-    review because every line looks reasonable. We run it three times: as first written,
-    then with declarations added, then corrected.
+    review because every line looks reasonable. 
 
     This notebook lives in the repository at
     [`examples/notebook.py`](https://github.com/jmarshrossney/xarray-annotated/tree/main/examples).
@@ -205,18 +204,18 @@ def _(generate_synthetic_data, xr):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md("""
-    ## The pipeline as first written
+    ## A flux processing pipeline
 
-    Five stages, no declarations anywhere. Each one states what it assumes in its
-    docstring, which is where such things usually get written down.
+    The pipeline splits into five stages, which are python functions.
+    In typical fashion, assumptions are stated in docstrings and comments.
     """)
     return
 
 
 @app.cell
-def _(nee_raw, ppfd_raw, qc_raw, sat_gpp, tair_raw):
+def _():
     def screen_quality(flux, qc):
-        """Drop records not flagged good. Assumes qc is the flag array for flux."""
+        """Drop records not flagged good. `qc` is the flag array for flux."""
         return flux.where(qc == 0)
 
     def partition_fluxes(nee, tair, ppfd):
@@ -230,7 +229,7 @@ def _(nee_raw, ppfd_raw, qc_raw, sat_gpp, tair_raw):
         return flux.resample(time="D").mean()
 
     def weekly_mean(daily):
-        """Daily -> weekly mean. Weeks end on Sunday."""
+        """Daily -> weekly mean. Assumes week ends on Wednesday."""
         return daily.resample(time="W-WED").mean()
 
     def compare_with_satellite(modelled, observed):
@@ -238,42 +237,81 @@ def _(nee_raw, ppfd_raw, qc_raw, sat_gpp, tair_raw):
         diff = modelled - observed
         return float(diff.mean()), float((diff**2).mean() ** 0.5)
 
+    return (
+        compare_with_satellite,
+        daily_carbon,
+        partition_fluxes,
+        screen_quality,
+        weekly_mean,
+    )
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    Chained together, they turn the logger output into the two products.
+    """)
+    return
+
+
+@app.cell
+def _(
+    compare_with_satellite,
+    daily_carbon,
+    nee_raw,
+    partition_fluxes,
+    ppfd_raw,
+    qc_raw,
+    sat_gpp,
+    screen_quality,
+    tair_raw,
+    weekly_mean,
+):
     nee = screen_quality(nee_raw, qc_raw)
-    gpp, _reco = partition_fluxes(nee, tair_raw, ppfd_raw)
+    gpp, _ = partition_fluxes(nee, tair_raw, ppfd_raw)
 
     # Product 1: the annual carbon budget.
     print(f"annual NEE = {float(daily_carbon(nee).sum()):+.0f} g C m-2 yr-1   (negative = sink)")
 
     # Product 2: weekly GPP, against the satellite retrieval.
     gpp_weekly = weekly_mean(daily_carbon(gpp))
-    _bias, _rmse = compare_with_satellite(gpp_weekly, sat_gpp)
+    bias, rmse = compare_with_satellite(gpp_weekly, sat_gpp)
     print(
         f"\nweekly GPP = {gpp_weekly.sizes['time']} weeks from "
         f"{str(gpp_weekly.time.values[0])[:10]}, mean {float(gpp_weekly.mean()):.3g}"
     )
-    print(f"vs satellite: bias {_bias:+.2f}, rmse {_rmse:.2f} g C m-2 d-1")
+    print(f"vs satellite: bias {bias:+.2f}, rmse {rmse:.2f} g C m-2 d-1")
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md("""
-    Nothing raised. Every one of those four docstring assumptions is false.
+    Hmm. The NEE looks plausible, but something has clearly gone wrong with GPP (it's enormous)
+    and the statistics are somehow `nan`.
 
-    - **`tair` in degC.** It arrives in kelvin, so the Q10 exponent is `(290-10)/10 = 28`
+    No errors or warnings were raised. Time to go on a bug hunt I guess.
+
+    ### Some time later...
+
+    Bugs located. Four of the documented assumptions were false.
+
+    `Assumes tair in degC.`
+    : It arrives in kelvin, so the Q10 exponent is `(290-10)/10 = 28`
       rather than `(17-10)/10 = 0.7`. This one screams — mean weekly GPP of `2.6e8` where
       4 would be respectable — and you find it in minutes.
-    - **`g C m-2 d-1`.** `daily_carbon` resamples but never converts moles to grams, so its
+        
+    `daily mean carbon flux, g C m-2 d-1.`
+    : `daily_carbon` resamples but never converts moles to grams, so its
       output is still a molar flux. The factor happens to be **1.04**, so the annual NEE of
-      `-474` is within 4% of the right answer and looks entirely respectable. It is the
-      most dangerous number in the notebook.
-    - **Weeks end on Sunday.** They end on Wednesday.
-    - **Both on the same grid.** They are not. xarray aligns on the time coordinate, finds
+      `-474` is within 4% of the right answer and looks entirely respectable. 
+    
+    `Assumes week ends on Sunday.`
+    : They end on Wednesday.
+    
+    `Assumes both are weekly means on the same grid.
+    : They are not. xarray aligns on the time coordinate, finds
       that Wednesdays and Sundays never coincide, and every statistic comes back `nan`.
-
-    That last one is the interesting case. A `nan` is a signal, but an anonymous one: it
-    tells you something is wrong somewhere, and nothing about what or where. Working out
-    that two regular 53-point weekly series are three days out of phase is an afternoon.
     """)
     return
 
@@ -281,15 +319,15 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md("""
-    ## Declaring what each stage assumes
+    ## The same pipeline with declarations
 
-    We rebuild the pipeline stage by stage. Each assumption moves out of the docstring and
-    into the signature, where it is enforced rather than merely stated.
+    Here are the same five stages, with each assumption moved out of the docstring and into
+    the signature, where it is actually checkable at run-time. Two of them return more than
+    one array, so a `TypedDict` gives the declarations somewhere to hang.
 
-    ### Stage 1: quality screening
-
-    A half-hourly series with a real `time` coordinate, and an `int8` flag array alongside
-    it. Returns `float64`, because gaps become NaN and an integer array cannot hold NaN.
+    Nothing else about the pipeline changes — same models, same arithmetic, one conversion
+    added where a declaration exposes that it was missing. We then walk through the stages
+    one at a time to see what each declaration buys.
     """)
     return
 
@@ -301,12 +339,26 @@ def _(
     Dims,
     Dtype,
     Freq,
+    TypedDict,
+    UMOL_S_TO_G_D,
     Unit,
     declare_freq,
     declare_schema,
     declare_units,
     xr,
 ):
+    class Partitioned(TypedDict):
+        """Gross fluxes, both sign-positive."""
+
+        gpp: Annotated[xr.DataArray, Dims("time"), Unit("umol m-2 s-1")]
+        reco: Annotated[xr.DataArray, Dims("time"), Unit("umol m-2 s-1")]
+
+    class Comparison(TypedDict):
+        """Model-minus-observation summary statistics."""
+
+        bias: float
+        rmse: float
+
     @declare_units
     @declare_schema
     @declare_freq
@@ -329,7 +381,61 @@ def _(
         """Drop records not flagged as good quality."""
         return flux.where(qc == 0)
 
-    return (screen_quality_new,)
+    @declare_units
+    def partition_fluxes_new(
+        nee: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
+        tair: Annotated[xr.DataArray, Unit("degC")],
+        ppfd: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
+    ) -> Partitioned:
+        """Partition NEE into GPP and respiration via a Q10 model."""
+        reco = 2.60 * 2.0 ** ((tair - 10.0) / 10.0)
+        gpp = (reco - nee).where(ppfd > 5.0, 0.0)  # no photosynthesis in the dark
+        return {"gpp": gpp, "reco": reco}
+
+    @declare_units
+    @declare_freq
+    def daily_carbon_new(
+        flux: Annotated[xr.DataArray, Unit("umol m-2 s-1"), Freq("30min")],
+    ) -> Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("D")]:
+        """Mean half-hourly molar flux -> daily carbon mass flux."""
+        return flux.resample(time="D").mean() * UMOL_S_TO_G_D
+
+    @declare_units
+    @declare_freq
+    def weekly_mean_new(
+        daily: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("D")],
+    ) -> Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")]:
+        """Mean daily flux within each week ending on a Sunday."""
+        return daily.resample(time="W-SUN").mean()
+
+    @declare_units
+    @declare_freq
+    def compare_with_satellite_new(
+        modelled: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")],
+        observed: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")],
+    ) -> Comparison:
+        """Bias and RMSE of modelled weekly GPP against the satellite retrieval."""
+        _diff = modelled - observed
+        return {"bias": float(_diff.mean()), "rmse": float((_diff**2).mean() ** 0.5)}
+
+    return (
+        compare_with_satellite_new,
+        daily_carbon_new,
+        partition_fluxes_new,
+        screen_quality_new,
+        weekly_mean_new,
+    )
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ### Stage 1: quality screening
+
+    A half-hourly series with a real `time` coordinate, and an `int8` flag array alongside
+    it. Returns `float64`, because gaps become NaN and an integer array cannot hold NaN.
+    """)
+    return
 
 
 @app.cell
@@ -373,32 +479,11 @@ def _(mo):
     ### Stage 2: flux partitioning
 
     *Assumes tair in degC* becomes `Unit("degC")`, and the kelvin input is now converted at
-    the boundary rather than blowing up inside the body. Two outputs need a named structure
-    to hang declarations on, so the tuple becomes a `TypedDict`, validated per field.
+    the boundary rather than blowing up inside the body. The two outputs needed a named
+    structure to hang declarations on, so the tuple became the `Partitioned` `TypedDict`,
+    validated per field.
     """)
     return
-
-
-@app.cell
-def _(Annotated, Dims, TypedDict, Unit, declare_units, xr):
-    class Partitioned(TypedDict):
-        """Gross fluxes, both sign-positive."""
-
-        gpp: Annotated[xr.DataArray, Dims("time"), Unit("umol m-2 s-1")]
-        reco: Annotated[xr.DataArray, Dims("time"), Unit("umol m-2 s-1")]
-
-    @declare_units
-    def partition_fluxes_new(
-        nee: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
-        tair: Annotated[xr.DataArray, Unit("degC")],
-        ppfd: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
-    ) -> Partitioned:
-        """Partition NEE into GPP and respiration via a Q10 model."""
-        reco = 2.60 * 2.0 ** ((tair - 10.0) / 10.0)
-        gpp = (reco - nee).where(ppfd > 5.0, 0.0)  # no photosynthesis in the dark
-        return {"gpp": gpp, "reco": reco}
-
-    return (partition_fluxes_new,)
 
 
 @app.cell
@@ -441,19 +526,6 @@ def _(mo):
     `Freq("30min")` in and `Freq("D")` out pin the temporal side.
     """)
     return
-
-
-@app.cell
-def _(Annotated, Freq, UMOL_S_TO_G_D, Unit, declare_freq, declare_units, xr):
-    @declare_units
-    @declare_freq
-    def daily_carbon_new(
-        flux: Annotated[xr.DataArray, Unit("umol m-2 s-1"), Freq("30min")],
-    ) -> Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("D")]:
-        """Mean half-hourly molar flux -> daily carbon mass flux."""
-        return flux.resample(time="D").mean() * UMOL_S_TO_G_D
-
-    return (daily_carbon_new,)
 
 
 @app.cell
@@ -547,24 +619,7 @@ def _(mo):
 
 
 @app.cell
-def _(
-    Annotated,
-    Freq,
-    Unit,
-    daily_carbon_new,
-    declare_freq,
-    declare_units,
-    fluxes,
-    xr,
-):
-    @declare_units
-    @declare_freq
-    def weekly_mean_new(
-        daily: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("D")],
-    ) -> Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")]:
-        """Mean daily flux within each week ending on a Sunday."""
-        return daily.resample(time="W-SUN").mean()
-
+def _(daily_carbon_new, fluxes, weekly_mean_new):
     gpp_daily = daily_carbon_new(fluxes["gpp"])
     weekly_gpp = weekly_mean_new(gpp_daily)
 
@@ -586,37 +641,11 @@ def _(mo):
 
 
 @app.cell
-def _(
-    Annotated,
-    Freq,
-    TypedDict,
-    Unit,
-    declare_freq,
-    declare_units,
-    sat_gpp,
-    weekly_gpp,
-    xr,
-):
-    class Comparison(TypedDict):
-        """Model-minus-observation summary statistics."""
-
-        bias: float
-        rmse: float
-
-    @declare_units
-    @declare_freq
-    def compare_with_satellite_new(
-        modelled: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")],
-        observed: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")],
-    ) -> Comparison:
-        """Bias and RMSE of modelled weekly GPP against the satellite retrieval."""
-        _diff = modelled - observed
-        return {"bias": float(_diff.mean()), "rmse": float((_diff**2).mean() ** 0.5)}
-
+def _(compare_with_satellite_new, sat_gpp, weekly_gpp):
     comparison = compare_with_satellite_new(weekly_gpp, sat_gpp)
 
     print(f"bias = {comparison['bias']:+.3f} g m-2 d-1, rmse = {comparison['rmse']:.3f} g m-2 d-1")
-    return compare_with_satellite_new, comparison
+    return (comparison,)
 
 
 @app.cell(hide_code=True)
