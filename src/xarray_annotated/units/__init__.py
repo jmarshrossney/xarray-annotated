@@ -22,6 +22,7 @@ from ._config import (
 )
 from ._decorator import declare_units
 from ._registry import (
+    get_registry,
     set_registry,
     use_cf_units,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "check_units",
     "declare_units",
     "get_policy",
+    "get_registry",
     "policy",
     "set_policy",
     "set_registry",
