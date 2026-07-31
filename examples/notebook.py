@@ -225,7 +225,7 @@ def _():
         return gpp, reco
 
     def daily_carbon(flux):
-        """Half-hourly flux -> daily mean carbon flux, g C m-2 d-1."""
+        """Half-hourly flux -> daily mean carbon flux."""
         return flux.resample(time="D").mean()
 
     def weekly_mean(daily):
@@ -294,24 +294,67 @@ def _(mo):
 
     ### Some time later...
 
-    Bugs located. Four of the documented assumptions were false.
+    Bugs located. Three of the documented assumptions were false.
 
     `Assumes tair in degC.`
     : It arrives in kelvin, so the Q10 exponent is `(290-10)/10 = 28`
-      rather than `(17-10)/10 = 0.7`. This one screams — mean weekly GPP of `2.6e8` where
-      4 would be respectable — and you find it in minutes.
-        
-    `daily mean carbon flux, g C m-2 d-1.`
-    : `daily_carbon` resamples but never converts moles to grams, so its
-      output is still a molar flux. The factor happens to be **1.04**, so the annual NEE of
-      `-474` is within 4% of the right answer and looks entirely respectable. 
-    
-    `Assumes week ends on Sunday.`
-    : They end on Wednesday.
-    
-    `Assumes both are weekly means on the same grid.
+      rather than `(17-10)/10 = 0.7`. A mean weekly GPP of `2.6e8` where
+      4 would be respectable — easy to debug.
+
+    `Assumes week ends on Wednesday.`
+    : The satellite product ends its weeks on Sunday.
+
+    `Assumes both are weekly means on the same grid.`
     : They are not. xarray aligns on the time coordinate, finds
       that Wednesdays and Sundays never coincide, and every statistic comes back `nan`.
+
+    Two of those are one-line fixes — convert the temperature at the call site, and anchor
+    the weekly resample to Sunday — and the third goes away with them.
+    """)
+    return
+
+
+@app.cell
+def _(
+    compare_with_satellite,
+    daily_carbon,
+    nee_raw,
+    partition_fluxes,
+    ppfd_raw,
+    qc_raw,
+    sat_gpp,
+    screen_quality,
+    tair_raw,
+):
+    def weekly_mean_sunday(daily):
+        """Daily -> weekly mean. Week ends on Sunday, like the satellite product."""
+        return daily.resample(time="W-SUN").mean()
+
+    _tair_degc = tair_raw - 273.15
+
+    _nee = screen_quality(nee_raw, qc_raw)
+    _gpp, _ = partition_fluxes(_nee, _tair_degc, ppfd_raw)
+
+    print(f"annual NEE = {float(daily_carbon(_nee).sum()):+.0f} g C m-2 yr-1   (negative = sink)")
+
+    _gpp_weekly = weekly_mean_sunday(daily_carbon(_gpp))
+    _bias, _rmse = compare_with_satellite(_gpp_weekly, sat_gpp)
+    print(
+        f"\nweekly GPP = {_gpp_weekly.sizes['time']} weeks from "
+        f"{str(_gpp_weekly.time.values[0])[:10]}, mean {float(_gpp_weekly.mean()):.3g}"
+    )
+    print(f"vs satellite: bias {_bias:+.2f}, rmse {_rmse:.2f} g C m-2 d-1")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""endingendingending
+    A carbon sink of a few hundred grams per square metre per year, weekly GPP on the right
+    grid averaging `3.88`, and a satellite comparison whose bias is a fraction of the rmse.
+    Every number is the right order of magnitude and the right sign.
+
+    Three bugs found, three bugs fixed, no errors, no warnings. Ship it?
     """)
     return
 
@@ -322,12 +365,13 @@ def _(mo):
     ## The same pipeline with declarations
 
     Here are the same five stages, with each assumption moved out of the docstring and into
-    the signature, where it is actually checkable at run-time. Two of them return more than
-    one array, so a `TypedDict` gives the declarations somewhere to hang.
+    the signature, where it is actually checkable at run-time. One of them returns more than
+    one array, so a `TypedDict` gives the declarations somewhere to hang; the comparison
+    returns a second one for its two statistics.
 
-    Nothing else about the pipeline changes — same models, same arithmetic, one conversion
-    added where a declaration exposes that it was missing. We then walk through the stages
-    one at a time to see what each declaration buys.
+    Nothing else changes: same models, same arithmetic, same bodies as the code we just
+    finished debugging. The declarations only write down what was already believed to be
+    true. We then walk through the stages one at a time to see what each one buys.
     """)
     return
 
@@ -340,7 +384,6 @@ def _(
     Dtype,
     Freq,
     TypedDict,
-    UMOL_S_TO_G_D,
     Unit,
     declare_freq,
     declare_schema,
@@ -396,15 +439,15 @@ def _(
     @declare_freq
     def daily_carbon_new(
         flux: Annotated[xr.DataArray, Unit("umol m-2 s-1"), Freq("30min")],
-    ) -> Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("D")]:
-        """Mean half-hourly molar flux -> daily carbon mass flux."""
-        return flux.resample(time="D").mean() * UMOL_S_TO_G_D
+    ) -> Annotated[xr.DataArray, Unit("umol m-2 s-1"), Freq("D")]:
+        """Half-hourly flux -> daily mean carbon flux."""
+        return flux.resample(time="D").mean()
 
     @declare_units
     @declare_freq
     def weekly_mean_new(
-        daily: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("D")],
-    ) -> Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")]:
+        daily: Annotated[xr.DataArray, Unit("umol m-2 s-1"), Freq("D")],
+    ) -> Annotated[xr.DataArray, Unit("umol m-2 s-1"), Freq("W-SUN")]:
         """Mean daily flux within each week ending on a Sunday."""
         return daily.resample(time="W-SUN").mean()
 
@@ -517,68 +560,17 @@ def _(mo):
     mo.md("""
     ### Stage 3: daily carbon flux
 
-    Writing the docstring's *g C m-2 d-1* down as `Unit("g m-2 d-1")` is what exposes the
-    second bug. The body resamples and nothing else, so it returns a *molar* flux; the
-    declaration claims a *mass* flux. No library can bridge those on its own — that needs
-    the molar mass of carbon — so the conversion has to be written, and now there is a
-    statement in the signature saying it must be.
-
-    `Freq("30min")` in and `Freq("D")` out pin the temporal side.
+    Half-hourly to daily, so `Freq("30min")` in and `Freq("D")` out. The body resamples and
+    does nothing else, so the unit it was handed is the unit it returns: `umol m-2 s-1`
+    both sides. The declarations describe the function exactly.
     """)
     return
 
 
 @app.cell
 def _(daily_carbon_new, nee_clean):
-    nee_daily = daily_carbon_new(nee_clean)
-    print(f"{nee_daily.sizes['time']} daily means, {nee_daily.units}")
-    return (nee_daily,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md("""
-    **What it catches — with a caveat worth understanding.** By default a declared output
-    is *stamped*, not checked: the array comes back labelled `g m-2 d-1` whatever the body
-    did. Had we written the declaration and left the body alone, the label would have been
-    a lie and nothing would have complained.
-
-    The `on_output="strict"` policy checks instead of stamping. It works here because a
-    bare `resample().mean()` carries its input's label forward truthfully:
-    """)
-    return
-
-
-@app.cell
-def _(Annotated, Freq, Unit, declare_freq, declare_units, nee_clean, pint, xr):
-    @declare_units(on_output="strict")
-    @declare_freq
-    def daily_carbon_unconverted(
-        flux: Annotated[xr.DataArray, Unit("umol m-2 s-1"), Freq("30min")],
-    ) -> Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("D")]:
-        """The original body, with the declaration it should have had."""
-        return flux.resample(time="D").mean()
-
-    try:
-        daily_carbon_unconverted(nee_clean)
-    except pint.DimensionalityError as exc:
-        print(f"{type(exc).__name__}: {exc}")
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md("""
-    Moles are not grams under any reading, so this raises rather than warns.
-
-    But `strict` is not a free upgrade. Add the conversion and the body becomes
-    `... .mean() * UMOL_S_TO_G_D` — scalar arithmetic, which xarray applies to the values
-    and not to `attrs`. The result is numerically right and still labelled `umol m-2 s-1`,
-    and `strict` would now reject the *correct* function. That is why stamping is the
-    default, and why **declarations on inputs are worth more than declarations on
-    outputs**: the check that catches this in the pipeline proper is the one on the
-    consumer, in stage 5.
-    """)
+    _nee_daily = daily_carbon_new(nee_clean)
+    print(f"{_nee_daily.sizes['time']} daily means, labelled {_nee_daily.units}")
     return
 
 
@@ -614,17 +606,20 @@ def _(mo):
     Weekly GPP, for comparison against the satellite product. The anchor is not a
     parameter: this function exists to produce week-ending-Sunday means, so `W-SUN` is
     written into the body and declared on the return. A stage should say what it *does*.
+
+    Averaging does not change a unit either, so this one is `umol m-2 s-1` in and out too.
     """)
     return
 
 
 @app.cell
 def _(daily_carbon_new, fluxes, weekly_mean_new):
-    gpp_daily = daily_carbon_new(fluxes["gpp"])
-    weekly_gpp = weekly_mean_new(gpp_daily)
+    _gpp_daily_molar = daily_carbon_new(fluxes["gpp"])
+    weekly_gpp_molar = weekly_mean_new(_gpp_daily_molar)
 
-    print(f"{weekly_gpp.sizes['time']} weeks, anchored {str(weekly_gpp.time.values[0])[:10]} (a Sunday)")
-    return gpp_daily, weekly_gpp
+    print(f"{weekly_gpp_molar.sizes['time']} weeks, anchored {str(weekly_gpp_molar.time.values[0])[:10]} (a Sunday)")
+    print(f"mean weekly GPP = {float(weekly_gpp_molar.mean()):.2f} {weekly_gpp_molar.units}")
+    return (weekly_gpp_molar,)
 
 
 @app.cell(hide_code=True)
@@ -636,8 +631,154 @@ def _(mo):
     to be on the same weekly grid for the comparison to mean anything, so both declare
     `Freq("W-SUN")` — and it is here, on the *inputs*, that the phase is enforced. The
     producer says what it does; the consumer says what it needs.
+
+    The units are not ours to choose either. The satellite product is published as
+    `g m-2 d-1`; that is a fact about someone else's file, and a comparison is only
+    meaningful if both sides are in it. So both parameters declare it.
     """)
     return
+
+
+@app.cell
+def _(compare_with_satellite_new, pint, sat_gpp, weekly_gpp_molar):
+    try:
+        compare_with_satellite_new(weekly_gpp_molar, sat_gpp)
+    except pint.DimensionalityError as exc:
+        print(f"{type(exc).__name__}: {exc}")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ## The bug nobody was hunting
+
+    A fourth bug, and it was never on the list. Nothing converts moles to grams — not in
+    this pipeline, and not in the one we spent the afternoon debugging. `daily_carbon`
+    resamples and does nothing else. The conversion needs the molar mass of carbon, so no
+    library can supply it unasked, and nobody asked.
+
+    Every stage was *internally* consistent: a molar flux went in, a molar flux came out,
+    and each stage's declarations described it correctly. That is why no earlier check
+    fired, and it is why the bug is realistic. It only becomes visible where the pipeline
+    meets a number whose units it does not get to choose.
+
+    Notice what the failure did *not* require. The two signatures sit next to each other in
+    the definitions above, one stage feeding the next:
+
+    ```python
+    def weekly_mean_new(...) -> Annotated[xr.DataArray, Unit("umol m-2 s-1"), Freq("W-SUN")]
+    def compare_with_satellite_new(modelled: Annotated[xr.DataArray, Unit("g m-2 d-1"), ...])
+    ```
+
+    One produces `umol m-2 s-1`; the next consumes `g m-2 d-1`. That is a contradiction you
+    can *read*, in a diff, on a screen, without a runtime, without data, without running
+    anything at all. The declarations turned a question about program behaviour into a
+    question about two lines of text. Running the pipeline merely confirmed it.
+
+    ### What it would have cost
+
+    The bug hunt was driven by numbers that looked wrong. These numbers do not:
+
+    | | molar (what we shipped) | mass (correct) |
+    |---|---|---|
+    | annual NEE, g C m-2 yr-1 | `-474` | `-491` |
+    | mean weekly GPP, g m-2 d-1 | `3.88` | `4.03` |
+    | bias vs satellite | `-0.36` | `-0.21` |
+
+    The factor is `1e-6 × 12.011 × 86400 = 1.038`, so **every product is 3.6% low** — well
+    inside what you would accept from a flux tower, and far inside the 8% spread of the
+    retrieval it gets validated against. The plain pipeline's comparison, the one step whose
+    entire job is to catch this sort of thing, reported a bias of `-0.36` against an rmse of
+    `0.58` and raised no objection.
+
+    And the annual carbon budget would never have been caught at all. It is compared against
+    nothing; it is simply reported. The only reason the error surfaced anywhere is that one
+    of the two products happens to be validated against somebody else's data.
+
+    ### Fixing it
+
+    Convert where the daily budget is formed. The declarations then tell you exactly how far
+    the change reaches: stage 4 declared molar, so stage 4 has to move too — same body, new
+    signature.
+    """)
+    return
+
+
+@app.cell
+def _(Annotated, Freq, UMOL_S_TO_G_D, Unit, declare_freq, declare_units, xr):
+    @declare_units
+    @declare_freq
+    def daily_carbon_grams(
+        flux: Annotated[xr.DataArray, Unit("umol m-2 s-1"), Freq("30min")],
+    ) -> Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("D")]:
+        """Mean half-hourly molar flux -> daily carbon mass flux."""
+        return flux.resample(time="D").mean() * UMOL_S_TO_G_D
+
+    @declare_units
+    @declare_freq
+    def weekly_mean_grams(
+        daily: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("D")],
+    ) -> Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")]:
+        """Mean daily flux within each week ending on a Sunday."""
+        return daily.resample(time="W-SUN").mean()
+
+    return daily_carbon_grams, weekly_mean_grams
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    **A caveat worth understanding.** By default a declared output is *stamped*, not
+    checked: whatever the body returns comes back labelled `g m-2 d-1`. That is what makes
+    the fix work. `* UMOL_S_TO_G_D` is scalar arithmetic, which xarray applies to the values
+    and not to `attrs`, so the result is numerically right and still labelled
+    `umol m-2 s-1` until the declaration relabels it.
+
+    The `on_output="strict"` policy verifies the label instead of overwriting it — and would
+    therefore reject the function we just wrote, whose `attrs` are stale by construction:
+    """)
+    return
+
+
+@app.cell
+def _(Annotated, Freq, UMOL_S_TO_G_D, Unit, declare_freq, declare_units, nee_clean, pint, xr):
+    @declare_units(on_output="strict")
+    @declare_freq
+    def daily_carbon_strict(
+        flux: Annotated[xr.DataArray, Unit("umol m-2 s-1"), Freq("30min")],
+    ) -> Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("D")]:
+        """The corrected body — numerically right, and rejected anyway."""
+        return flux.resample(time="D").mean() * UMOL_S_TO_G_D
+
+    try:
+        daily_carbon_strict(nee_clean)
+    except pint.DimensionalityError as exc:
+        print(f"{type(exc).__name__}: {exc}")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    So the choice is per stage: `strict` where the body passes units through untouched — it
+    would have caught a stage that *claimed* a conversion it never made — and stamping where
+    the body does its own unit arithmetic, as here. The alternative is to clear the stale
+    `attrs` in the body and keep `strict`.
+
+    With the conversion in place, the chain runs:
+    """)
+    return
+
+
+@app.cell
+def _(daily_carbon_grams, fluxes, weekly_mean_grams):
+    gpp_daily = daily_carbon_grams(fluxes["gpp"])
+    weekly_gpp = weekly_mean_grams(gpp_daily)
+
+    print(f"{weekly_gpp.sizes['time']} weeks, anchored {str(weekly_gpp.time.values[0])[:10]} (a Sunday)")
+    print(f"mean weekly GPP = {float(weekly_gpp.mean()):.2f} {weekly_gpp.units}")
+    return gpp_daily, weekly_gpp
 
 
 @app.cell
@@ -651,22 +792,15 @@ def _(compare_with_satellite_new, sat_gpp, weekly_gpp):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md("""
-    **What it catches.** Both of the first pipeline's silent bugs, arriving at the one
-    stage that checks its inputs: weekly GPP that was never converted out of moles, and
-    weekly GPP on the wrong day of the week.
+    **What it catches.** The bug that produced the first pipeline's `nan` statistics:
+    weekly means on the wrong day of the week, silently misaligned by xarray.
     """)
     return
 
 
 @app.cell
-def _(FreqError, compare_with_satellite_new, fluxes, gpp_daily, pint, sat_gpp):
-    _never_converted = fluxes["gpp"].resample(time="D").mean().resample(time="W-SUN").mean()
+def _(FreqError, compare_with_satellite_new, gpp_daily, sat_gpp):
     _wrong_weekday = gpp_daily.resample(time="W-WED").mean()
-
-    try:
-        compare_with_satellite_new(_never_converted, sat_gpp)
-    except pint.DimensionalityError as exc:
-        print(f"{type(exc).__name__}: {exc}")
 
     try:
         compare_with_satellite_new(_wrong_weekday, sat_gpp)
@@ -678,9 +812,9 @@ def _(FreqError, compare_with_satellite_new, fluxes, gpp_daily, pint, sat_gpp):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md("""
-    Compare those two messages against the `nan` the first pipeline produced. Same bugs,
-    same stage — but each error names the parameter, the expectation and the reality, and
-    arrives before the arithmetic rather than after it.
+    Compare that against the `nan` the first pipeline produced. Same bug, same stage — but
+    the error names the parameter, the expectation and the reality, and arrives before the
+    arithmetic rather than after it.
     """)
     return
 
@@ -696,10 +830,11 @@ def _(mo):
 
 
 @app.cell
-def _(comparison, daily_carbon_new, fluxes, gpp_daily, nee_daily, weekly_gpp):
-    _reco_daily = daily_carbon_new(fluxes["reco"])
+def _(comparison, daily_carbon_grams, fluxes, gpp_daily, nee_clean, weekly_gpp):
+    _nee_daily = daily_carbon_grams(nee_clean)
+    _reco_daily = daily_carbon_grams(fluxes["reco"])
 
-    print(f"annual NEE  = {float(nee_daily.sum()):+8.0f} g C m-2 yr-1   (negative = sink)")
+    print(f"annual NEE  = {float(_nee_daily.sum()):+8.0f} g C m-2 yr-1   (negative = sink)")
     print(f"annual GPP  = {float(gpp_daily.sum()):+8.0f} g C m-2 yr-1")
     print(f"annual RECO = {float(_reco_daily.sum()):+8.0f} g C m-2 yr-1")
     print(f"\nweekly GPP: {weekly_gpp.sizes['time']} weeks from {str(weekly_gpp.time.values[0])[:10]} (a Sunday)")
@@ -720,10 +855,21 @@ def _(mo):
     ~1060 — a mid-latitude deciduous forest behaving like one. And a satellite comparison
     that actually compares like with like.
 
-    Nothing here was clever. The four assumptions were already written down, in the
+    Nothing here was clever. Three of the four assumptions were already written down in the
     docstrings, where they were worth nothing; moving them into the signature is the whole
     of the change. The annotations do look cluttered, but the clutter is dense, relevant
     information, and it is checked on every call.
+
+    The fourth is the one that matters. It was never written down anywhere, in any form. A
+    deliberate bug hunt with the numbers in front of us did not find it, because a 3.6%
+    error in a flux budget does not look like an error. What found it was two declarations
+    disagreeing at the point where the pipeline met data whose units it did not control —
+    and once they are written down, that disagreement is legible on the page. The check at
+    run-time confirmed what the signatures already said.
+
+    That is the case for declaring your expectations: not the bugs you would have caught
+    anyway, but the ones with no symptom to notice, made visible by writing down what each
+    stage takes and returns.
 
     Two honest caveats. Declared outputs are *stamped* rather than checked by default, so
     a stage whose output nobody consumes under a declaration is a stage nobody is checking.
