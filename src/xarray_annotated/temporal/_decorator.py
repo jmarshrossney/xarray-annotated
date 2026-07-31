@@ -106,6 +106,9 @@ def declare_freq(
             unin = on_uninferable if on_uninferable is not None else pol.on_uninferable
             if input_freqs:
                 bound = sig.bind_partial(*args, **kwargs)
+                # bind_partial omits parameters left at their default; apply
+                # them so a declared default is validated too.
+                bound.apply_defaults()
                 for pname, val in list(bound.arguments.items()):
                     marker = input_freqs.get(pname)
                     if marker is not None and isinstance(val, xr.DataArray):

@@ -453,6 +453,42 @@ class TestDeclareFreq:
 
         assert f(None) is None
 
+    def test_declared_default_is_validated(self):
+        @temporal.declare_freq
+        def f(
+            x: Annotated[xr.DataArray, Freq("D")] = _da(
+                pd.date_range("2020-01-01", periods=5, freq="7D")
+            ),
+        ) -> xr.DataArray:
+            return x
+
+        with pytest.raises(temporal.FreqError, match="frequency mismatch"):
+            f()  # x left at its non-conforming default
+
+    def test_declared_default_honours_on_mismatch(self):
+        @temporal.declare_freq(on_mismatch="warn")
+        def f(
+            x: Annotated[xr.DataArray, Freq("D")] = _da(
+                pd.date_range("2020-01-01", periods=5, freq="7D")
+            ),
+        ) -> xr.DataArray:
+            return x
+
+        with pytest.warns(temporal.FreqWarning, match="frequency mismatch"):
+            f()
+
+    def test_varargs_and_kwargs_survive_apply_defaults(self):
+        @temporal.declare_freq
+        def f(
+            x: Annotated[xr.DataArray, Freq("D")], *rest: int, **kw: int
+        ) -> xr.DataArray:
+            assert rest == (1, 2)
+            assert kw == {"z": 3}
+            return x
+
+        da = _da(pd.date_range("2020-01-01", periods=5, freq="D"))
+        assert f(da, 1, 2, z=3) is da
+
     def test_output_single_validated(self):
         @temporal.declare_freq
         def f(n: int) -> Annotated[xr.DataArray, Freq("W-SUN")]:
