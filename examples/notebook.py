@@ -56,15 +56,18 @@ def _(mo):
     | Variable | Unit | Note |
     |---|---|---|
     | `nee_raw` | `umol m-2 s-1` | net ecosystem exchange; **negative means uptake** |
-    | `tair_raw` | `K` | air temperature, as stored |
-    | `ppfd_raw` | `umol m-2 s-1` | photosynthetic photon flux density |
-    | `qc_raw` | — | quality flag, `int8`: 0 good, 1 moderate, 2 bad |
+    | `tair` | `K` | air temperature, as stored |
+    | `ppfd` | `umol m-2 s-1` | photosynthetic photon flux density |
+    | `qc` | — | quality flag, `int8`: 0 good, 1 moderate, 2 bad |
 
     We also have a satellite GPP product to validate against, on a coarser grid:
 
     | Variable | Unit | Note |
     |---|---|---|
     | `sat_gpp` | `g m-2 d-1` | weekly mean GPP, **week-ending Sunday** |
+
+    Throughout, a mass flux written `g m-2 d-1` means grams *of carbon*: pint has no way
+    to say "grams of carbon" rather than "grams", so the species lives in the prose.
     """)
 
 
@@ -184,9 +187,9 @@ def _(UMOL_S_TO_G_D, np, xr):
             )
 
         nee_raw = _series(_nee, "umol m-2 s-1")
-        tair_raw = _series(_tair_c + 273.15, "K")
-        ppfd_raw = _series(_ppfd, "umol m-2 s-1")
-        qc_raw = _series(_qc, "1", dtype="int8")
+        tair = _series(_tair_c + 273.15, "K")
+        ppfd = _series(_ppfd, "umol m-2 s-1")
+        qc = _series(_qc, "1", dtype="int8")
 
         # The satellite product: weekly mean GPP, week-ending Sunday, as a mass flux.
         # Built from the true half-hourly GPP, with a retrieval error on top.
@@ -195,7 +198,7 @@ def _(UMOL_S_TO_G_D, np, xr):
         sat_gpp = (_gpp_weekly * (1.0 + 0.08 * _rng.normal(size=_gpp_weekly.sizes["time"]))).assign_attrs(
             units="g m-2 d-1"
         )
-        return nee_raw, ppfd_raw, qc_raw, sat_gpp, tair_raw
+        return nee_raw, ppfd, qc, sat_gpp, tair
 
     return (get_data,)
 
@@ -203,11 +206,11 @@ def _(UMOL_S_TO_G_D, np, xr):
 @app.cell
 def _(get_data, xr):
     # Assume that get_data is defined elsewhere
-    nee_raw, ppfd_raw, qc_raw, sat_gpp, tair_raw = get_data()
+    nee_raw, ppfd, qc, sat_gpp, tair = get_data()
     print(f"{nee_raw.sizes['time']} half-hourly records, {xr.infer_freq(nee_raw.time)}")
-    print(f"flagged bad or moderate: {int((qc_raw > 0).sum())}")
+    print(f"flagged bad or moderate: {int((qc > 0).sum())}")
     print(f"satellite GPP: {sat_gpp.sizes['time']} weekly means, {xr.infer_freq(sat_gpp.time)}")
-    return nee_raw, ppfd_raw, qc_raw, sat_gpp, tair_raw
+    return nee_raw, ppfd, qc, sat_gpp, tair
 
 
 @app.cell(hide_code=True)
@@ -221,12 +224,12 @@ def _(mo):
     ```mermaid
     flowchart TD
         NEER["nee_raw<br/>umol m-2 s-1 · 30min"] --> SQ(["screen_quality"])
-        QC["qc_raw<br/>int8 · 30min"] --> SQ
+        QC["qc<br/>int8 · 30min"] --> SQ
         SQ --> NEE["nee<br/>umol m-2 s-1 · 30min"]
 
         NEE --> PF(["partition_fluxes"])
-        TAIR["tair_raw<br/>K · 30min"] --> PF
-        PPFD["ppfd_raw<br/>umol m-2 s-1 · 30min"] --> PF
+        TAIR["tair<br/>K · 30min"] --> PF
+        PPFD["ppfd<br/>umol m-2 s-1 · 30min"] --> PF
         PF --> GPP["gpp<br/>umol m-2 s-1 · 30min"]
         PF --> RECO["reco<br/>umol m-2 s-1 · 30min"]
 
@@ -306,9 +309,9 @@ def _(
     screen_quality,
     weekly_mean,
 ):
-    def run_pipeline(nee_raw, qc_raw, tair_raw, ppfd_raw):
-        nee = screen_quality(nee_raw, qc_raw)
-        gpp, _ = partition_fluxes(nee, tair_raw, ppfd_raw)
+    def run_pipeline(nee_raw, qc, tair, ppfd):
+        nee = screen_quality(nee_raw, qc)
+        gpp, _ = partition_fluxes(nee, tair, ppfd)
 
         # Product 1: the annual carbon budget.
         nee_annual = float(daily_mean(nee).sum())
@@ -317,23 +320,29 @@ def _(
         gpp_weekly = weekly_mean(daily_mean(gpp))
         bias, rmse = compare_with_satellite(gpp_weekly, sat_gpp)
 
-        return nee_annual, gpp_weekly, bias, rmse
+        return {
+            "nee_annual": nee_annual,
+            "gpp_weekly": gpp_weekly,
+            "comparison": {"bias": bias, "rmse": rmse},
+        }
 
     return (run_pipeline,)
 
 
 @app.cell(hide_code=True)
-def _(mo, nee_raw, ppfd_raw, qc_raw, run_pipeline, tair_raw):
-    _nee, _gpp, _bias, _rmse = run_pipeline(nee_raw, qc_raw, tair_raw, ppfd_raw)
+def _(mo, nee_raw, ppfd, qc, run_pipeline, tair):
+    _results = run_pipeline(nee_raw, qc, tair, ppfd)
+    _gpp = _results["gpp_weekly"]
+    _cmp = _results["comparison"]
 
     mo.md(f"""
     This produces:
 
     | Product | Value |
     |---|---|
-    | Annual NEE | **{_nee:+.0f}** g C m^-2^ yr^-1^ (negative = sink) |
+    | Annual NEE | **{_results["nee_annual"]:+.0f}** g C m^-2^ yr^-1^ (negative = sink) |
     | Weekly GPP | {_gpp.sizes["time"]} weeks from {str(_gpp.time.values[0])[:10]}, mean **{float(_gpp.mean()):.3g}** umol m^-2^ s^-1^ |
-    | Satellite comparison | bias **{_bias:+.2f}**, rmse **{_rmse:.2f}** g C m^-2^ d^-1^ |
+    | Satellite comparison | bias **{_cmp["bias"]:+.2f}**, rmse **{_cmp["rmse"]:.2f}** g C m^-2^ d^-1^ |
     """)
     return
 
@@ -381,11 +390,11 @@ def _(
         """Daily -> weekly mean. Week ends on Sunday, like the satellite product."""
         return daily.resample(time="W-SUN").mean()
 
-    def run_pipeline_v2(nee_raw, qc_raw, tair_raw, ppfd_raw):
-        tair_degc = tair_raw - 273.15  # the Q10 model wants degC, not kelvin
+    def run_pipeline_patched(nee_raw, qc, tair, ppfd):
+        tair_degc = tair - 273.15  # the Q10 model wants degC, not kelvin
 
-        nee = screen_quality(nee_raw, qc_raw)
-        gpp, _ = partition_fluxes(nee, tair_degc, ppfd_raw)
+        nee = screen_quality(nee_raw, qc)
+        gpp, _ = partition_fluxes(nee, tair_degc, ppfd)
 
         # Product 1: the annual carbon budget.
         nee_annual = float(daily_mean(nee).sum())
@@ -394,21 +403,27 @@ def _(
         gpp_weekly = weekly_mean_sunday(daily_mean(gpp))
         bias, rmse = compare_with_satellite(gpp_weekly, sat_gpp)
 
-        return nee_annual, gpp_weekly, bias, rmse
+        return {
+            "nee_annual": nee_annual,
+            "gpp_weekly": gpp_weekly,
+            "comparison": {"bias": bias, "rmse": rmse},
+        }
 
-    return (run_pipeline_v2,)
+    return (run_pipeline_patched,)
 
 
 @app.cell(hide_code=True)
-def _(mo, nee_raw, ppfd_raw, qc_raw, run_pipeline_v2, tair_raw):
-    _nee, _gpp, _bias, _rmse = run_pipeline_v2(nee_raw, qc_raw, tair_raw, ppfd_raw)
+def _(mo, nee_raw, ppfd, qc, run_pipeline_patched, tair):
+    _results = run_pipeline_patched(nee_raw, qc, tair, ppfd)
+    _gpp = _results["gpp_weekly"]
+    _cmp = _results["comparison"]
 
     mo.md(f"""
     | Product | Value |
     |---|---|
-    | Annual NEE | **{_nee:+.0f}** g C m^-2^ yr^-1^ (negative = sink) |
+    | Annual NEE | **{_results["nee_annual"]:+.0f}** g C m^-2^ yr^-1^ (negative = sink) |
     | Weekly GPP | {_gpp.sizes["time"]} weeks from {str(_gpp.time.values[0])[:10]}, mean **{float(_gpp.mean()):.3g}** umol m^-2^ s^-1^ |
-    | Satellite comparison | bias **{_bias:+.2f}**, rmse **{_rmse:.2f}** g C m^-2^ d^-1^ |
+    | Satellite comparison | bias **{_cmp["bias"]:+.2f}**, rmse **{_cmp["rmse"]:.2f}** g C m^-2^ d^-1^ |
     """)
     return
 
@@ -456,7 +471,7 @@ def _(
     @declare_units
     @declare_schema
     @declare_freq
-    def screen_quality_new(
+    def screen_quality_declared(
         flux: Annotated[
             xr.DataArray,
             Dims("time"),
@@ -482,7 +497,7 @@ def _(
         reco: Annotated[xr.DataArray, Dims("time"), Unit("umol m-2 s-1")]
 
     @declare_units
-    def partition_fluxes_new(
+    def partition_fluxes_declared(
         nee: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
         tair: Annotated[xr.DataArray, Unit("degC")],  # (6)
         ppfd: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
@@ -493,14 +508,14 @@ def _(
         return {"gpp": gpp, "reco": reco}
 
     @declare_freq
-    def daily_mean_new(
+    def daily_mean_declared(
         flux: Annotated[xr.DataArray, Freq("30min")],
     ) -> Annotated[xr.DataArray, Freq("D")]:  # (7)
         """Mean half-hourly flux within each day."""
         return flux.resample(time="D").mean()
 
     @declare_freq
-    def weekly_mean_new(
+    def weekly_mean_declared(
         daily: Annotated[xr.DataArray, Freq("D")],
     ) -> Annotated[xr.DataArray, Freq("W-SUN")]:  # (8)
         """Mean daily flux within each week ending on a Sunday."""
@@ -508,7 +523,7 @@ def _(
 
     @declare_units
     @declare_freq
-    def compare_with_satellite_new(
+    def compare_with_satellite_declared(
         modelled: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")],  # (9)
         observed: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")],  # (10)
     ) -> dict[str, float]:
@@ -517,11 +532,11 @@ def _(
         return {"bias": float(_diff.mean()), "rmse": float((_diff**2).mean() ** 0.5)}
 
     return (
-        compare_with_satellite_new,
-        daily_mean_new,
-        partition_fluxes_new,
-        screen_quality_new,
-        weekly_mean_new,
+        compare_with_satellite_declared,
+        daily_mean_declared,
+        partition_fluxes_declared,
+        screen_quality_declared,
+        weekly_mean_declared,
     )
 
 
@@ -577,32 +592,36 @@ def _(mo):
 
 @app.cell
 def _(
-    compare_with_satellite_new,
-    daily_mean_new,
-    partition_fluxes_new,
+    compare_with_satellite_declared,
+    daily_mean_declared,
+    partition_fluxes_declared,
     sat_gpp,
-    screen_quality_new,
-    weekly_mean_new,
+    screen_quality_declared,
+    weekly_mean_declared,
 ):
-    def run_pipeline_new(nee_raw, qc_raw, tair_raw, ppfd_raw):
-        nee = screen_quality_new(nee_raw, qc_raw)
-        fluxes = partition_fluxes_new(nee, tair_raw, ppfd_raw)
+    def run_pipeline_declared(nee_raw, qc, tair, ppfd):
+        nee = screen_quality_declared(nee_raw, qc)
+        fluxes = partition_fluxes_declared(nee, tair, ppfd)
 
         # Product 1: the annual carbon budget.
-        nee_annual = float(daily_mean_new(nee).sum())
+        nee_annual = float(daily_mean_declared(nee).sum())
 
         # Product 2: weekly GPP, against the satellite retrieval.
-        gpp_weekly = weekly_mean_new(daily_mean_new(fluxes["gpp"]))
-        comparison = compare_with_satellite_new(gpp_weekly, sat_gpp)
+        gpp_weekly = weekly_mean_declared(daily_mean_declared(fluxes["gpp"]))
+        comparison = compare_with_satellite_declared(gpp_weekly, sat_gpp)
 
-        return nee_annual, gpp_weekly, comparison
+        return {
+            "nee_annual": nee_annual,
+            "gpp_weekly": gpp_weekly,
+            "comparison": comparison,
+        }
 
-    return (run_pipeline_new,)
+    return (run_pipeline_declared,)
 
 
 @app.cell
-def _(nee_raw, ppfd_raw, qc_raw, run_pipeline_new, tair_raw):
-    run_pipeline_new(nee_raw, qc_raw, tair_raw, ppfd_raw)
+def _(nee_raw, ppfd, qc, run_pipeline_declared, tair):
+    run_pipeline_declared(nee_raw, qc, tair, ppfd)
     return
 
 
@@ -651,45 +670,43 @@ def _(mo):
 
 @app.cell
 def _(
-    compare_with_satellite_new,
-    daily_mean_new,
-    partition_fluxes_new,
+    compare_with_satellite_declared,
+    daily_mean_declared,
+    partition_fluxes_declared,
     sat_gpp,
-    screen_quality_new,
+    screen_quality_declared,
     to_mass_flux,
-    weekly_mean_new,
+    weekly_mean_declared,
 ):
-    def run_pipeline_correct(nee_raw, qc_raw, tair_raw, ppfd_raw):
-        nee = screen_quality_new(nee_raw, qc_raw)
-        fluxes = partition_fluxes_new(nee, tair_raw, ppfd_raw)
+    def run_pipeline_final(nee_raw, qc, tair, ppfd):
+        nee = screen_quality_declared(nee_raw, qc)
+        fluxes = partition_fluxes_declared(nee, tair, ppfd)
 
-        # The stage the diagram always had and the code never did.
-        nee_daily = daily_mean_new(to_mass_flux(nee))
-        gpp_daily = daily_mean_new(to_mass_flux(fluxes["gpp"]))
-        reco_daily = daily_mean_new(to_mass_flux(fluxes["reco"]))
+        nee_daily = daily_mean_declared(to_mass_flux(nee))
+        gpp_daily = daily_mean_declared(to_mass_flux(fluxes["gpp"]))
+        reco_daily = daily_mean_declared(to_mass_flux(fluxes["reco"]))
 
         # Product 1: the annual carbon budget.
         nee_annual = float(nee_daily.sum())
 
         # Product 2: weekly GPP, against the satellite retrieval.
-        gpp_weekly = weekly_mean_new(gpp_daily)
-        comparison = compare_with_satellite_new(gpp_weekly, sat_gpp)
+        gpp_weekly = weekly_mean_declared(gpp_daily)
+        comparison = compare_with_satellite_declared(gpp_weekly, sat_gpp)
 
         return {
             "nee_annual": nee_annual,
             "gpp_annual": float(gpp_daily.sum()),
             "reco_annual": float(reco_daily.sum()),
-            "gpp_daily": gpp_daily,
             "gpp_weekly": gpp_weekly,
             "comparison": comparison,
         }
 
-    return (run_pipeline_correct,)
+    return (run_pipeline_final,)
 
 
 @app.cell
-def _(nee_raw, ppfd_raw, qc_raw, run_pipeline_correct, tair_raw):
-    results = run_pipeline_correct(nee_raw, qc_raw, tair_raw, ppfd_raw)
+def _(nee_raw, ppfd, qc, run_pipeline_final, tair):
+    results = run_pipeline_final(nee_raw, qc, tair, ppfd)
     return (results,)
 
 
@@ -704,7 +721,7 @@ def _(mo, results):
     | Annual NEE | **{results["nee_annual"]:+.0f}** g C m^-2^ yr^-1^ (negative = sink) |
     | Annual GPP | **{results["gpp_annual"]:+.0f}** g C m^-2^ yr^-1^ |
     | Annual RECO | **{results["reco_annual"]:+.0f}** g C m^-2^ yr^-1^ |
-    | Weekly GPP | {_weekly.sizes["time"]} weeks from {str(_weekly.time.values[0])[:10]} (a Sunday), mean **{float(_weekly.mean()):.2f}** {_weekly.units} |
+    | Weekly GPP | {_weekly.sizes["time"]} weeks from {str(_weekly.time.values[0])[:10]} (a Sunday), mean **{float(_weekly.mean()):.2f}** g C m^-2^ d^-1^ |
     | Satellite comparison | bias **{_cmp["bias"]:+.2f}**, rmse **{_cmp["rmse"]:.2f}** g C m^-2^ d^-1^ |
     """)
     return
@@ -714,27 +731,22 @@ def _(mo, results):
 def _(mo):
     mo.md("""
     An annual NEE near **-490 g C m^-2^ yr^-1^** against a GPP of ~1490 and respiration
-    of ~1060: a mid-latitude deciduous forest behaving like one, and a satellite
-    comparison that finally compares like with like.
+    of ~1060 is reasonable for a mid-latitude deciduous forest. Importantly, the satellite
+    comparison finally compares like with like.
 
-    Nothing here was clever. Three of the four bugs were written down in the docstrings
-    and the fourth in the diagram, where they were all worth exactly nothing; moving them
-    into the signature is the whole of the change. The fourth is the one that matters. A
-    deliberate bug hunt with the numbers in front of us did not find it, because a 3.6%
-    error in a flux budget does not look like an error. What found it was two declarations
-    disagreeing at the point where the pipeline met data whose units it did not control.
-    A diagram that no longer describes the code is a comment; a signature that no longer
-    describes the code is an error.
+    Nothing here was clever. The original diagram was entirely correct, and 3/4 bugs were
+    correctly called in docstrings. Without an enforcement mechanism, though, they were
+    able to slip through.
 
-    Declarations are not proof, and they are worth understanding before you lean on them:
-    see [Declaring properties](guides/declaring.md) for what each check does and does not
-    mean, [Configuring validation](guides/policy.md) for how strict to make it --- in
-    particular [`on_output`](guides/policy.md#units-on_output), which decides whether a
-    declared return value is checked or merely stamped --- and
-    [Troubleshooting](guides/troubleshooting.md) for the failure modes worth knowing
-    about, including
-    [the forgotten conversion](guides/troubleshooting.md#a-forgotten-conversion-is-not-caught-at-the-producer)
-    that this notebook is about.
+    The fourth is the one that matters most since a 3.6% error in a flux budget does not
+    obviously look like an error.
+
+    Although this is quite powerful, there are a few gaps and sharp edges that are worth
+    understanding before you lean on them. See the guides for more info.
+
+    - [Declaring properties](guides/declaring.md)
+    - [Configuring validation](guides/policy.md)
+    - [Troubleshooting](guides/troubleshooting.md)
     """)
     return
 
