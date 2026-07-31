@@ -163,6 +163,10 @@ would multiply by 100 a second time, so stamping is the only safe default.
 | `stamp` (default) | overwrites `attrs["units"]` with the declared unit, no checks   |
 | `strict`          | a present, parseable label that differs from the declaration raises |
 
+Both rows describe a return value labelled through `attrs`. A pint-quantified return is
+*converted* to the declaration instead of stamped, under either setting — see
+[Quantified arrays](troubleshooting.md#quantified-arrays).
+
 Environment variable: `XARRAY_ANNOTATED_UNITS_ON_OUTPUT` (default `stamp`).
 
 !!! warning "`strict` is for unit-aware bodies only"
@@ -170,7 +174,8 @@ Environment variable: `XARRAY_ANNOTATED_UNITS_ON_OUTPUT` (default `stamp`).
     A body doing manual scalar arithmetic — like `to_pascals` above — fails `strict`
     **whether or not it is correct**, because its stale label is indistinguishable from a
     wrong one. `strict` suits bodies that maintain truthful units: pass-through and
-    subsetting functions, or computations on pint-quantified arrays.
+    subsetting functions, or computations on pint-quantified arrays (whose units really
+    are checked, since a `Quantity` cannot carry a stale label).
 
     A manual-arithmetic body can opt in by clearing its own label (`out.attrs.pop("units",
     None)`), since an absent label is always stamped.

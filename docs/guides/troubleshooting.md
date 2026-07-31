@@ -88,6 +88,10 @@ The array passed through unconverted.
 it cannot confirm or convert anything. Note that xarray drops `attrs` through most
 arithmetic by default, so an array that had units upstream may well not have them here.
 
+A pint-quantified array does **not** trigger this: its unit lives in the data rather than
+in `attrs`, and is read from `da.pint.units` instead. See
+[Quantified arrays](#quantified-arrays).
+
 **Fix.** Depends on what you want the warning to mean:
 
 - stamp the unit at the point the array enters your code, so downstream checks have
@@ -99,6 +103,30 @@ arithmetic by default, so an array that had units upstream may well not have the
 
 **Not** the same thing as a dimensional mismatch, which always raises regardless of this
 setting.
+
+
+## Pint-quantified arrays { #quantified-arrays }
+
+If you use [pint-xarray](https://pint-xarray.readthedocs.io), your arrays may hold a
+`pint.Quantity` rather than a plain ndarray, with the unit in the data and `attrs` empty.
+These are supported, but the two directions behave differently, because a `Quantity`'s unit
+travels with the values and so is always truthful, whereas an `attrs` label is not.
+
+**As an input**, the unit is read from `da.pint.units`, converted to the declaration, and
+the array handed to the function body **dequantified** with `attrs["units"]` set — the same
+shape of value a plain input produces, so bodies need no special case. A leftover
+`attrs["units"]` on a quantified array is ignored in favour of the `Quantity`.
+
+**As a return value**, the array is *converted* to the declaration rather than stamped, and
+comes back **still quantified**, with `attrs` untouched:
+
+- `on_output="stamp"` converts if needed, and raises `DimensionalityError` if it cannot.
+  This is the one situation where `stamp` can raise — for a `Quantity` a mismatch is a real
+  error, not the expected staleness that makes stamping the right default for `attrs`.
+- `on_output="strict"` raises on any unit other than the declared one.
+
+If a function must return something dequantified — to put it in a frozen dataclass, say —
+call `.pint.dequantify()` in the body.
 
 
 ## `DimensionalityError` that no policy will suppress { #dimensionalityerror }
