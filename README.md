@@ -1,5 +1,7 @@
 # xarray-annotated
 
+[![PyPI version](https://img.shields.io/pypi/v/xarray-annotated)](https://pypi.org/project/xarray-annotated/)
+[![Python versions](https://img.shields.io/pypi/pyversions/xarray-annotated)](https://pypi.org/project/xarray-annotated/)
 [![CI](https://github.com/jmarshrossney/xarray-annotated/actions/workflows/ci.yml/badge.svg)](https://github.com/jmarshrossney/xarray-annotated/actions/workflows/ci.yml)
 [![Docs](https://github.com/jmarshrossney/xarray-annotated/actions/workflows/docs.yml/badge.svg)](https://jmarshrossney.github.io/xarray-annotated)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/jmarshrossney/xarray-annotated/blob/main/LICENSE)
