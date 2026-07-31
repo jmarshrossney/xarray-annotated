@@ -144,6 +144,10 @@ def declare_units(
                 eff_missing = on_missing if on_missing is not None else pol.on_missing
                 eff_inexact = on_inexact if on_inexact is not None else pol.on_inexact
                 bound = sig.bind_partial(*args, **kwargs)
+                # bind_partial omits parameters left at their default; apply
+                # them so a declared default is converted too (the converted
+                # value is then passed explicitly via bound.args/bound.kwargs).
+                bound.apply_defaults()
                 for name, val in list(bound.arguments.items()):
                     declared = input_units.get(name)
                     if declared is not None and isinstance(val, xr.DataArray):

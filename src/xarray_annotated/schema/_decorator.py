@@ -95,6 +95,9 @@ def declare_schema(
             eff = on_mismatch if on_mismatch is not None else pol.on_mismatch
             if input_markers:
                 bound = sig.bind_partial(*args, **kwargs)
+                # bind_partial omits parameters left at their default; apply
+                # them so a declared default is validated too.
+                bound.apply_defaults()
                 for pname, val in list(bound.arguments.items()):
                     markers = input_markers.get(pname)
                     if markers is not None and isinstance(val, xr.DataArray):

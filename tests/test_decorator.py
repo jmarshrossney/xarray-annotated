@@ -89,6 +89,41 @@ class TestBareDecorator:
         assert out.attrs["units"] == "Pa"
 
 
+class TestDefaults:
+    def test_declared_default_is_converted(self):
+        @units.declare_units
+        def f(
+            p: Annotated[xr.DataArray, "Pa"] = _da([[10.0]], unit="hPa"),
+        ) -> xr.DataArray:
+            return p
+
+        out = f()  # p left at its default; must still be converted
+        assert out.attrs["units"] == "Pa"
+        np.testing.assert_allclose(out.values, [[1000.0]])
+
+    def test_default_object_is_not_mutated(self):
+        default = _da([[10.0]], unit="hPa")
+
+        @units.declare_units
+        def f(p: Annotated[xr.DataArray, "Pa"] = default) -> xr.DataArray:
+            return p
+
+        f()
+        assert default.attrs["units"] == "hPa"
+        np.testing.assert_allclose(default.values, [[10.0]])
+        np.testing.assert_allclose(f().values, [[1000.0]])  # second call unaffected
+
+    def test_varargs_and_kwargs_survive_apply_defaults(self):
+        @units.declare_units
+        def f(p: Annotated[xr.DataArray, "Pa"], *rest: int, **kw: int) -> xr.DataArray:
+            assert rest == (1, 2)
+            assert kw == {"z": 3}
+            return p
+
+        out = f(_da([[10.0]], unit="hPa"), 1, 2, z=3)
+        np.testing.assert_allclose(out.values, [[1000.0]])
+
+
 class TestFailFast:
     def test_bad_declared_unit_raises_at_decoration(self):
         with pytest.raises(ValueError, match="not a recognised"):
