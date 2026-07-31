@@ -1,7 +1,6 @@
 # Troubleshooting
 
-Failure modes that are silent, or whose message doesn't obviously name its cause. Entries
-are titled by *symptom* — what you'd see — rather than by mechanism.
+Failure modes that are silent, or whose message doesn't obviously name its cause.
 
 
 ## A declaration is silently ignored { #a-declaration-is-silently-ignored }

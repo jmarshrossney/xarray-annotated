@@ -2,10 +2,9 @@
 
 Every unit string you declare has to be *parsed* by something. That something is a
 [pint](https://pint.readthedocs.io/en/stable/) registry, and which one you use is a
-one-time, process-wide decision — the only piece of setup `xarray-annotated` asks of you,
-and only if you use CF-convention units.
+one-time, process-wide decision.
 
-## The default: plain pint
+## pint units (the default)
 
 Out of the box you get `pint.get_application_registry()`, so standard pint unit strings
 parse with no setup at all:
@@ -64,7 +63,7 @@ set_registry(ureg)
 package's parsing helpers can't drift apart. `get_registry()` returns whichever registry
 is currently active.
 
-## Why it's process-wide
+## Registries are process-wide
 
 pint has a single global application registry, and quantities created under two different
 registries cannot be combined — pint raises rather than silently guessing. So this is not
@@ -75,5 +74,4 @@ consuming a library that has already called `use_cf_units()`, you are on CF unit
 
 This is the one piece of global state in the package that isn't a
 [policy](policy.md) — policies decide what happens when a check fails, whereas the
-registry decides what a unit string *means*, and two components disagreeing about that
-would be incoherent rather than merely inconsistent.
+registry decides what a unit string *means*.

@@ -21,7 +21,7 @@ nav = [
     { "Declaring properties" = "guides/declaring.md" },
     { "Configuring validation" = "guides/policy.md" },
     { "Choosing a unit registry" = "guides/registry.md" },
-    { "Reading and writing declarations" = "guides/tooling.md" },
+    { "Reading and writing declarations (advanced)" = "guides/tooling.md" },
     { "Troubleshooting" = "guides/troubleshooting.md" },
   ]},
   { "Worked example" = "example.md" },
