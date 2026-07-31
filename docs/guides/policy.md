@@ -97,7 +97,7 @@ Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64", on_mismatch="warn")]
 
 ## Units policy { #units }
 
-Two behavioural axes on top of `enabled`. Note that **dimensional** mismatches (e.g.
+Three behavioural axes on top of `enabled`. Note that **dimensional** mismatches (e.g.
 `"kg"` where `"Pa"` is declared) are not governed by either — they always raise
 `pint.DimensionalityError`.
 

@@ -28,13 +28,18 @@ third-party facet author can use it to build their own ``*_from_signature``
 reader.  No domain-specific name is re-exported here.
 """
 
+from importlib.metadata import version as _version
+
 from . import schema, temporal, units
 from ._annotations import unwrap_annotated, walk_signature
 from ._reader import Declared, declarations_from_signature
 from ._writer import annotate
 
+__version__ = _version("xarray-annotated")
+
 __all__ = [
     "Declared",
+    "__version__",
     "annotate",
     "declarations_from_signature",
     "schema",

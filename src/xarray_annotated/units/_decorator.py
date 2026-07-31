@@ -129,7 +129,7 @@ def declare_units(
                             apply(value, declared, name)
                 elif dataclasses.is_dataclass(result):
                     for name, declared in output_units.items():
-                        value = getattr(result, name)
+                        value = getattr(result, name, None)
                         if isinstance(value, xr.DataArray):
                             apply(value, declared, name)
             return result

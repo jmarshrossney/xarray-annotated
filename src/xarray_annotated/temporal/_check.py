@@ -242,6 +242,8 @@ def _report(ok: bool, severity: OnMismatch | OnUninferable, message: str) -> Non
         return
     if severity == "error":
         raise FreqError(message)
+    # stacklevel=3 targets the declare_freq call path (user -> wrapper ->
+    # check_freq -> _report); one frame too far for a direct check_freq call.
     warnings.warn(message, FreqWarning, stacklevel=3)
 
 

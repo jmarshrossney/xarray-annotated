@@ -87,8 +87,8 @@ class Policy:
             (`"error"`, `"warn"`, or `"ignore"`).
         on_inexact: Behaviour for a value-changing conversion
             (`"convert"`, `"warn"`, or `"error"`).
-        on_output: How much to trust a declared return value (`"stamp"`,
-            `"check"`, or `"strict"`).
+        on_output: How much to trust a declared return value (`"stamp"` or
+            `"strict"`).
     """
 
     enabled: bool = DEFAULT_ENABLED

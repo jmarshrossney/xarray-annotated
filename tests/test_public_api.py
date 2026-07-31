@@ -26,7 +26,11 @@ class TestAllIsHonest:
 
     def test_no_private_names_exported(self, modname):
         mod = importlib.import_module(modname)
-        private = [name for name in mod.__all__ if name.startswith("_")]
+        private = [
+            name
+            for name in mod.__all__
+            if name.startswith("_") and not name.startswith("__")
+        ]
         assert not private, f"{modname} exports private names: {private}"
 
     def test_all_is_sorted_and_unique(self, modname):
@@ -94,3 +98,12 @@ class TestInternalHelpersStayInternal:
 
     def test_public_entry_point_is_check_schema(self):
         assert "check_schema" in xa.schema.__all__
+
+
+def test_version_matches_pyproject():
+    import tomllib
+    from pathlib import Path
+
+    pyproject = Path(__file__).parent.parent / "pyproject.toml"
+    expected = tomllib.loads(pyproject.read_text())["project"]["version"]
+    assert xa.__version__ == expected
