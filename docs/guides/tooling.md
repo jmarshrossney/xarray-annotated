@@ -71,9 +71,10 @@ Sets `attrs["units"] = declared` on `da` and returns it. Under
 different from `declared` raises instead. An absent, over-long, or unparseable label is
 always stamped — absence is not evidence of a mismatch.
 
-Reach for this when you are applying a declaration you read off a signature yourself. Note
-that it mutates `da.attrs` in place and returns the same object, whereas `check_units`
-returns a converted copy.
+Reach for this when you are applying a declaration you read off a signature yourself.
+**Always use the return value.** For an `attrs`-labelled array it stamps in place and hands
+back the same object, but a [pint-quantified](troubleshooting.md#quantified-arrays) one is
+converted rather than stamped, so what comes back may be a new array.
 
 ### `check_freq`
 

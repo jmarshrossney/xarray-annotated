@@ -271,6 +271,94 @@ class TestCheckUnits:
 
 
 # ---------------------------------------------------------------------------
+# Pint-quantified inputs
+# ---------------------------------------------------------------------------
+
+
+def _quantified(values, unit):
+    """A DataArray holding a pint Quantity, as pint-xarray users produce."""
+    return _da(values, unit=unit).pint.quantify()
+
+
+class TestCheckUnitsQuantified:
+    """A quantified input carries its unit in the data, not in ``attrs``.
+
+    ``quantify()`` *moves* the label off ``attrs`` and into a ``pint.Quantity``,
+    so such an array has empty ``attrs`` and is invisible to any check that only
+    reads ``attrs["units"]``.
+    """
+
+    def test_quantified_input_is_converted(self):
+        # Before the fix this returned 1.0 stamped "Pa" -- 100x wrong, and only
+        # a "no 'units' attribute" warning to show for it.
+        out = units.check_units(_quantified([[1.0]], "hPa"), "Pa", "p")
+        assert out.attrs["units"] == "Pa"
+        np.testing.assert_allclose(out.values, [[100.0]])
+
+    def test_quantified_input_is_normalised_to_dequantified(self):
+        # The declared parameter type is a plain DataArray, so the body gets one:
+        # the Quantity is unwrapped and the unit re-stamped onto attrs.
+        out = units.check_units(_quantified([[1.0]], "hPa"), "Pa", "p")
+        assert out.pint.units is None
+
+    def test_quantified_input_does_not_warn_about_missing_attrs(self):
+        # The old diagnostic was actively misleading: the array does have a unit.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            units.check_units(_quantified([[1.0]], "Pa"), "Pa", "p")
+
+    def test_quantified_input_honours_on_missing_error(self):
+        # on_missing="error" is about *unreadable* units; a Quantity is readable.
+        out = units.check_units(
+            _quantified([[1.0]], "hPa"), "Pa", "p", on_missing="error"
+        )
+        np.testing.assert_allclose(out.values, [[100.0]])
+
+    def test_quantified_input_honours_on_inexact(self):
+        with pytest.raises(ValueError, match="on_inexact='error'"):
+            units.check_units(
+                _quantified([[1.0]], "hPa"), "Pa", "p", on_inexact="error"
+            )
+
+    def test_quantified_input_dimensional_mismatch_raises(self):
+        with pytest.raises(pint.DimensionalityError):
+            units.check_units(_quantified([[1.0]], "degC"), "kg", "p")
+
+    def test_pint_label_wins_over_stale_attrs(self):
+        """A leftover ``attrs`` label must not be preferred over the Quantity.
+
+        Reading ``attrs`` first is not merely wrong-in-principle here: pint
+        refuses to reconcile the two, so ``quantify()`` raises ``Cannot attach
+        units`` and the whole call dies. The Quantity is also the only one of
+        the two that cannot have gone stale.
+        """
+        da = _quantified([[1.0]], "hPa")
+        da.attrs["units"] = "kg"  # nonsense left over from upstream
+        out = units.check_units(da, "Pa", "p")
+        assert out.attrs["units"] == "Pa"
+        np.testing.assert_allclose(out.values, [[100.0]])
+
+    def test_unit_from_a_foreign_registry_routes_through_on_missing(self):
+        """Units are compared as *strings* re-parsed in the active registry.
+
+        That keeps every comparison in one registry (quantities from two
+        registries cannot be mixed), at the price that a unit defined only in
+        some other registry reads as unparseable -- which is the correct
+        outcome: unverifiable, so ``on_missing`` decides.
+        """
+        foreign = pint.UnitRegistry(force_ndarray_like=True)
+        foreign.define("widget = [thing]")
+        da = _da([[1.0]]).pint.quantify("widget", unit_registry=foreign)
+        with pytest.raises(ValueError, match="unparseable 'units'"):
+            units.check_units(da, "Pa", "p", on_missing="error")
+
+    def test_disabled_policy_leaves_quantified_input_alone(self):
+        da = _quantified([[1.0]], "hPa")
+        with units.policy(enabled=False):
+            assert units.check_units(da, "Pa", "p") is da
+
+
+# ---------------------------------------------------------------------------
 # Dimensional compatibility
 # ---------------------------------------------------------------------------
 

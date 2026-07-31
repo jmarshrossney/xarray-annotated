@@ -14,6 +14,8 @@
 - **`Freq.freq` stores raw string — never normalise** — pandas `to_offset("W").freqstr` silently becomes `"W-SUN"`. Raw spelling preserves anchoredness. Never store/compare normalised `freqstr`.
 - **Mismatch errors are never `ValueError`** — `SchemaError`/`FreqError` extend `Exception` directly. Malformed declaration raises `ValueError` at decoration time so catching mismatch never swallows declaration error.
 - **`check_units` on dimensional mismatch always raises** — no policy knob; always raises `pint.DimensionalityError` regardless of `on_missing`/`on_inexact`.
+- **Quantified arrays are read via `.pint.units`, never attrs** — a `Quantity` holds its unit in the data and has empty attrs. `attrs` never wins: `quantify()` *raises* ("Cannot attach units") when a leftover attrs label disagrees, so reading attrs first breaks the pipeline. Inputs come back dequantified+stamped; outputs are **converted and stay quantified** (`dequantify()` copies the whole buffer even with nothing to convert). See `notes/logs/2026-07-31-quantified-arrays.md`.
+- **`apply_output_units`' return must be used, never discarded** — in-place stamp for attrs arrays, but a *new* array for a converted quantified one. Same for the decorator's dataclass path (`_set_field`; frozen + conversion is unsupported).
 - **No bare-string shorthand for schema or temporal** — only units accepts bare `Annotated[DataArray, "Pa"]`. Bare strings in schema/temporal `Annotated` are silently ignored as descriptions.
 
 ## Design steers

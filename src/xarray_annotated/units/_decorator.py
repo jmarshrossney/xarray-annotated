@@ -34,6 +34,38 @@ from ._config import (
 )
 
 
+def _set_field(result: Any, name: str, value: xr.DataArray, qualname: str) -> None:
+    """Write a converted output back onto a dataclass return value.
+
+    Only reached when applying the declared unit produced a *new* array, which
+    for a dataclass means a pint-quantified field that needed converting — a
+    plain field is stamped in place and never comes through here.
+
+    A frozen dataclass cannot take the write. `setattr` raises
+    `FrozenInstanceError` (an `AttributeError`, despite reading like a type
+    error), which on its own says nothing about units; re-raise it with the
+    cause and the way out.
+
+    Args:
+        result: The returned dataclass instance.
+        name: The field to write.
+        value: The converted array.
+        qualname: The decorated function, for the error message.
+
+    Raises:
+        dataclasses.FrozenInstanceError: If `result` is frozen.
+    """
+    try:
+        setattr(result, name, value)
+    except dataclasses.FrozenInstanceError as exc:
+        raise dataclasses.FrozenInstanceError(
+            f"[{qualname}] output {name!r} is pint-quantified and needs converting "
+            f"to its declared unit, but the returned dataclass is frozen so the "
+            f"converted array cannot be written back. Dequantify the field in the "
+            f"function body (`.pint.dequantify()`), or drop `frozen=True`."
+        ) from exc
+
+
 def declare_units(
     func: Callable[..., Any] | None = None,
     *,
@@ -115,23 +147,28 @@ def declare_units(
                 assert_valid_unit(unit, f"{qualname} output {name!r}")
 
         def _stamp(result: Any, eff_output: OnOutput | None) -> Any:
-            def apply(value: xr.DataArray, declared: str, name: str) -> None:
-                apply_output_units(value, declared, name, eff_output, qualname)
+            def apply(value: xr.DataArray, declared: str, name: str) -> xr.DataArray:
+                # Returns `value` itself for the attrs path (stamped in place),
+                # but a *converted* array for a quantified one -- so the result
+                # must always be written back, never discarded.
+                return apply_output_units(value, declared, name, eff_output, qualname)
 
             if isinstance(output_units, str):
                 if isinstance(result, xr.DataArray):
-                    apply(result, output_units, "return")
+                    return apply(result, output_units, "return")
             elif isinstance(output_units, dict):
                 if isinstance(result, dict):
                     for name, value in result.items():
                         declared = output_units.get(name)
                         if declared is not None and isinstance(value, xr.DataArray):
-                            apply(value, declared, name)
+                            result[name] = apply(value, declared, name)
                 elif dataclasses.is_dataclass(result):
                     for name, declared in output_units.items():
                         value = getattr(result, name, None)
                         if isinstance(value, xr.DataArray):
-                            apply(value, declared, name)
+                            applied = apply(value, declared, name)
+                            if applied is not value:
+                                _set_field(result, name, applied, qualname)
             return result
 
         @functools.wraps(fn)

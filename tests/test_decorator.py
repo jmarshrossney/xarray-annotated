@@ -1,5 +1,6 @@
 """Tests for the ``declare_units`` signature-driven decorator (plain-pint registry)."""
 
+import dataclasses
 import typing
 import warnings
 from dataclasses import dataclass
@@ -480,3 +481,160 @@ class TestApplyOutputUnitsPrimitive:
         msg = str(excinfo.value)
         assert "output 'return'" in msg
         assert "] output" not in msg  # no empty '[] ' qualname prefix
+
+
+def _quantified(values, unit):
+    """A DataArray holding a pint Quantity, as pint-xarray users produce."""
+    return _da(values, unit=unit).pint.quantify()
+
+
+class TestQuantifiedOutputs:
+    """A quantified return is *converted*, not stamped, and stays quantified.
+
+    Stamping is the right default for ``attrs`` because a label left behind by
+    scalar arithmetic is the norm there. A ``Quantity``'s unit travels with the
+    values and cannot be left behind, so it is always true -- which makes
+    converting on the strength of it sound, and stamping over it harmful.
+    """
+
+    def test_stamping_a_quantity_would_produce_two_disagreeing_labels(self):
+        # The bug this path exists to prevent: attrs saying "Pa" over data that
+        # is still hectopascal. Whatever comes back, its two possible labels
+        # must agree.
+        out = units.apply_output_units(_quantified([[1.0]], "hPa"), "Pa", "return")
+        assert out.pint.units is not None
+        assert units.units_equal(f"{out.pint.units:~P}", "Pa")
+        assert "units" not in out.attrs
+        np.testing.assert_allclose(out.pint.dequantify().values, [[100.0]])
+
+    def test_already_declared_unit_is_returned_untouched(self):
+        # No conversion needed => same object, and crucially no copy of the
+        # buffer: dequantifying purely to write an attrs string would cost one.
+        da = _quantified([[1.0]], "Pa")
+        out = units.apply_output_units(da, "Pa", "return")
+        assert out is da
+        assert "units" not in out.attrs
+
+    def test_equivalent_spelling_is_not_a_conversion(self):
+        da = _quantified([[1.0]], "pascal")
+        assert units.apply_output_units(da, "Pa", "return") is da
+
+    def test_stamp_raises_on_dimensional_mismatch(self):
+        """The one case where ``"stamp"`` can raise.
+
+        Elsewhere ``"stamp"`` overwrites without checking, because a mismatched
+        ``attrs`` label is expected rather than diagnostic. A quantified array
+        that cannot be converted to the declared unit is a genuine error, and
+        the alternative -- silently labelling hectopascals as kilograms -- is
+        what ``strict`` used to permit here (empty ``attrs`` took the
+        always-stamp shortcut).
+        """
+        with pytest.raises(pint.DimensionalityError):
+            units.apply_output_units(_quantified([[1.0]], "hPa"), "kg", "return")
+
+    def test_strict_rejects_a_compatible_but_different_unit(self):
+        with pytest.raises(ValueError, match="on_output='strict'"):
+            units.apply_output_units(
+                _quantified([[1.0]], "hPa"), "Pa", "return", "strict"
+            )
+
+    def test_strict_rejects_an_incompatible_unit(self):
+        with pytest.raises(pint.DimensionalityError):
+            units.apply_output_units(
+                _quantified([[1.0]], "hPa"), "kg", "return", "strict"
+            )
+
+    def test_strict_passes_when_the_unit_already_matches(self):
+        da = _quantified([[1.0]], "Pa")
+        assert units.apply_output_units(da, "Pa", "return", "strict") is da
+
+    def test_unit_from_a_foreign_registry_is_left_untouched(self):
+        """Unreadable in the active registry, so neither checkable nor convertible.
+
+        Stamping ``attrs`` as a fallback would manufacture the very
+        two-disagreeing-labels object this path exists to prevent, so the array
+        is handed back exactly as it came.
+        """
+        foreign = pint.UnitRegistry(force_ndarray_like=True)
+        foreign.define("widget = [thing]")
+        da = _da([[1.0]]).pint.quantify("widget", unit_registry=foreign)
+        out = units.apply_output_units(da, "Pa", "return")
+        assert out is da
+        assert "units" not in out.attrs
+
+    def test_disabled_policy_leaves_it_alone(self):
+        da = _quantified([[1.0]], "hPa")
+        with units.policy(enabled=False):
+            assert units.apply_output_units(da, "Pa", "return") is da
+
+
+class TestQuantifiedThroughDecorator:
+    def test_quantified_input_end_to_end(self):
+        @units.declare_units
+        def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
+            return p
+
+        out = f(_quantified([[1.0]], "hPa"))
+        np.testing.assert_allclose(out.values, [[100.0]])
+
+    def test_converted_output_is_written_back_for_single_return(self):
+        @units.declare_units
+        def f() -> Annotated[xr.DataArray, "Pa"]:
+            return _quantified([[1.0]], "hPa")
+
+        # The conversion produces a *new* array, so a decorator that discarded
+        # apply_output_units' return would silently hand back the unconverted one.
+        np.testing.assert_allclose(f().pint.dequantify().values, [[100.0]])
+
+    def test_converted_output_is_written_back_for_typeddict(self):
+        class Out(TypedDict):
+            gpp: Annotated[xr.DataArray, "Pa"]
+
+        @units.declare_units
+        def f() -> Out:
+            return {"gpp": _quantified([[1.0]], "hPa")}
+
+        np.testing.assert_allclose(f()["gpp"].pint.dequantify().values, [[100.0]])
+
+    def test_converted_output_is_written_back_for_dataclass(self):
+        @dataclass
+        class Out:
+            gpp: Annotated[xr.DataArray, "Pa"]
+
+        @units.declare_units
+        def f() -> Out:
+            return Out(gpp=_quantified([[1.0]], "hPa"))
+
+        np.testing.assert_allclose(f().gpp.pint.dequantify().values, [[100.0]])
+
+    def test_frozen_dataclass_is_fine_when_no_conversion_is_needed(self):
+        # Nothing is written back unless the array actually changed, so the
+        # common case does not trip over frozen=True.
+        @dataclass(frozen=True)
+        class Out:
+            gpp: Annotated[xr.DataArray, "Pa"]
+
+        @units.declare_units
+        def f() -> Out:
+            return Out(gpp=_quantified([[1.0]], "Pa"))
+
+        assert f().gpp.pint.units is not None
+
+    def test_frozen_dataclass_with_a_conversion_explains_itself(self):
+        """``FrozenInstanceError`` -- an ``AttributeError``, not a ``TypeError``.
+
+        Unsupported by design; the point of the test is that the failure names
+        units as the cause and gives the way out, rather than surfacing a bare
+        "cannot assign to field".
+        """
+
+        @dataclass(frozen=True)
+        class Out:
+            gpp: Annotated[xr.DataArray, "Pa"]
+
+        @units.declare_units
+        def f() -> Out:
+            return Out(gpp=_quantified([[1.0]], "hPa"))
+
+        with pytest.raises(dataclasses.FrozenInstanceError, match="dequantify"):
+            f()
