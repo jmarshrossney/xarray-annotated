@@ -28,17 +28,17 @@ For full user documentation please visit **[https://jmarshrossney.github.io/xarr
 Either using `uv` (recommended) or `pip`:
 
 ```sh
-uv add git+https://github.com/jmarshrossney/xarray-annotated.git
+uv add xarray-annotated
 # or
-pip install git+https://github.com/jmarshrossney/xarray-annotated.git
+pip install xarray-annotated
 ```
 
 CF-convention / UDUNITS unit strings (e.g. `"umol m-2 s-1"`) need the optional `cf` extra, which pulls in [cf-xarray](https://cf-xarray.readthedocs.io).
 
 ```sh
-uv add "xarray-annotated[cf] @ git+https://github.com/jmarshrossney/xarray-annotated.git"
-# or 
-pip install "xarray-annotated[cf] @ git+https://github.com/jmarshrossney/xarray-annotated.git"
+uv add "xarray-annotated[cf]"
+# or
+pip install "xarray-annotated[cf]"
 ```
 
 ## A short example
