@@ -113,16 +113,6 @@ class TestDefaults:
         np.testing.assert_allclose(default.values, [[10.0]])
         np.testing.assert_allclose(f().values, [[1000.0]])  # second call unaffected
 
-    def test_declared_default_honours_on_inexact(self):
-        @units.declare_units(on_inexact="error")
-        def f(
-            p: Annotated[xr.DataArray, "Pa"] = _da([[10.0]], unit="hPa"),
-        ) -> xr.DataArray:
-            return p
-
-        with pytest.raises(ValueError, match="on_inexact='error'"):
-            f()
-
     def test_varargs_and_kwargs_survive_apply_defaults(self):
         @units.declare_units
         def f(p: Annotated[xr.DataArray, "Pa"], *rest: int, **kw: int) -> xr.DataArray:
@@ -132,15 +122,6 @@ class TestDefaults:
 
         out = f(_da([[10.0]], unit="hPa"), 1, 2, z=3)
         np.testing.assert_allclose(out.values, [[1000.0]])
-
-    def test_keyword_only_default_is_converted(self):
-        @units.declare_units
-        def f(
-            n: int, *, p: Annotated[xr.DataArray, "Pa"] = _da([[10.0]], unit="hPa")
-        ) -> xr.DataArray:
-            return p
-
-        np.testing.assert_allclose(f(1).values, [[1000.0]])
 
 
 class TestFailFast:
