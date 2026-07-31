@@ -23,7 +23,7 @@ app = marimo.App(app_title="xarray-annotated: a worked example")
 def _():
     import marimo as mo
 
-    return mo
+    return (mo,)
 
 
 @app.cell(hide_code=True)
@@ -37,8 +37,8 @@ def _(mo):
     2. **weekly GPP**, validated against a satellite retrieval.
 
     It is a realistic pipeline with a realistic set of bugs --- some obvious, others that
-    could plausibly sneak through because the outputs look reasonable. 
-    
+    could plausibly sneak through because the outputs look reasonable.
+
     This notebook lives in the repository at
     [`examples/notebook.py`](https://github.com/jmarshrossney/xarray-annotated/tree/main/examples).
     """)
@@ -49,8 +49,8 @@ def _(mo):
 def _(mo):
     mo.md("""
     ## Setup
-    
-    We imagine a temperate deciduous forest site at roughly 52°N, logging data every 
+
+    We imagine a temperate deciduous forest site at roughly 52°N, logging data every
     **30 minutes** for one year. The logger gives us four series:
 
     | Variable | Unit | Note |
@@ -69,6 +69,7 @@ def _(mo):
     Throughout, a mass flux written `g m-2 d-1` means grams *of carbon*: pint has no way
     to say "grams of carbon" rather than "grams", so the species lives in the prose.
     """)
+    return
 
 
 @app.cell
@@ -121,7 +122,6 @@ def _():
         declare_schema,
         declare_units,
         np,
-        warnings,
         xr,
     )
 
@@ -294,7 +294,7 @@ def _():
 def _(mo):
     mo.md("""
     ## Some unconvincing results
-    
+
     We run the pipeline to produce the two products.
     """)
     return
