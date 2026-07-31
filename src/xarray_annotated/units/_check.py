@@ -215,7 +215,8 @@ def check_units(
       `declared` but not the same unit (e.g. `"hPa"` where `"Pa"` is
       declared): follows `on_inexact` (`"error"` raises, `"warn"` warns then
       converts, `"convert"` converts silently).  Equivalent spellings
-      (`"pascal"` for `"Pa"`) imply no value change and always convert.
+      (`"pascal"` for `"Pa"`) imply no value change and are simply relabelled,
+      without touching the data.
     * **Dimensional mismatch** — two parseable but incompatible units (e.g. a
       mass where a pressure is declared): always raises
       `pint.DimensionalityError`, regardless of policy.
@@ -233,7 +234,9 @@ def check_units(
 
     Returns:
         A new `DataArray` converted to `declared`, with `attrs["units"]` set
-        to `declared`.
+        to `declared`.  When the input is already in `declared` the data is not
+        copied — the result is a shallow copy sharing the caller's buffer, so
+        declaring a unit an array already has costs nothing.
 
     Raises:
         ValueError: When `on_missing="error"` and no parseable unit is found,
@@ -327,6 +330,19 @@ def check_units(
                 stacklevel=2,
             )
         return da
+    if quantified is None and units_equal(have, declared):
+        # Same unit, differently spelled ("pascal" for "Pa", "1" for
+        # "dimensionless"): nothing to convert, so the quantify/convert/dequantify
+        # round-trip below would copy the entire buffer purely to rewrite a string
+        # -- and would rewrite the *coordinates'* unit spellings on the way past.
+        # A shallow copy shares the data and takes its own attrs dict, so the
+        # caller's array is left exactly as it was.
+        #
+        # Quantified inputs still go the long way round: they are contracted to
+        # come back dequantified, and only dequantify can do that.
+        relabelled = da.copy(deep=False)
+        relabelled.attrs["units"] = declared
+        return relabelled
     if units_compatible(have, declared) and not units_equal(have, declared):
         # Dimensionally compatible but value-changing (e.g. hPa -> Pa).
         if on_inexact == "error":

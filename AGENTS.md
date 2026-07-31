@@ -11,6 +11,7 @@
 - **pint registry / policy state are process-global** — `use_cf_units()`/`set_registry()` is one-time startup; two registries can't mix. Tests isolate per test via `conftest.py:_isolate_registry` / `_isolate_policy`.
 - **`enabled` is package-wide** — one switch gates all domains. Master switch in shared `_config.py`; each domain's `Policy` resolves from there.
 - **`check_units` re-stamps `attrs["units"]`** — pint dequantify writes canonical spelling (e.g. `"pascal"` for `"Pa"`); `check_units` overwrites with declared unit. Bypassing it causes attribute drift.
+- **Equal units skip the pint round-trip entirely** — `units_equal(have, declared)` (plain arrays only) returns `da.copy(deep=False)` + restamp. The round-trip copies the whole buffer and canonicalises *coord* attr spellings, both for nothing when there is no conversion to do. Don't "simplify" it back into one path.
 - **`Freq.freq` stores raw string — never normalise** — pandas `to_offset("W").freqstr` silently becomes `"W-SUN"`. Raw spelling preserves anchoredness. Never store/compare normalised `freqstr`.
 - **Mismatch errors are never `ValueError`** — `SchemaError`/`FreqError` extend `Exception` directly. Malformed declaration raises `ValueError` at decoration time so catching mismatch never swallows declaration error.
 - **`check_units` on dimensional mismatch always raises** — no policy knob; always raises `pint.DimensionalityError` regardless of `on_missing`/`on_inexact`.

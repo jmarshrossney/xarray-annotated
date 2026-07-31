@@ -270,6 +270,58 @@ class TestCheckUnits:
         np.testing.assert_allclose(out.values, [[10.0, 20.0]])
 
 
+class TestCheckUnitsRelabelOnly:
+    """An input already in the declared unit must not pay for a conversion.
+
+    ``"pascal"`` where ``"Pa"`` is declared is the same unit spelled differently,
+    so there is nothing to convert -- only a string to rewrite. Routing it
+    through ``quantify().to().dequantify()`` anyway copies the whole buffer, and
+    for a large array that is the dominant cost of declaring a unit it already
+    has.
+    """
+
+    def test_equivalent_spelling_shares_the_buffer(self):
+        da = _da([[1.0, 2.0]], unit="pascal")
+        out = units.check_units(da, "Pa", "p")
+        assert np.shares_memory(da.values, out.values)
+        assert out.attrs["units"] == "Pa"
+
+    def test_identical_spelling_shares_the_buffer(self):
+        da = _da([[1.0]], unit="Pa")
+        assert np.shares_memory(da.values, units.check_units(da, "Pa", "p").values)
+
+    def test_dimensionless_spellings_are_equivalent(self):
+        da = _da([[1.0]], unit="1")
+        out = units.check_units(da, "dimensionless", "p")
+        assert np.shares_memory(da.values, out.values)
+        assert out.attrs["units"] == "dimensionless"
+
+    def test_caller_array_is_left_alone(self):
+        # Shallow copy, but its own attrs dict -- restamping must not reach back
+        # into the caller's array.
+        da = _da([[1.0]], unit="pascal")
+        units.check_units(da, "Pa", "p")
+        assert da.attrs["units"] == "pascal"
+
+    def test_a_real_conversion_still_copies(self):
+        da = _da([[1.0]], unit="hPa")
+        out = units.check_units(da, "Pa", "p")
+        assert not np.shares_memory(da.values, out.values)
+        np.testing.assert_allclose(out.values, [[100.0]])
+
+    def test_coordinate_unit_spellings_are_not_rewritten(self):
+        """The round-trip used to canonicalise *coordinate* attrs in passing.
+
+        ``dequantify`` writes pint's long form for every quantified variable, so
+        a ``"m"`` coordinate came back as ``"meter"`` on a call that was only
+        ever about the data variable's own unit.
+        """
+        da = _da([[1.0]], unit="pascal")
+        da.time.attrs["units"] = "m"  # any coord label; spelling is the point
+        out = units.check_units(da, "Pa", "p")
+        assert out.time.attrs["units"] == "m"
+
+
 # ---------------------------------------------------------------------------
 # Pint-quantified inputs
 # ---------------------------------------------------------------------------
