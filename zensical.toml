@@ -16,8 +16,15 @@ Copyright &copy; 2026 Joe Marsh Rossney
 
 nav = [
   { "Home" = "index.md" },
-  { "Usage" = "usage.md" },
-  { "Example" = "example.md" },
+  { "Getting Started" = "getting_started.md" },
+  { "Guides" = [
+    { "Declaring properties" = "guides/declaring.md" },
+    { "Configuring validation" = "guides/policy.md" },
+    { "Choosing a unit registry" = "guides/registry.md" },
+    { "Reading and writing declarations (advanced)" = "guides/tooling.md" },
+    { "Troubleshooting" = "guides/troubleshooting.md" },
+  ]},
+  { "Worked example" = "example.md" },
   { "API Reference" = [
     { "xarray_annotated" = "api/package.md" },
     { "xarray_annotated.units" = "api/units.md" },
@@ -119,6 +126,8 @@ combine_header_slug = true
 [project.markdown_extensions.pymdownx.tasklist]
 custom_checkbox = true
 [project.markdown_extensions.pymdownx.tilde]
+
+[project.markdown_extensions.smarty]
 
 # Mkdocstrings
 # ------------
