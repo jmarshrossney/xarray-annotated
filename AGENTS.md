@@ -18,6 +18,7 @@
 - **Quantified arrays are read via `.pint.units`, never attrs** — a `Quantity` holds its unit in the data and has empty attrs. `attrs` never wins: `quantify()` *raises* ("Cannot attach units") when a leftover attrs label disagrees, so reading attrs first breaks the pipeline. Inputs come back dequantified+stamped; outputs are **converted and stay quantified** (`dequantify()` copies the whole buffer even with nothing to convert). See `notes/logs/2026-07-31-quantified-arrays.md`.
 - **`apply_output_units`' return must be used, never discarded** — in-place stamp for attrs arrays, but a *new* array for a converted quantified one. Same for the decorator's dataclass path (`_set_field`; frozen + conversion is unsupported).
 - **No bare-string shorthand for schema or temporal** — only units accepts bare `Annotated[DataArray, "Pa"]`. Bare strings in schema/temporal `Annotated` are silently ignored as descriptions.
+- **`just docs` reporting a failed notebook cell is expected** — `examples/notebook.py` demonstrates a `DimensionalityError` by raising one, so marimo prints "Export was successful, but some cells failed to execute" and the export continues. Not a regression; don't "fix" the example. Check a stashed tree before treating any docs failure as new.
 
 ## Design steers
 
@@ -33,3 +34,4 @@
 - **Doctests**: embedded in docstrings; `just doctest`.
 - **Examples**: `examples/notebook.py` is a marimo notebook; `just docs` exports to `docs/example.md` via `marimo-md-export`.
 - **Formatting**: ruff (line-length 88), pyright, Python ≥3.12.
+- **`notes/` is gitignored on purpose** — a local working area (`plans/`, `logs/`, `upstream_issues/`), not part of the package. Write there freely, but never `git add -f` it, and don't mistake its absence from a clone for something missing. Committed files may still reference it: the pointer is for whoever has the tree, not for the repo.
