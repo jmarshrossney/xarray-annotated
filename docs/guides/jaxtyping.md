@@ -116,18 +116,28 @@ Nothing here is specific to beartype: `xarray-annotated` reads the `Annotated` m
 and never sees which checker enforces the base type. But the checkers differ in how they
 attach, and one difference bites.
 
-[typeguard](https://typeguard.readthedocs.io/) rewrites the function's AST rather than
-wrapping it, and `@jaxtyped(typechecker=typeguard.typechecked)` cannot do that — it
-receives an already-defined function object. jaxtyping emits
+**beartype works everywhere** — as the `typechecker=` argument above, and via
+`jaxtyping.install_import_hook("my_package", "beartype.beartype")`. Prefer it.
+
+**typeguard 4 does not work as jaxtyping's `typechecker`.** `typechecked` operates by
+recompiling the function from source, which it cannot do when handed an
+already-defined function object. jaxtyping emits
 
 ```
 InstrumentationWarning: instrumentor did not find the target function -- not typechecking
 ```
 
-and the dtype and shape checks then **silently do nothing**. The units and schema
-decorators are unaffected (they wrap normally), which is what makes this easy to miss:
-the stack looks like it works. Use typeguard's import hook instead, installed before the
-module is imported:
+and the dtype and shape checks then **silently do nothing**. This is easy to miss,
+because the units and schema decorators are unaffected — they wrap normally, so the stack
+still converts units and still raises on a dim-name mismatch, and only the jaxtyping half
+is dead. A size mismatch then surfaces as an `xarray.AlignmentError` from inside the
+function body instead of a type error at the boundary.
+
+Nothing about this involves `xarray-annotated`: it reproduces on a bare
+`@jaxtyped(typechecker=typeguard.typechecked)` function with none of our decorators
+present, and `jaxtyping.install_import_hook(..., "typeguard.typechecked")` fails the same
+way. If you need typeguard, use **its own** import hook, which instruments at import time
+and does work:
 
 ```python
 from typeguard import install_import_hook
@@ -135,9 +145,7 @@ from typeguard import install_import_hook
 install_import_hook("my_package")
 ```
 
-With the hook in place the full stack behaves as it does under beartype. This is a
-typeguard/jaxtyping interaction — it reproduces with no `xarray-annotated` decorators in
-the stack at all.
+Verified against jaxtyping 0.3.11 and typeguard 4.6.0.
 
 ## Caveats
 
