@@ -2,18 +2,18 @@
 
 ## Installation
 
-`xarray-annotated` can be installed directly from GitHub using `pip`, or tools such as `uv` that wrap around it.
+`xarray-annotated` can be installed from PyPI using `pip`, or tools such as `uv` that wrap around it.
 
 === "uv (recommended)"
 
     ```sh
-    uv add git+https://github.com/jmarshrossney/xarray-annotated.git
+    uv add xarray-annotated
     ```
 
 === "pip"
 
     ```sh
-    pip install git+https://github.com/jmarshrossney/xarray-annotated.git
+    pip install xarray-annotated
     ```
 
 CF-convention / UDUNITS unit strings (e.g. `"umol m-2 s-1"`) need the optional `cf` extra, which pulls in [cf-xarray](https://cf-xarray.readthedocs.io).
@@ -22,13 +22,13 @@ It also needs activating at startup --- see [Choosing a unit registry](guides/re
 === "uv (recommended)"
 
     ```sh
-    uv add "xarray-annotated[cf] @ git+https://github.com/jmarshrossney/xarray-annotated.git"
+    uv add "xarray-annotated[cf]"
     ```
 
 === "pip"
 
     ```sh
-    pip install "xarray-annotated[cf] @ git+https://github.com/jmarshrossney/xarray-annotated.git"
+    pip install "xarray-annotated[cf]"
     ```
 
 The package requires Python `>=3.12`.
