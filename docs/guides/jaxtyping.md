@@ -1,37 +1,30 @@
 # Using with jaxtyping
 
 [jaxtyping](https://docs.kidger.site/jaxtyping/) annotates the **dtype and shape** of an
-array, and has those checks enforced by a runtime type checker —
-[beartype](https://beartype.readthedocs.io/) below, though see
-[Other type checkers](#other-type-checkers). `xarray-annotated` declares the things
-jaxtyping has no notion of: **units**, xarray **dim names**, **coords**, and **temporal
-frequency**.
-
-The two compose directly. Neither has to give anything up.
+array, enforced at runtime by [beartype](https://beartype.readthedocs.io/).
+`xarray-annotated` declares what jaxtyping has no notion of: **units**, xarray **dim
+names**, **coords**, and **temporal frequency**. The two compose directly.
 
 ## They are not competing syntaxes
 
-It is easy to assume `Float[xr.DataArray, "time x"]` is jaxtyping's own version of
-`Annotated`, and therefore that you must choose one. It isn't. A jaxtyping array type is
-an ordinary class with a custom `__instancecheck__`, so it occupies the **base-type
-slot** — exactly where `xr.DataArray` goes — and the markers stay in the metadata slot
-where they always were:
+`Float[xr.DataArray, "time x"]` looks like a rival to `Annotated`, but it is an ordinary
+class with a custom `__instancecheck__`. It occupies the **base-type slot** — exactly
+where `xr.DataArray` goes — leaving the metadata slot free:
 
 ```python
 Annotated[Float[xr.DataArray, "time x"], Unit("Pa"), Dims("time", "x")]
 #         └────────── base type ───────┘  └──────── metadata ────────┘
 ```
 
-`get_type_hints(..., include_extras=True)` hands both sides what they need: jaxtyping
+`get_type_hints(..., include_extras=True)` gives both sides what they need: jaxtyping
 reads the base type, `xarray-annotated` reads the markers.
 
 !!! note "Requires xarray-annotated ≥ 0.6"
 
     Earlier versions required the base type to be *exactly* `xr.DataArray` and silently
-    ignored declarations behind anything else — including a jaxtyping array type. The
-    check is now duck-typed on an `array_type` attribute, so jaxtyping composes without
-    `xarray-annotated` importing or depending on it. Any other library exposing the
-    wrapped class the same way works too.
+    ignored declarations behind anything else. The check is now duck-typed on an
+    `array_type` attribute, so jaxtyping composes without `xarray-annotated` importing or
+    depending on it.
 
 ## The full stack
 
@@ -58,7 +51,7 @@ def total(
     return p + q
 ```
 
-That signature is now enforcing four different things:
+That signature enforces four things:
 
 | what | enforced by |
 |---|---|
@@ -67,103 +60,53 @@ That signature is now enforcing four different things:
 | dims are literally named `time` and `x` | `Dims` |
 | inputs are pressures, converted to Pa if given as hPa | `Unit` |
 
-!!! warning "Decorator order matters"
+!!! warning "Put `@jaxtyped` outermost"
 
-    Put `@jaxtyped(typechecker=...)` **outermost**. It then sees the call as the caller
-    made it, and `@declare_units` converts underneath it. Inverting the order means the
-    type check runs against arrays that units has already converted and re-stamped.
+    It then sees the call as the caller made it, with `@declare_units` converting
+    underneath. Inverted, the type check runs against already-converted arrays.
+
+Binding the array type to a name (`Pressure`) rather than spelling it inline keeps
+pyright quiet: it reads a shape string inside an annotation as a forward reference.
 
 ## jaxtyping's "dims" are sizes, not names
 
-This is the trap worth reading twice. The strings in `Float[xr.DataArray, "time x"]` are
-**positional size symbols**. They constrain the array to be 2-D, and they bind `time` and
-`x` to consistent *lengths* across every argument in the same `@jaxtyped` call. They say
+The strings in `Float[xr.DataArray, "time x"]` are **positional size symbols**. They
+constrain the array to be 2-D and bind consistent *lengths* across arguments, but say
 nothing about what the dimensions are *called*:
 
 ```python
-hint = Float[xr.DataArray, "time x"]
 da = xr.DataArray(np.zeros((2, 3)), dims=("foo", "bar"))
 
-isinstance(da, hint)  # True — the names are never looked at
+isinstance(da, Float[xr.DataArray, "time x"])  # True — names are never looked at
 ```
 
-That an xarray dim happens to be named `time` and a jaxtyping symbol happens to be
-spelled `time` is a coincidence of spelling. If you want the name enforced, you still
-need `Dims("time", "x")`.
-
-The two are complementary in the useful direction, too: `Dims` checks names but not
-sizes, and jaxtyping checks sizes but not names, so declaring both is not redundant.
+So `Dims` checks names but not sizes, jaxtyping checks sizes but not names. Declaring
+both is not redundant.
 
 ## What to use for what
 
 | property | use |
 |---|---|
-| dtype | **jaxtyping** (`Float`, `Int`, `Float32`, dtype unions) — strictly more capable than `Dtype` |
+| dtype | **jaxtyping** (`Float`, `Int`, `Float32`, dtype unions) — more capable than `Dtype` |
 | shape / size consistency | **jaxtyping** — `xarray-annotated` has no equivalent |
 | dim *names* | `Dims` |
 | coord names | `Coords` |
 | units | `Unit` |
 | temporal frequency | `Freq` |
 
-`Dtype` is not deprecated — it works with no extra dependency and participates in the
-[`annotate` round-trip](tooling.md#writing-annotations-programmatically-annotate). But if
-you are already using jaxtyping, express the
-dtype there and let `@declare_schema` handle the xarray-specific facets.
-
-## Other type checkers
-
-Nothing here is specific to beartype: `xarray-annotated` reads the `Annotated` metadata
-and never sees which checker enforces the base type. But the checkers differ in how they
-attach, and one difference bites.
-
-**beartype works everywhere** — as the `typechecker=` argument above, and via
-`jaxtyping.install_import_hook("my_package", "beartype.beartype")`. Prefer it.
-
-**typeguard 4 does not work as jaxtyping's `typechecker`.** `typechecked` operates by
-recompiling the function from source, which it cannot do when handed an
-already-defined function object. jaxtyping emits
-
-```
-InstrumentationWarning: instrumentor did not find the target function -- not typechecking
-```
-
-and the dtype and shape checks then **silently do nothing**. This is easy to miss,
-because the units and schema decorators are unaffected — they wrap normally, so the stack
-still converts units and still raises on a dim-name mismatch, and only the jaxtyping half
-is dead. A size mismatch then surfaces as an `xarray.AlignmentError` from inside the
-function body instead of a type error at the boundary.
-
-Nothing about this involves `xarray-annotated`: it reproduces on a bare
-`@jaxtyped(typechecker=typeguard.typechecked)` function with none of our decorators
-present, and `jaxtyping.install_import_hook(..., "typeguard.typechecked")` fails the same
-way.
-
-If you need typeguard, use **its own** import hook, which instruments at import time:
-
-```python
-from typeguard import install_import_hook
-
-install_import_hook("my_package")
-```
-
-That works, with one condition: the shape string must be behind an alias
-(`Pressure = Float[xr.DataArray, "time x"]`), as in the examples on this page. Spelled
-inline in an annotation, `Float[xr.DataArray, "time x"]` makes typeguard's transformer
-`ast.parse` the shape string as a forward reference, and `"time x"` is not a Python
-expression — the module fails to import with `SyntaxError`. Aliasing avoids it, which is
-the same reason the alias keeps pyright happy.
-
-Verified against jaxtyping 0.3.11 and typeguard 4.6.0.
+`Dtype` is not deprecated — it needs no extra dependency and participates in the
+[`annotate` round-trip](tooling.md#writing-annotations-programmatically-annotate) — but
+if you already have jaxtyping, express the dtype there.
 
 ## Caveats
 
-- **`unwrap_annotated` returns the jaxtyping class**, not `xr.DataArray`. If you have
-  tooling that compares the unwrapped base type against `xr.DataArray`, it needs to
-  account for that.
+- **Use beartype, not typeguard.** On typeguard 4, jaxtyping's checks either fail to
+  import or silently pass everything, depending on how the array type is spelled. Ours
+  keep working either way, so the stack looks healthy while the jaxtyping half is dead.
+  This is upstream and reproduces with no `xarray-annotated` present.
+- **`unwrap_annotated` returns the jaxtyping class**, not `xr.DataArray` — relevant if
+  you have tooling that compares the unwrapped base type.
 - **The [writer](tooling.md#writing-annotations-programmatically-annotate) takes the base
-  type as its first argument**, so
-  `annotate(Float[xr.DataArray, "time x"], unit="Pa")` preserves it; the default
-  `annotate(unit="Pa")` builds a plain `Annotated[xr.DataArray, ...]` and does not invent
-  a jaxtyping base.
-- **`xarray-annotated` never imports jaxtyping.** It is not a dependency, optional or
-  otherwise; the support is purely structural.
+  type as its first argument**, so `annotate(Pressure, unit="Pa")` preserves it; the
+  default `annotate(unit="Pa")` builds a plain `Annotated[xr.DataArray, ...]`.
+- **`xarray-annotated` never imports jaxtyping.** The support is purely structural.

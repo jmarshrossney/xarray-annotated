@@ -171,9 +171,9 @@ annotated_freq(hint)    # Freq("D")
 ```
 
 Each returns `None` when the hint declares nothing for that domain, isn't `Annotated`, or
-annotates a non-`DataArray` base type. ("`DataArray` base type" includes a wrapper that
-exposes the wrapped class as `array_type` — see [Using with jaxtyping](jaxtyping.md).)
-These are the building blocks the `*_from_signature`
+annotates a non-`DataArray` base type. A wrapper exposing the wrapped class as
+`array_type` — such as a jaxtyping array type — counts as a `DataArray` base type; see
+[Using with jaxtyping](jaxtyping.md). These are the building blocks the `*_from_signature`
 readers are driven from, alongside `walk_signature` and `unwrap_annotated` at the package
 root — the combination a third-party facet author needs to write their own reader.
 
