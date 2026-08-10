@@ -16,7 +16,9 @@ the classic resample footgun of a series landing on Wednesdays::
     from xarray_annotated.temporal import declare_freq, Freq
 
     @declare_freq
-    def weekly_mean(x: Annotated[xr.DataArray, Freq("D")]) -> Annotated[xr.DataArray, Freq("W-SUN")]:
+    def weekly_mean(
+        x: Annotated[xr.DataArray, Freq("D")],
+    ) -> Annotated[xr.DataArray, Freq("W-SUN")]:
         return x.resample(time="W-SUN").mean()
 
 ``freq_compatible`` is the same comparison with no array in hand, for a build-time

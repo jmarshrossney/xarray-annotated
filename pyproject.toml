@@ -80,11 +80,61 @@ line-length = 88
 indent-width = 4
 target-version = "py312"
 
+[tool.ruff.lint]
+# Ruff broadened its default rule set in 0.16, so always select explicitly:
+# that way a version bump cannot change which rules apply.
+select = [
+    "E",   # pycodestyle errors
+    "D",   # pydocstyle
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "RUF", # ruff-specific rules
+    "PT",  # flake8-pytest-style
+    "I",   # isort
+]
+
 [tool.ruff.lint.per-file-ignores]
+# Exempt tests from docstring requirements. B008 (function call in an argument
+# default) is exempted because several tests exist precisely to check that a
+# parameter left at its default is still converted/validated -- the call in the
+# default is the fixture under test, not an oversight.
+"tests/**" = ["B008", "D", "E501"]
 # marimo threads `Annotated` in as a cell argument, so ruff can't resolve it to
 # `typing.Annotated` and misreads the unit strings in the metadata as forward
 # references (F821 "undefined name" / F722 "syntax error in forward annotation").
-"examples/notebook.py" = ["F821", "F722"]
+# The rest are generic to marimo notebooks, which are generated dataflow
+# descriptions rather than hand-written modules:
+#   B018    a bare trailing expression IS the cell's output mechanism.
+#   E501    long prose/URLs inside mo.md() cannot be rewrapped by ruff format,
+#           and a `# noqa` after the closing quotes flip-flops forever
+#           (marimo strips the two spaces, ruff format restores them).
+#   D100    notebooks are not modules and have no module docstring.
+#   D103    cell functions are machine-generated and undocumented.
+#   F841    exploratory cells leave unused variables around.
+#   RUF001  prose contains en dashes; RUF003 contains Greek letters.
+"examples/**" = [
+    "B018",
+    "D100",
+    "D103",
+    "E501",
+    "F722",
+    "F821",
+    "F841",
+    "RUF001",
+    "RUF003",
+    # Pre-emptive, and only active if "PL" is ever added to select above:
+    #   PLR1711 ruff deletes the bare `return` that ends every cell and
+    #           `marimo check --fix` re-adds it -- an infinite flip-flop.
+    #   PLC0415 notebook imports live inside cells by design.
+    "PLR1711",
+    "PLC0415",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.uv]
 exclude-newer = "1 week"

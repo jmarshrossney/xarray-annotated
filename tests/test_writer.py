@@ -12,8 +12,7 @@ from typing import Annotated, get_args, get_origin
 import xarray as xr
 
 import xarray_annotated
-from xarray_annotated import annotate, unwrap_annotated, walk_signature
-from xarray_annotated import _annotations
+from xarray_annotated import _annotations, annotate, unwrap_annotated, walk_signature
 from xarray_annotated.schema import Coords, Dims, Dtype, schema_from_signature
 from xarray_annotated.temporal import Freq, freq_from_signature
 from xarray_annotated.units import Unit, units_from_signature

@@ -13,8 +13,9 @@ Declare several at once inside ``Annotated`` and apply them with ``declare_schem
     from xarray_annotated.schema import declare_schema, Dims, Dtype
 
     @declare_schema
-    def f(x: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64")]) -> xr.DataArray:
-        ...
+    def f(
+        x: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64")],
+    ) -> xr.DataArray: ...
 """
 
 from ._annotations import (

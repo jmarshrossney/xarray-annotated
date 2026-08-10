@@ -14,7 +14,6 @@ from collections.abc import Callable
 from typing import (
     Annotated,
     Any,
-    TypeVar,
     Union,
     get_args,
     get_origin,
@@ -23,8 +22,6 @@ from typing import (
 )
 
 import xarray as xr
-
-_T = TypeVar("_T")
 
 
 def unwrap_annotated(hint: Any) -> Any:
@@ -74,10 +71,10 @@ def _is_dataarray_type(tp: Any) -> bool:
     return False
 
 
-def walk_signature(
+def walk_signature[T](
     func: object,
-    extract: Callable[[Any], _T | None],
-) -> tuple[dict[str, _T], dict[str, _T] | _T | None]:
+    extract: Callable[[Any], T | None],
+) -> tuple[dict[str, T], dict[str, T] | T | None]:
     """Extract per-parameter and return declarations from a function's hints.
 
     Reads `get_type_hints(func, include_extras=True)` and maps each hint through
@@ -108,7 +105,7 @@ def walk_signature(
         if (payload := extract(hint)) is not None
     }
 
-    output: dict[str, _T] | _T | None
+    output: dict[str, T] | T | None
     if is_typeddict(ret):
         ret_hints = get_type_hints(ret, include_extras=True)
         output = {

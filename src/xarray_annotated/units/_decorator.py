@@ -199,5 +199,6 @@ def declare_units(
         return wrapper
 
     # @declare_units  →  func is the decorated function;
-    # @declare_units(on_missing=...)  →  func is None, return the parametrised decorator.
+    # @declare_units(on_missing=...)  →  func is None, return the parametrised
+    # decorator.
     return decorate if func is None else decorate(func)

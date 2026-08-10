@@ -40,7 +40,9 @@ def _da(dims=("time", "x"), dtype="float64", coords=(), unit=None, fill=0.0):
     """
     shape = tuple(range(2, 2 + len(dims)))
     arr = np.full(shape, fill, dtype=dtype)
-    coord_map = {d: np.arange(s) for d, s in zip(dims, shape) if d in coords}
+    coord_map = {
+        d: np.arange(s) for d, s in zip(dims, shape, strict=True) if d in coords
+    }
     da = xr.DataArray(arr, dims=dims, coords=coord_map)
     if unit is not None:
         da.attrs["units"] = unit

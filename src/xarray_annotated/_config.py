@@ -19,7 +19,6 @@ live here.
 
 import os
 from collections.abc import Callable
-from typing import TypeVar
 
 #: Master switch default. Validation is on unless explicitly disabled.
 DEFAULT_ENABLED: bool = True
@@ -35,8 +34,6 @@ _FALSEY: frozenset[str] = frozenset({"0", "false", "no", "off"})
 #: Process-wide override for the master switch, shared across all domains.
 _process_enabled: bool | None = None
 
-_T = TypeVar("_T")
-
 
 class _Unset:
     """Sentinel distinguishing 'argument omitted' from 'explicitly set to None'."""
@@ -48,12 +45,12 @@ class _Unset:
 _UNSET = _Unset()
 
 
-def _resolve(
+def _resolve[T](
     env_var: str,
-    process_value: _T | None,
-    default: _T,
-    parse: Callable[[str], _T],
-) -> _T:
+    process_value: T | None,
+    default: T,
+    parse: Callable[[str], T],
+) -> T:
     """Resolve one axis: env var (parsed) → process override → default."""
     env = os.environ.get(env_var)
     if env:

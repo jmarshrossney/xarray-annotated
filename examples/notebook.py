@@ -15,7 +15,7 @@
 
 import marimo
 
-__generated_with = "0.23.14"
+__generated_with = "0.23.16"
 app = marimo.App(app_title="xarray-annotated: a worked example")
 
 
@@ -91,7 +91,9 @@ def _():
 
     # Catch an annoying warning from cf-xarray when matplotlib not available.
     with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="Import(s) unavailable to set up matplotlib support")
+        warnings.filterwarnings(
+            "ignore", message="Import(s) unavailable to set up matplotlib support"
+        )
 
         # Flux data is spelled the CF/UDUNITS way ("umol m-2 s-1"), which plain pint
         # cannot parse. This is a one-time, process-wide choice.
@@ -140,9 +142,13 @@ def _(UMOL_S_TO_G_D, np, xr):
     def get_data():
         _rng = np.random.default_rng(20240301)
 
-        _time = np.arange("2023-01-01", "2024-01-01", np.timedelta64(30, "m"), dtype="datetime64[s]")
+        _time = np.arange(
+            "2023-01-01", "2024-01-01", np.timedelta64(30, "m"), dtype="datetime64[s]"
+        )
         _n = _time.size
-        _doy = _time.astype("datetime64[D]").astype(int) - np.datetime64("2023-01-01", "D").astype(int)
+        _doy = _time.astype("datetime64[D]").astype(int) - np.datetime64(
+            "2023-01-01", "D"
+        ).astype(int)
         _hour = (_time.astype("datetime64[s]").astype(int) % 86400) / 3600.0
 
         # Solar geometry -> photosynthetic photon flux density
@@ -154,7 +160,9 @@ def _(UMOL_S_TO_G_D, np, xr):
             0,
             None,
         )
-        _ppfd = (2100.0 * _sin_elev * (0.85 + 0.15 * _rng.normal(size=_n).clip(-1, 1))).clip(0)
+        _ppfd = (
+            2100.0 * _sin_elev * (0.85 + 0.15 * _rng.normal(size=_n).clip(-1, 1))
+        ).clip(0)
 
         # Air temperature: seasonal + diurnal cycle, degC
         _tair_c = (
@@ -168,9 +176,9 @@ def _(UMOL_S_TO_G_D, np, xr):
         _reco = 2.60 * 2.0 ** ((_tair_c - 10.0) / 10.0)
         _lai = 0.25 + 0.75 * np.clip(np.sin(np.pi * (_doy - 90) / 190.0), 0, None)
         _gpp_max = 21.4 * _lai
-        _gpp = np.where(_ppfd > 0, 0.055 * _ppfd * _gpp_max / (0.055 * _ppfd + _gpp_max), 0.0) / (
-            1.0 + np.exp(-(_tair_c - 2.0))
-        )
+        _gpp = np.where(
+            _ppfd > 0, 0.055 * _ppfd * _gpp_max / (0.055 * _ppfd + _gpp_max), 0.0
+        ) / (1.0 + np.exp(-(_tair_c - 2.0)))
 
         _nee = _reco - _gpp + 0.35 * _rng.normal(size=_n)
 
@@ -193,11 +201,13 @@ def _(UMOL_S_TO_G_D, np, xr):
 
         # The satellite product: weekly mean GPP, week-ending Sunday, as a mass flux.
         # Built from the true half-hourly GPP, with a retrieval error on top.
-        _gpp_daily = _series(_gpp, "umol m-2 s-1").resample(time="D").mean() * UMOL_S_TO_G_D
-        _gpp_weekly = _gpp_daily.resample(time="W-SUN").mean()
-        sat_gpp = (_gpp_weekly * (1.0 + 0.08 * _rng.normal(size=_gpp_weekly.sizes["time"]))).assign_attrs(
-            units="g m-2 d-1"
+        _gpp_daily = (
+            _series(_gpp, "umol m-2 s-1").resample(time="D").mean() * UMOL_S_TO_G_D
         )
+        _gpp_weekly = _gpp_daily.resample(time="W-SUN").mean()
+        sat_gpp = (
+            _gpp_weekly * (1.0 + 0.08 * _rng.normal(size=_gpp_weekly.sizes["time"]))
+        ).assign_attrs(units="g m-2 d-1")
         return nee_raw, ppfd, qc, sat_gpp, tair
 
     return (get_data,)
@@ -209,7 +219,9 @@ def _(get_data, xr):
     nee_raw, ppfd, qc, sat_gpp, tair = get_data()
     print(f"{nee_raw.sizes['time']} half-hourly records, {xr.infer_freq(nee_raw.time)}")
     print(f"flagged bad or moderate: {int((qc > 0).sum())}")
-    print(f"satellite GPP: {sat_gpp.sizes['time']} weekly means, {xr.infer_freq(sat_gpp.time)}")
+    print(
+        f"satellite GPP: {sat_gpp.sizes['time']} weekly means, {xr.infer_freq(sat_gpp.time)}"
+    )
     return nee_raw, ppfd, qc, sat_gpp, tair
 
 
@@ -652,7 +664,7 @@ def _(Annotated, UMOL_S_TO_G_D, Unit, declare_units, xr):
     def to_mass_flux(
         flux: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
     ) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
-        """umol CO2 m-2 s-1 -> g C m-2 d-1, via the molar mass of carbon."""
+        """Umol CO2 m-2 s-1 -> g C m-2 d-1, via the molar mass of carbon."""
         return flux * UMOL_S_TO_G_D
 
     return (to_mass_flux,)

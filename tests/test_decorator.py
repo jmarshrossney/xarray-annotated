@@ -339,7 +339,8 @@ class TestOnOutput:
         with pytest.raises(pint.DimensionalityError) as excinfo:
             self._returning("kg", on_output="strict")()
         msg = str(excinfo.value)
-        assert "kilogram" in msg and "pascal" in msg
+        assert "kilogram" in msg
+        assert "pascal" in msg
         assert "output 'return'" in msg
         assert "on_output='strict'" in msg
 

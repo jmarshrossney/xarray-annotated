@@ -14,15 +14,16 @@ import pytest
 import xarray as xr
 
 from xarray_annotated import schema, units
-from xarray_annotated.schema import Coords, Dims, Dtype
-from xarray_annotated.schema import _annotations, _check, _config
+from xarray_annotated.schema import Coords, Dims, Dtype, _annotations, _check, _config
 
 
 def _da(dims=("time", "x"), dtype="float64", coords=()):
     """Build a DataArray with the given dims/dtype; attach coords for `coords` dims."""
     shape = tuple(range(2, 2 + len(dims)))
     arr = np.zeros(shape, dtype=dtype)
-    coord_map = {d: np.arange(s) for d, s in zip(dims, shape) if d in coords}
+    coord_map = {
+        d: np.arange(s) for d, s in zip(dims, shape, strict=True) if d in coords
+    }
     return xr.DataArray(arr, dims=dims, coords=coord_map)
 
 
@@ -59,7 +60,7 @@ class TestMarkers:
             Dtype("int32", exact=True, on_mismatch="warn"),
         ]
         for marker in markers:
-            assert eval(repr(marker)) == marker  # noqa: S307
+            assert eval(repr(marker)) == marker
 
     def test_equality_and_hash_include_options(self):
         assert Dims("time") == Dims("time")

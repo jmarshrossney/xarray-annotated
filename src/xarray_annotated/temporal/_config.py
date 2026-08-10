@@ -24,11 +24,11 @@ from dataclasses import dataclass
 from typing import Literal
 
 from .._config import (
+    _UNSET,
     DEFAULT_ENABLED,
     ENABLED_ENV_VAR,
     _resolve,
     _Unset,
-    _UNSET,
     get_enabled_override,
     resolve_enabled,
     set_enabled_override,
@@ -127,9 +127,9 @@ def get_policy() -> Policy:
 
 def set_policy(
     *,
-    enabled: bool | None | _Unset = _UNSET,
-    on_mismatch: OnMismatch | None | _Unset = _UNSET,
-    on_uninferable: OnUninferable | None | _Unset = _UNSET,
+    enabled: bool | _Unset | None = _UNSET,
+    on_mismatch: OnMismatch | _Unset | None = _UNSET,
+    on_uninferable: OnUninferable | _Unset | None = _UNSET,
 ) -> None:
     """Set process-wide temporal-policy overrides for one or more axes.
 
@@ -158,9 +158,9 @@ def set_policy(
 @contextmanager
 def policy(
     *,
-    enabled: bool | None | _Unset = _UNSET,
-    on_mismatch: OnMismatch | None | _Unset = _UNSET,
-    on_uninferable: OnUninferable | None | _Unset = _UNSET,
+    enabled: bool | _Unset | None = _UNSET,
+    on_mismatch: OnMismatch | _Unset | None = _UNSET,
+    on_uninferable: OnUninferable | _Unset | None = _UNSET,
 ):
     """Temporarily override temporal-policy axes, restoring them on exit.
 

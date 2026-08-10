@@ -1,4 +1,4 @@
-"""xarray-annotated: validate xarray DataArray properties declared via ``typing.Annotated``.
+"""xarray-annotated: validate DataArray properties declared via ``typing.Annotated``.
 
 Annotation is the unifying technology: a declared property is read off an
 ``Annotated[DataArray, ...]`` hint and validated at runtime.  Each kind of
