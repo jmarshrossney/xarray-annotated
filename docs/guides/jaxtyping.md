@@ -1,8 +1,9 @@
 # Using with jaxtyping
 
 [jaxtyping](https://docs.kidger.site/jaxtyping/) annotates the **dtype and shape** of an
-array, and has those checks enforced by a runtime type checker such as
-[beartype](https://beartype.readthedocs.io/). `xarray-annotated` declares the things
+array, and has those checks enforced by a runtime type checker —
+[beartype](https://beartype.readthedocs.io/) below, though see
+[Other type checkers](#other-type-checkers). `xarray-annotated` declares the things
 jaxtyping has no notion of: **units**, xarray **dim names**, **coords**, and **temporal
 frequency**.
 
@@ -108,6 +109,35 @@ sizes, and jaxtyping checks sizes but not names, so declaring both is not redund
 [`annotate` round-trip](tooling.md#writing-annotations-programmatically-annotate). But if
 you are already using jaxtyping, express the
 dtype there and let `@declare_schema` handle the xarray-specific facets.
+
+## Other type checkers
+
+Nothing here is specific to beartype: `xarray-annotated` reads the `Annotated` metadata
+and never sees which checker enforces the base type. But the checkers differ in how they
+attach, and one difference bites.
+
+[typeguard](https://typeguard.readthedocs.io/) rewrites the function's AST rather than
+wrapping it, and `@jaxtyped(typechecker=typeguard.typechecked)` cannot do that — it
+receives an already-defined function object. jaxtyping emits
+
+```
+InstrumentationWarning: instrumentor did not find the target function -- not typechecking
+```
+
+and the dtype and shape checks then **silently do nothing**. The units and schema
+decorators are unaffected (they wrap normally), which is what makes this easy to miss:
+the stack looks like it works. Use typeguard's import hook instead, installed before the
+module is imported:
+
+```python
+from typeguard import install_import_hook
+
+install_import_hook("my_package")
+```
+
+With the hook in place the full stack behaves as it does under beartype. This is a
+typeguard/jaxtyping interaction — it reproduces with no `xarray-annotated` decorators in
+the stack at all.
 
 ## Caveats
 
