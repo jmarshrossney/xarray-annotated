@@ -65,6 +65,7 @@ from typing import Annotated
 import xarray as xr
 from xarray_annotated.schema import declare_schema, Dims
 
+
 @declare_schema
 def standardise(
     x: Annotated[xr.DataArray, Dims("time", "x")],
@@ -108,6 +109,7 @@ from typing import Annotated
 import xarray as xr
 from xarray_annotated.schema import declare_schema, Coords
 
+
 @declare_schema
 def anomalies(
     x: Annotated[xr.DataArray, Coords("time")],
@@ -133,6 +135,7 @@ Declare an expected dtype with the `Dtype` marker, again applied with `@declare_
 from typing import Annotated
 import xarray as xr
 from xarray_annotated.schema import declare_schema, Dtype
+
 
 @declare_schema
 def to_float(
@@ -165,6 +168,7 @@ validate, convert, and stamp declared inputs and outputs on each call:
 from typing import Annotated
 import xarray as xr
 from xarray_annotated.units import declare_units, Unit
+
 
 @declare_units
 def normalise_pressure(
@@ -204,7 +208,9 @@ collide with — a bare string is accepted as a convenient shorthand:
 
 ```python
 Annotated[xr.DataArray, "Pa"]
-Annotated[xr.DataArray, "m s-1", "z component of velocity"]  # unit first; later string ignored
+Annotated[
+    xr.DataArray, "m s-1", "z component of velocity"
+]  # unit first; later string ignored
 ```
 
 The unit must come **first**; any later string is treated as a human description and
@@ -243,11 +249,14 @@ from typing import Annotated
 import xarray as xr
 from xarray_annotated.temporal import declare_freq, Freq
 
+
 @declare_freq
 def weekly_mean(
     x: Annotated[xr.DataArray, Freq("D")],
 ) -> Annotated[xr.DataArray, Freq("W-SUN")]:
-    return x.resample(time="W-WED").mean()   # raises FreqError: expected 'W-SUN', got 'W-WED'
+    return x.resample(
+        time="W-WED"
+    ).mean()  # raises FreqError: expected 'W-SUN', got 'W-WED'
 ```
 
 The weekly means are perfectly regular — the *spacing* is right — but they are labelled
@@ -285,8 +294,8 @@ see through the spelling:
 `-WED` in `"W-WED"`, the `-MAR` in `"QE-MAR"` — is compared only when you **spell it**:
 
 ```python
-Freq("W")       # weekly, any weekday  — accepts a W-WED axis
-Freq("W-SUN")   # weekly, Sundays only — rejects a W-WED axis
+Freq("W")  # weekly, any weekday  — accepts a W-WED axis
+Freq("W-SUN")  # weekly, Sundays only — rejects a W-WED axis
 ```
 
 !!! note "A deliberate divergence from pandas"
@@ -304,7 +313,7 @@ consumer's declared input:
 ```python
 from xarray_annotated.temporal import Freq, freq_compatible
 
-freq_compatible(Freq("7D"), Freq("W-WED"))     # True
+freq_compatible(Freq("7D"), Freq("W-WED"))  # True
 freq_compatible(Freq("W-SUN"), Freq("W-WED"))  # False
 ```
 
@@ -321,6 +330,7 @@ coords, and dtype at once. `@declare_schema` reads and checks them all:
 from typing import Annotated
 import xarray as xr
 from xarray_annotated.schema import declare_schema, Dims, Coords
+
 
 @declare_schema
 def detrend(
@@ -341,10 +351,13 @@ import xarray as xr
 from xarray_annotated.schema import declare_schema, Dims, Coords, Dtype
 from xarray_annotated.units import declare_units, Unit
 
+
 @declare_units
 @declare_schema
 def process(
-    x: Annotated[xr.DataArray, Dims("time", "x"), Coords("time"), Dtype("float64"), Unit("degC")],
+    x: Annotated[
+        xr.DataArray, Dims("time", "x"), Coords("time"), Dtype("float64"), Unit("degC")
+    ],
 ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("degC")]:
     return x
 ```
@@ -362,6 +375,7 @@ be stacked in any order:
 ```python
 from xarray_annotated.temporal import declare_freq, Freq
 
+
 @declare_units
 @declare_schema
 @declare_freq
@@ -378,6 +392,7 @@ A declaration you write into several signatures is naturally worth naming. Give 
 
 ```python
 Pressure = Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x")]
+
 
 @declare_units
 @declare_schema

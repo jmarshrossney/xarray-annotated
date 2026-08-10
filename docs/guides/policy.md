@@ -37,7 +37,7 @@ the wrapper itself.
 ```python
 from xarray_annotated.units import policy as units_policy
 
-with units_policy(enabled=False):   # disables *every* decorator for the block
+with units_policy(enabled=False):  # disables *every* decorator for the block
     ...
 ```
 
@@ -151,8 +151,10 @@ so a body that converts by scalar multiplication returns an array still carrying
 
 ```python
 @declare_units
-def to_pascals(p: Annotated[xr.DataArray, Unit("hPa")]) -> Annotated[xr.DataArray, Unit("Pa")]:
-    return p * 100.0     # values are Pa; attrs still say "hPa"
+def to_pascals(
+    p: Annotated[xr.DataArray, Unit("hPa")],
+) -> Annotated[xr.DataArray, Unit("Pa")]:
+    return p * 100.0  # values are Pa; attrs still say "hPa"
 ```
 
 The values are right and the label is stale. Converting on the strength of that label

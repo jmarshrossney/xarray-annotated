@@ -12,10 +12,11 @@ had no annotation at all.
 **Cause.** The declaration was aliased with a PEP 695 `type` statement:
 
 ```python
-type Pressure = Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x")]   # ❌ ignored
+type Pressure = Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x")]  # ❌ ignored
+
 
 @declare_units
-def f(p: Pressure) -> xr.DataArray: ...   # hPa in, hPa out — nothing happened
+def f(p: Pressure) -> xr.DataArray: ...  # hPa in, hPa out — nothing happened
 ```
 
 A `type` alias is *lazy*. `get_type_hints(..., include_extras=True)` — how every reader in
@@ -26,7 +27,7 @@ this package inspects a signature — hands back the alias object itself rather 
 every decorator reads them as if they had been written out in full:
 
 ```python
-Pressure = Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x")]        # ✅ read
+Pressure = Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x")]  # ✅ read
 ```
 
 This is the one failure in this package that is *completely* silent, which is why it's
@@ -160,7 +161,7 @@ the wrong numbers.
 def daily_carbon(
     flux: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
 ) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
-    return flux.resample(time="D").mean()      # forgot * MOLAR_FACTOR
+    return flux.resample(time="D").mean()  # forgot * MOLAR_FACTOR
 ```
 
 **Cause.** Outputs are [stamped, not checked](policy.md#units-on_output), and stamping

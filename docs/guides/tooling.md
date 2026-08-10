@@ -84,7 +84,9 @@ Validates a single array's time axis and returns it **unchanged** (or raises
 ```python
 from xarray_annotated.temporal import check_freq, Freq
 
-check_freq(da, Freq("7D"), name="da", on_mismatch=None, on_uninferable=None, qualname=None)
+check_freq(
+    da, Freq("7D"), name="da", on_mismatch=None, on_uninferable=None, qualname=None
+)
 ```
 
 ### Checking a declaration itself
@@ -108,14 +110,17 @@ from typing import Annotated, TypedDict
 import xarray as xr
 from xarray_annotated.units import units_from_signature
 
+
 class Output(TypedDict):
     gpp: Annotated[xr.DataArray, "g m-2 d-1"]
     lue: Annotated[xr.DataArray, "g MJ-1"]
+
 
 def node(
     temp: Annotated[xr.DataArray, "degC"],
     plain: xr.DataArray,
 ) -> Output: ...
+
 
 inputs, outputs = units_from_signature(node)
 # inputs  == {"temp": "degC"}
@@ -137,10 +142,12 @@ from typing import Annotated
 import xarray as xr
 from xarray_annotated.schema import schema_from_signature, Dims, Dtype
 
+
 def node(
     x: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64")],
     plain: xr.DataArray,
 ) -> Annotated[xr.DataArray, Dims("time", "x")]: ...
+
 
 inputs, output = schema_from_signature(node)
 # inputs == {"x": [Dims("time", "x"), Dtype("float64")]}
@@ -165,9 +172,9 @@ from xarray_annotated.temporal import Freq, annotated_freq
 
 hint = Annotated[xr.DataArray, Unit("Pa"), Dims("time"), Freq("D")]
 
-annotated_unit(hint)    # "Pa"        (normalises the bare-string shorthand too)
+annotated_unit(hint)  # "Pa"        (normalises the bare-string shorthand too)
 annotated_schema(hint)  # [Dims("time")]
-annotated_freq(hint)    # Freq("D")
+annotated_freq(hint)  # Freq("D")
 ```
 
 Each returns `None` when the hint declares nothing for that domain, isn't `Annotated`, or
@@ -190,9 +197,11 @@ from xarray_annotated import declarations_from_signature
 from xarray_annotated.schema import Dims, Dtype
 from xarray_annotated.units import Unit
 
+
 def node(
     x: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64"), Unit("degC")],
 ) -> Annotated[xr.DataArray, Dims("time", "x")]: ...
+
 
 inputs, output = declarations_from_signature(node)
 # inputs == {"x": Declared(dims=Dims("time", "x"), dtype=Dtype("float64"), unit=Unit("degC"))}
