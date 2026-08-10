@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "xarray-annotated"
-version = "0.5.2"
+version = "0.6.0"
 description = "Run-time validation of xarray DataArray properties (units, dims/coords/dtype) declared via typing.Annotated"
 authors = [
     { name = "jmarshrossney", email = "17361029+jmarshrossney@users.noreply.github.com" }
@@ -49,6 +49,16 @@ dev = [
     "rust-just>=1.46.0",
     "pre-commit>=4.6.0",
     {include-group = "docs"},
+    {include-group = "integrations"},
+]
+# Third-party libraries xarray-annotated *composes with* but never imports.  These are
+# test-only: there is nothing for a user to install to "enable" the integration, so this
+# is deliberately a dependency group and not an optional-dependency extra (contrast
+# `cf`, which is an extra because `units._registry` really does import cf_xarray).
+# `tests/test_jaxtyping.py` skips itself when they are absent.
+integrations = [
+    "beartype>=0.22.9",
+    "jaxtyping>=0.3.11",
 ]
 docs = [
     "marimo>=0.23.11",

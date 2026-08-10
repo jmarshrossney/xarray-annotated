@@ -171,7 +171,9 @@ annotated_freq(hint)    # Freq("D")
 ```
 
 Each returns `None` when the hint declares nothing for that domain, isn't `Annotated`, or
-annotates a non-`DataArray` base type. These are the building blocks the `*_from_signature`
+annotates a non-`DataArray` base type. ("`DataArray` base type" includes a wrapper that
+exposes the wrapped class as `array_type` — see [Using with jaxtyping](jaxtyping.md).)
+These are the building blocks the `*_from_signature`
 readers are driven from, alongside `walk_signature` and `unwrap_annotated` at the package
 root — the combination a third-party facet author needs to write their own reader.
 
@@ -236,3 +238,7 @@ annotate(unit=Unit("degC"), dims=("time", "x"))
 Assign the result to a function's `__annotations__` and the `@declare_units` /
 `@declare_schema` / `@declare_freq` decorators read it back exactly as if it were
 hand-written.
+
+The first positional argument is the base type, which defaults to `xr.DataArray`. Pass a
+jaxtyping array type there to keep dtype/shape checking on the generated hint —
+`annotate(Float[xr.DataArray, "time x"], unit="Pa")` round-trips unchanged.

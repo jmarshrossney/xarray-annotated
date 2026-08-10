@@ -100,6 +100,28 @@ class TestInternalHelpersStayInternal:
         assert "check_schema" in xa.schema.__all__
 
 
+def test_integrations_are_never_imported():
+    """The jaxtyping/beartype support must stay structural, not a dependency.
+
+    ``_is_dataarray_type`` duck-types on an ``array_type`` attribute precisely so the
+    package never imports jaxtyping. A stray import would turn an optional composition
+    into a hard requirement, which no existing test would notice — the dev environment
+    has both installed. Checked in a subprocess so this test's own imports don't mask it.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; import xarray_annotated, xarray_annotated.schema, "
+        "xarray_annotated.temporal, xarray_annotated.units; "
+        "print([m for m in ('jaxtyping', 'beartype') if m in sys.modules])"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    assert out.stdout.strip() == "[]", f"imported an integration: {out.stdout}"
+
+
 def test_version_matches_pyproject():
     import tomllib
     from pathlib import Path
