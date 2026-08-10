@@ -136,14 +136,22 @@ function body instead of a type error at the boundary.
 Nothing about this involves `xarray-annotated`: it reproduces on a bare
 `@jaxtyped(typechecker=typeguard.typechecked)` function with none of our decorators
 present, and `jaxtyping.install_import_hook(..., "typeguard.typechecked")` fails the same
-way. If you need typeguard, use **its own** import hook, which instruments at import time
-and does work:
+way.
+
+If you need typeguard, use **its own** import hook, which instruments at import time:
 
 ```python
 from typeguard import install_import_hook
 
 install_import_hook("my_package")
 ```
+
+That works, with one condition: the shape string must be behind an alias
+(`Pressure = Float[xr.DataArray, "time x"]`), as in the examples on this page. Spelled
+inline in an annotation, `Float[xr.DataArray, "time x"]` makes typeguard's transformer
+`ast.parse` the shape string as a forward reference, and `"time x"` is not a Python
+expression — the module fails to import with `SyntaxError`. Aliasing avoids it, which is
+the same reason the alias keeps pyright happy.
 
 Verified against jaxtyping 0.3.11 and typeguard 4.6.0.
 
