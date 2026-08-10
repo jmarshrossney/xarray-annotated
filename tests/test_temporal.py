@@ -17,8 +17,7 @@ import xarray as xr
 
 from xarray_annotated import temporal, units
 from xarray_annotated.schema import Dims
-from xarray_annotated.temporal import Freq
-from xarray_annotated.temporal import _annotations, _config
+from xarray_annotated.temporal import Freq, _annotations, _config
 
 
 def _da(times, dim="time", extra_coords=None):
@@ -60,7 +59,7 @@ class TestFreqMarker:
             Freq("QE-MAR", dim="t", anchored=True, on_mismatch="ignore"),
         ]
         for marker in markers:
-            assert eval(repr(marker)) == marker  # noqa: S307
+            assert eval(repr(marker)) == marker
 
     def test_equality_includes_all_fields(self):
         assert Freq("7D") == Freq("7D")
@@ -392,9 +391,8 @@ class TestPolicy:
         assert temporal.get_policy().on_uninferable == "warn"
 
     def test_context_manager_restores_on_exception(self):
-        with pytest.raises(RuntimeError):
-            with temporal.policy(on_mismatch="ignore"):
-                raise RuntimeError("boom")
+        with pytest.raises(RuntimeError), temporal.policy(on_mismatch="ignore"):
+            raise RuntimeError("boom")
         assert temporal.get_policy().on_mismatch == "error"
 
     def test_invalid_on_mismatch_raises(self):

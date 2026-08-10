@@ -45,9 +45,11 @@ It assumes a unit (pascals) and says so in the docstring but doesn't check or en
 ```python
 import xarray as xr
 
+
 def altitude(p: xr.DataArray) -> xr.DataArray:
     """Barometric altitude. Assumes p is in Pa."""
     return 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
+
 
 p = xr.DataArray([1013.0, 1000.0], dims=["time"], attrs={"units": "hPa"})
 altitude(p)
@@ -73,6 +75,7 @@ import xarray as xr
 from xarray_annotated.schema import declare_schema, Dims
 from xarray_annotated.units import declare_units, Unit
 
+
 @declare_units
 @declare_schema
 def altitude(
@@ -80,6 +83,7 @@ def altitude(
 ) -> Annotated[xr.DataArray, Dims("time"), Unit("m")]:
     """Barometric altitude."""
     return 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
+
 
 altitude(p)
 ```

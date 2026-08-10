@@ -255,7 +255,7 @@ class TestCheckUnits:
         # The message must report the length, not the (potentially huge) string.
         over_long = "e" * (_check._MAX_UNIT_LEN + 1)
         da = _da([[1.0, 2.0]], unit=over_long)
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError, match="over-long") as excinfo:
             units.check_units(da, "Pa", "vpd", on_missing="error")
         assert over_long not in str(excinfo.value)
 

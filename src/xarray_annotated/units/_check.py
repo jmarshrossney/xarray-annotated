@@ -425,13 +425,13 @@ def _apply_output_quantified(
         return da
     if equal:
         return da
-    if on_output == "strict":
-        if units_compatible(label, declared):
-            raise ValueError(
-                f"{prefix}output {name!r}: unit {label!r} differs from declared "
-                f"{declared!r} and on_output='strict' requires them to match"
-            )
-        # Fall through: the conversion below raises DimensionalityError for us.
+    # Only *compatible* units raise here; an incompatible label falls through to the
+    # conversion below, which raises DimensionalityError for us.
+    if on_output == "strict" and units_compatible(label, declared):
+        raise ValueError(
+            f"{prefix}output {name!r}: unit {label!r} differs from declared "
+            f"{declared!r} and on_output='strict' requires them to match"
+        )
     try:
         return da.pint.to(declared)
     except PintExceptionGroup as group:

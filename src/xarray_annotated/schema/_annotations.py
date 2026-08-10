@@ -48,7 +48,7 @@ class Dims:
     _names: tuple[str, ...]
     _ordered: bool
     _on_mismatch: OnMismatch | None
-    __slots__ = ("_names", "_ordered", "_on_mismatch")
+    __slots__ = ("_names", "_on_mismatch", "_ordered")
 
     def __init__(
         self,

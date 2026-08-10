@@ -31,11 +31,11 @@ from dataclasses import dataclass
 from typing import Literal
 
 from .._config import (
+    _UNSET,
     DEFAULT_ENABLED,
     ENABLED_ENV_VAR,
     _resolve,
     _Unset,
-    _UNSET,
     get_enabled_override,
     resolve_enabled,
     set_enabled_override,
@@ -152,10 +152,10 @@ def get_policy() -> Policy:
 
 def set_policy(
     *,
-    enabled: bool | None | _Unset = _UNSET,
-    on_missing: OnMissing | None | _Unset = _UNSET,
-    on_inexact: OnInexact | None | _Unset = _UNSET,
-    on_output: OnOutput | None | _Unset = _UNSET,
+    enabled: bool | _Unset | None = _UNSET,
+    on_missing: OnMissing | _Unset | None = _UNSET,
+    on_inexact: OnInexact | _Unset | None = _UNSET,
+    on_output: OnOutput | _Unset | None = _UNSET,
 ) -> None:
     """Set process-wide policy overrides for one or more axes.
 
@@ -189,10 +189,10 @@ def set_policy(
 @contextmanager
 def policy(
     *,
-    enabled: bool | None | _Unset = _UNSET,
-    on_missing: OnMissing | None | _Unset = _UNSET,
-    on_inexact: OnInexact | None | _Unset = _UNSET,
-    on_output: OnOutput | None | _Unset = _UNSET,
+    enabled: bool | _Unset | None = _UNSET,
+    on_missing: OnMissing | _Unset | None = _UNSET,
+    on_inexact: OnInexact | _Unset | None = _UNSET,
+    on_output: OnOutput | _Unset | None = _UNSET,
 ):
     """Temporarily override policy axes, restoring all of them on exit.
 

@@ -44,8 +44,8 @@ def declare_schema(
     default).  When the policy is **disabled** the wrapper is a total no-op.
 
     Usable bare (`@declare_schema`) or called (`@declare_schema(on_mismatch=...)`).
-    Every marker declaration is validated **at decoration time** (`assert_valid_schema`),
-    so a malformed declaration fails fast at import.
+    Every marker declaration is validated **at decoration time**
+    (`assert_valid_schema`), so a malformed declaration fails fast at import.
 
     Args:
         func: The function to decorate (when used bare); `None` when parametrised.
@@ -91,7 +91,8 @@ def declare_schema(
             if not pol.enabled:
                 # Master switch off: a total no-op (no validation at all).
                 return fn(*args, **kwargs)
-            # Per-call default severity (a marker's own override still wins in check_schema).
+            # Per-call default severity (a marker's own override still wins
+            # inside check_schema).
             eff = on_mismatch if on_mismatch is not None else pol.on_mismatch
             if input_markers:
                 bound = sig.bind_partial(*args, **kwargs)

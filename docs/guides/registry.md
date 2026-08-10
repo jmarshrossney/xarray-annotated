@@ -36,7 +36,7 @@ startup**:
 ```python
 from xarray_annotated.units import use_cf_units
 
-use_cf_units()   # now "umol m-2 s-1", "g m-2 d-1" parse
+use_cf_units()  # now "umol m-2 s-1", "g m-2 d-1" parse
 ```
 
 "At startup" is meant literally: call it before importing the modules whose signatures

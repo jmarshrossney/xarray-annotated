@@ -55,7 +55,7 @@ class Freq:
     _dim: str | None
     _anchored: bool | None
     _on_mismatch: OnMismatch | None
-    __slots__ = ("_freq", "_dim", "_anchored", "_on_mismatch")
+    __slots__ = ("_anchored", "_dim", "_freq", "_on_mismatch")
 
     def __init__(
         self,

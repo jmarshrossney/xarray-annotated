@@ -14,7 +14,6 @@ from collections.abc import Callable
 from typing import (
     Annotated,
     Any,
-    TypeVar,
     Union,
     get_args,
     get_origin,
@@ -23,8 +22,6 @@ from typing import (
 )
 
 import xarray as xr
-
-_T = TypeVar("_T")
 
 
 def unwrap_annotated(hint: Any) -> Any:
@@ -44,30 +41,40 @@ def unwrap_annotated(hint: Any) -> Any:
 
 
 def _is_dataarray_type(tp: Any) -> bool:
-    """Return whether `tp` is `DataArray` (possibly wrapped in a Union).
+    """Return whether `tp` is `DataArray` (possibly wrapped or in a Union).
 
     Accepts a bare `DataArray` as well as `DataArray | None` /
     `Optional[DataArray]` (and any other union that includes `DataArray`), so an
     optional DataArray parameter can still carry a declaration.  Anything else
     (scalars, `str`, `bool`, `Dataset`, …) is not a declaration-bearing type.
 
+    Also accepts any *array-type wrapper* that exposes the underlying array class
+    as an `array_type` attribute — notably jaxtyping's `Float[DataArray, "t x"]`,
+    which occupies the base-type slot of an `Annotated` hint rather than competing
+    with it.  This is a duck-typed check: jaxtyping is never imported, and any
+    other library following the same convention composes for free.  See
+    `docs/guides/jaxtyping.md`.
+
     Args:
         tp: A type annotation to inspect.
 
     Returns:
-        `True` if `tp` is or contains `DataArray`.
+        `True` if `tp` is, wraps, or contains `DataArray`.
     """
     if tp is xr.DataArray:
+        return True
+    inner = getattr(tp, "array_type", None)
+    if isinstance(inner, type) and issubclass(inner, xr.DataArray):
         return True
     if get_origin(tp) in (Union, types.UnionType):
         return any(_is_dataarray_type(arg) for arg in get_args(tp))
     return False
 
 
-def walk_signature(
+def walk_signature[T](
     func: object,
-    extract: Callable[[Any], _T | None],
-) -> tuple[dict[str, _T], dict[str, _T] | _T | None]:
+    extract: Callable[[Any], T | None],
+) -> tuple[dict[str, T], dict[str, T] | T | None]:
     """Extract per-parameter and return declarations from a function's hints.
 
     Reads `get_type_hints(func, include_extras=True)` and maps each hint through
@@ -98,7 +105,7 @@ def walk_signature(
         if (payload := extract(hint)) is not None
     }
 
-    output: dict[str, _T] | _T | None
+    output: dict[str, T] | T | None
     if is_typeddict(ret):
         ret_hints = get_type_hints(ret, include_extras=True)
         output = {
