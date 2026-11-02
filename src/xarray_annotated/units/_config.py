@@ -14,7 +14,7 @@ control per event, plus one axis governing how declared *outputs* are treated:
   compatible but *value-changing* (e.g. `"hPa"` where `"Pa"` is declared):
   `"convert"` / `"warn"` / `"error"`.
 - `on_output` — whether a declared return value's own `units` attribute is
-  verified before being overwritten: `"stamp"` / `"strict"`.  See
+  verified before being overwritten: `"stamp"` / `"strict"` / `"require"`.  See
   `apply_output_units` for why the default cannot be otherwise.
 
 A fourth case — a *dimensional* mismatch (e.g. a mass where a pressure is declared)
@@ -47,11 +47,11 @@ __all__ = ["ENABLED_ENV_VAR", "Policy", "get_policy", "policy", "set_policy"]
 
 OnMissing = Literal["error", "warn", "ignore"]
 OnInexact = Literal["convert", "warn", "error"]
-OnOutput = Literal["stamp", "strict"]
+OnOutput = Literal["stamp", "strict", "require"]
 
 _VALID_ON_MISSING: frozenset[str] = frozenset({"error", "warn", "ignore"})
 _VALID_ON_INEXACT: frozenset[str] = frozenset({"convert", "warn", "error"})
-_VALID_ON_OUTPUT: frozenset[str] = frozenset({"stamp", "strict"})
+_VALID_ON_OUTPUT: frozenset[str] = frozenset({"stamp", "strict", "require"})
 
 #: When a `DataArray` carries no parseable unit, `warn` flags it without
 #: failing — non-breaking for inputs that lack unit metadata, and dev-friendly.
@@ -87,8 +87,8 @@ class Policy:
             (`"error"`, `"warn"`, or `"ignore"`).
         on_inexact: Behaviour for a value-changing conversion
             (`"convert"`, `"warn"`, or `"error"`).
-        on_output: How much to trust a declared return value (`"stamp"` or
-            `"strict"`).
+        on_output: How much to trust a declared return value (`"stamp"`,
+            `"strict"`, or `"require"`).
     """
 
     enabled: bool = DEFAULT_ENABLED
