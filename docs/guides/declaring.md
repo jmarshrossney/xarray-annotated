@@ -1,14 +1,13 @@
 # Declaring properties
 
 `xarray-annotated` lets you declare a property of a `DataArray` in a function
-signature with `typing.Annotated`, then validate it automatically with a decorator.
-There are five kinds of property, in three groups:
+signature with `typing.Annotated`, then enforce it automatically with one decorator,
+`@xra.enforce`. There are five kinds of property, in three groups:
 
-- **structural** — **dims**, **coords**, and **dtype** — checked (never mutated) by
-  `@declare_schema`;
-- **physical units** — checked *and converted* (via pint/CF) by `@declare_units`;
-- **temporal frequency** — the spacing *and phase* of a time axis — checked (never
-  mutated) by `@declare_freq`.
+- **structural** — **dims**, **coords**, and **dtype** — checked, never mutated;
+- **physical units** — checked *and converted* (via pint/CF);
+- **temporal frequency** — the spacing *and phase* of a time axis — checked, never
+  mutated.
 
 This page covers what each marker declares and what it considers a match. What happens
 when a declaration is *violated* — raise, warn, or ignore — is a separate, cross-cutting
@@ -26,16 +25,33 @@ structural marker), `Annotated[xr.DataArray, Unit("Pa")]` (a unit), or
 `Annotated[xr.DataArray, Freq("7D")]` (a frequency). The annotation is the single source
 of truth, read once and never written twice.
 
-**Three decorators.** The structural properties — **dims**, **coords**, and **dtype** —
-are validated by `@declare_schema`; physical **units** by `@declare_units`; a time axis's
-**frequency** by `@declare_freq`. `schema` and `temporal` only ever *check* (arrays pass
-through unchanged); `units` also *converts* (e.g. `"hPa"` → `"Pa"`). Stack the decorators
-to check several properties at once — see
-[Combining multiple checks](#combining-multiple-checks). Each decorator is a thin layer
-over a public primitive (`check_schema` / `check_units` / `check_freq`) that you can call
+**One decorator.** `@xra.enforce` (with `import xarray_annotated as xra`) reads every
+marker off the signature and applies each on every call. The structural properties —
+**dims**, **coords**, and **dtype** — and the time axis's **frequency** are only ever
+*checked* (arrays pass through unchanged); **units** are also *converted* (e.g. `"hPa"` →
+`"Pa"`). Any mix of markers can sit on one hint — see
+[Combining multiple checks](#combining-multiple-checks). The decorator is a thin layer
+over public primitives (`check_schema` / `check_units` / `check_freq`) that you can call
 by hand; see [Reading and writing declarations](tooling.md).
 
-**Fail fast at decoration.** Each decorator validates its *declarations* when it is
+!!! note "Migrating from `declare_units` / `declare_schema` / `declare_freq`"
+
+    The per-domain decorators are deprecated and emit a `DeprecationWarning`. Replace a
+    stack of them with a single `@xra.enforce`, and rename any per-function keywords:
+
+    | before | after |
+    |---|---|
+    | `@declare_units(on_missing=...)` | `@xra.enforce(units_on_missing=...)` |
+    | `@declare_units(on_inexact=...)` | `@xra.enforce(units_on_inexact=...)` |
+    | `@declare_units(on_output=...)` | `@xra.enforce(units_on_output=...)` |
+    | `@declare_schema(on_mismatch=...)` | `@xra.enforce(schema_on_mismatch=...)` |
+    | `@declare_freq(on_mismatch=...)` | `@xra.enforce(temporal_on_mismatch=...)` |
+    | `@declare_freq(on_uninferable=...)` | `@xra.enforce(temporal_on_uninferable=...)` |
+
+    One behaviour differs from the old recommended stacking: an output's structure and
+    frequency are now checked *after* its unit is applied, not before.
+
+**Fail fast at decoration.** The decorator validates the *declarations* when it is
 applied (at import) — a typo'd unit or an unparseable dtype raises immediately, rather
 than only when the function is first called, and regardless of policy.
 
@@ -58,23 +74,24 @@ variables, and the scoping tools.
 ### Declaring dims
 
 Declare a DataArray's dimensions with the `Dims` marker in its `Annotated` metadata, and
-apply `@declare_schema` to check every declared input and output on each call:
+apply `@xra.enforce` to check every declared input and output on each call:
 
 ```python
 from typing import Annotated
 import xarray as xr
-from xarray_annotated.schema import declare_schema, Dims
+import xarray_annotated as xra
+from xarray_annotated.schema import Dims
 
 
-@declare_schema
+@xra.enforce
 def standardise(
     x: Annotated[xr.DataArray, Dims("time", "x")],
 ) -> Annotated[xr.DataArray, Dims("time", "x")]:
     return x
 ```
 
-`@declare_schema` reads the markers off the signature and, on each call, validates every
-declared `DataArray` input and output. **It never mutates** — arrays pass through
+`@xra.enforce` reads the markers off the signature and, on each call, validates every
+declared `DataArray` input and output. **Structural checks never mutate** — arrays pass
 unchanged; a mismatch raises, warns, or is ignored per policy. A `TypedDict` or
 `dataclass` return is validated per-field; a bare `Annotated[DataArray, ...]` return is
 validated directly. Non-`DataArray` arguments and returns pass through untouched.
@@ -102,15 +119,16 @@ different severity on one marker.
 ### Declaring coords
 
 Declare required coordinates with the `Coords` marker, applied the same way with
-`@declare_schema`:
+`@xra.enforce`:
 
 ```python
 from typing import Annotated
 import xarray as xr
-from xarray_annotated.schema import declare_schema, Coords
+import xarray_annotated as xra
+from xarray_annotated.schema import Coords
 
 
-@declare_schema
+@xra.enforce
 def anomalies(
     x: Annotated[xr.DataArray, Coords("time")],
 ) -> Annotated[xr.DataArray, Coords("time")]:
@@ -129,15 +147,16 @@ coordinate raises `SchemaError` by default.
 
 ### Declaring dtype
 
-Declare an expected dtype with the `Dtype` marker, again applied with `@declare_schema`:
+Declare an expected dtype with the `Dtype` marker, again applied with `@xra.enforce`:
 
 ```python
 from typing import Annotated
 import xarray as xr
-from xarray_annotated.schema import declare_schema, Dtype
+import xarray_annotated as xra
+from xarray_annotated.schema import Dtype
 
 
-@declare_schema
+@xra.enforce
 def to_float(
     x: Annotated[xr.DataArray, Dtype("float64")],
 ) -> Annotated[xr.DataArray, Dtype("float64")]:
@@ -161,23 +180,24 @@ Severity follows the shared [schema policy](policy.md#schema-on_mismatch).
 
 ### Declaring units
 
-Declare a unit with the self-identifying `Unit` marker, and apply `@declare_units` to
+Declare a unit with the self-identifying `Unit` marker, and apply `@xra.enforce` to
 validate, convert, and stamp declared inputs and outputs on each call:
 
 ```python
 from typing import Annotated
 import xarray as xr
-from xarray_annotated.units import declare_units, Unit
+import xarray_annotated as xra
+from xarray_annotated.units import Unit
 
 
-@declare_units
+@xra.enforce
 def normalise_pressure(
     p: Annotated[xr.DataArray, Unit("Pa")],
 ) -> Annotated[xr.DataArray, Unit("Pa")]:
     return p
 ```
 
-On each call, under the active [units policy](policy.md#units), `@declare_units` validates
+On each call, under the active [units policy](policy.md#units), `@xra.enforce` validates
 and converts every declared `DataArray` **input**, runs the function, then stamps each
 declared `DataArray` **output** with its unit. A `TypedDict` or `dataclass` return is
 stamped per-field; a bare `Annotated[DataArray, ...]` return takes that unit.
@@ -241,16 +261,17 @@ unparseable `units` attribute warns.
 ### Declaring a frequency
 
 Declare the frequency of a DataArray's time axis with the `Freq` marker, and apply
-`@declare_freq` to check every declared input and output on each call. The motivating
+`@xra.enforce` to check every declared input and output on each call. The motivating
 bug is a *phase* error — a resample that silently lands on the wrong weekday:
 
 ```python
 from typing import Annotated
 import xarray as xr
-from xarray_annotated.temporal import declare_freq, Freq
+import xarray_annotated as xra
+from xarray_annotated.temporal import Freq
 
 
-@declare_freq
+@xra.enforce
 def weekly_mean(
     x: Annotated[xr.DataArray, Freq("D")],
 ) -> Annotated[xr.DataArray, Freq("W-SUN")]:
@@ -263,8 +284,8 @@ The weekly means are perfectly regular — the *spacing* is right — but they a
 on Wednesdays, not Sundays, so anything downstream expecting week-ending-Sunday data is
 now quietly misaligned. Declaring `Freq("W-SUN")` catches it at the boundary.
 
-`@declare_freq` never mutates: it does not resample, and it does not stamp anything onto
-the array. The frequency is *derived* from the time coordinate's values (via
+A frequency check never mutates: it does not resample, and it does not stamp anything
+onto the array. The frequency is *derived* from the time coordinate's values (via
 `xarray.infer_freq`, so `cftime` calendars — 360-day, noleap — work too), which is why it
 lives in its own domain rather than as a fourth schema marker.
 
@@ -324,36 +345,39 @@ that *warns* by default; see [the temporal policy](policy.md#temporal).
 ## Combining multiple checks
 
 A single `Annotated` hint can carry several markers, since a DataArray has all of dims,
-coords, and dtype at once. `@declare_schema` reads and checks them all:
+coords, and dtype at once. `@xra.enforce` reads and checks them all. Each *kind* of marker
+may appear at most once per hint — `Dims("time"), Dims("x")` is contradictory, and
+`Coords("time"), Coords("lat")` is spelled `Coords("time", "lat")` — so a duplicate
+raises `ValueError` when the decorator is applied:
 
 ```python
 from typing import Annotated
 import xarray as xr
-from xarray_annotated.schema import declare_schema, Dims, Coords
+import xarray_annotated as xra
+from xarray_annotated.schema import Dims, Coords
 
 
-@declare_schema
+@xra.enforce
 def detrend(
     x: Annotated[xr.DataArray, Dims("time", "x"), Coords("time")],
 ) -> Annotated[xr.DataArray, Dims("time", "x")]:
     return x
 ```
 
-To check **structure and units together**, stack the two decorators. The schema markers
-and the `Unit` marker coexist in one `Annotated`: `@declare_schema` reads the typed
-markers and ignores `Unit`, while `@declare_units` reads `Unit` and ignores the schema
-markers. Prefer the `Unit` marker over the bare-string shorthand here, precisely because
-the annotation is shared (see [Declaring units](#declaring-units)).
+Structure and units go on the same hint. The schema markers and the `Unit` marker
+coexist in one `Annotated`, each domain reading only its own. Prefer the `Unit` marker
+over the bare-string shorthand here, precisely because the annotation is shared (see
+[Declaring units](#declaring-units)).
 
 ```python
 from typing import Annotated
 import xarray as xr
-from xarray_annotated.schema import declare_schema, Dims, Coords, Dtype
-from xarray_annotated.units import declare_units, Unit
+import xarray_annotated as xra
+from xarray_annotated.schema import Dims, Coords, Dtype
+from xarray_annotated.units import Unit
 
 
-@declare_units
-@declare_schema
+@xra.enforce
 def process(
     x: Annotated[
         xr.DataArray, Dims("time", "x"), Coords("time"), Dtype("float64"), Unit("degC")
@@ -362,23 +386,21 @@ def process(
     return x
 ```
 
-The outer decorator's input handling runs first: here `@declare_units` converts the
-input to `"degC"`, then `@declare_schema` validates the converted array's dims, coords,
-and dtype before the body runs — and on the way out, the schema check runs before
-`@declare_units` stamps the output unit. Both orders work; put `@declare_units` outermost
-when you want the structural checks to see the array in its declared units.
+**Units are always applied first.** On the way in, the input is converted to `"degC"`
+before its dims, coords, and dtype are checked, so the structural checks see the array
+the body will see. On the way out, the output unit is stamped (or, for a pint-quantified
+array, converted) before the structural checks, so they see the array the caller will
+receive. Frequency checks follow the same order.
 
-The same holds for all three decorators: each domain reads **only its own markers**, so
-one hint can declare a unit, a structure, and a frequency at once, and the decorators can
-be stacked in any order:
+The same holds for all three domains: one hint can declare a unit, a structure, and a
+frequency at once:
 
 ```python
-from xarray_annotated.temporal import declare_freq, Freq
+import xarray_annotated as xra
+from xarray_annotated.temporal import Freq
 
 
-@declare_units
-@declare_schema
-@declare_freq
+@xra.enforce
 def process(
     x: Annotated[xr.DataArray, Dims("time"), Unit("degC"), Freq("D")],
 ) -> Annotated[xr.DataArray, Dims("time"), Unit("degC"), Freq("W-SUN")]:
@@ -394,8 +416,7 @@ A declaration you write into several signatures is naturally worth naming. Give 
 Pressure = Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x")]
 
 
-@declare_units
-@declare_schema
+@xra.enforce
 def f(p: Pressure) -> Pressure: ...
 ```
 

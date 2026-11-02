@@ -25,7 +25,7 @@ from typing import (
     get_origin,
 )
 
-from .._annotations import _is_dataarray_type, walk_signature
+from .._annotations import _is_dataarray_type, _single_marker, walk_signature
 from ._config import OnMismatch, _validate_on_mismatch
 
 
@@ -119,9 +119,9 @@ class Freq:
 def annotated_freq(hint: Any) -> Freq | None:
     """Return the `Freq` marker carried by an `Annotated` hint, or `None`.
 
-    The first `Freq` marker in the metadata, and only when the annotated base type
-    is a `DataArray` (incl. `DataArray | None`).  Non-`Annotated` hints, hints on
-    non-DataArray types, and hints with no `Freq` marker return `None` (so
+    The `Freq` marker in the metadata (at most one), and only when the annotated
+    base type is a `DataArray` (incl. `DataArray | None`).  Non-`Annotated` hints,
+    hints on non-DataArray types, and hints with no `Freq` marker return `None` (so
     `walk_signature`'s "no declaration" filter drops them).
 
     Args:
@@ -129,13 +129,16 @@ def annotated_freq(hint: Any) -> Freq | None:
 
     Returns:
         The declared `Freq`, or `None`.
+
+    Raises:
+        ValueError: If the hint carries more than one `Freq` marker.
     """
     if get_origin(hint) is not Annotated:
         return None
     args = get_args(hint)
     if not _is_dataarray_type(args[0]):
         return None
-    return next((m for m in args[1:] if isinstance(m, Freq)), None)
+    return _single_marker(args[1:], Freq)
 
 
 def freq_from_signature(

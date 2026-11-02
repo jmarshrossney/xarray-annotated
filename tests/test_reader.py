@@ -11,12 +11,19 @@ round-trip with ``annotate`` that is the reader's whole point.
 from dataclasses import dataclass
 from typing import Annotated, TypedDict
 
+import pytest
 import xarray as xr
 
+import xarray_annotated as xra
 from xarray_annotated import Declared, annotate, declarations_from_signature
-from xarray_annotated.schema import Coords, Dims, Dtype
-from xarray_annotated.temporal import Freq
-from xarray_annotated.units import Unit, units_compatible, units_equal
+from xarray_annotated.schema import Coords, Dims, Dtype, annotated_schema
+from xarray_annotated.temporal import Freq, annotated_freq
+from xarray_annotated.units import (
+    Unit,
+    annotated_unit,
+    units_compatible,
+    units_equal,
+)
 
 
 def _return_hint(hint):
@@ -189,3 +196,62 @@ class TestPredicatesAcceptMarkers:
         assert units_equal(Unit("Pa"), Unit("pascal"))
         assert units_equal("Pa", Unit("pascal"))  # mixed
         assert not units_equal(Unit("hPa"), Unit("Pa"))
+
+
+DUPLICATES = [
+    pytest.param((Unit("Pa"), Unit("hPa")), "Unit", annotated_unit, id="unit"),
+    pytest.param((Dims("time"), Dims("x")), "Dims", annotated_schema, id="dims"),
+    pytest.param(
+        (Dtype("float64"), Dtype("int64")), "Dtype", annotated_schema, id="dtype"
+    ),
+    pytest.param(
+        (Coords("time"), Coords("lat")), "Coords", annotated_schema, id="coords"
+    ),
+    pytest.param((Freq("D"), Freq("7D")), "Freq", annotated_freq, id="freq"),
+]
+
+
+class TestOneMarkerPerFacet:
+    """A hint declares each facet at most once, so ``Declared`` loses nothing."""
+
+    @pytest.mark.parametrize(("markers", "kind", "reader"), DUPLICATES)
+    def test_domain_reader_rejects_a_duplicate(self, markers, kind, reader):
+        with pytest.raises(ValueError, match=f"2 {kind} markers"):
+            reader(Annotated[xr.DataArray, *markers])
+
+    @pytest.mark.parametrize(("markers", "kind", "reader"), DUPLICATES)
+    def test_error_names_the_parameter(self, markers, kind, reader):
+        def node(p: Annotated[xr.DataArray, *markers]) -> None: ...  # type: ignore[valid-type]
+
+        with pytest.raises(ValueError, match=f"2 {kind} markers") as info:
+            declarations_from_signature(node)
+        assert any("input 'p'" in note for note in info.value.__notes__)
+
+    def test_error_names_an_output_field(self):
+        class Out(TypedDict):
+            q: Annotated[xr.DataArray, Dims("time"), Dims("x")]
+
+        with pytest.raises(ValueError, match="2 Dims markers") as info:
+            declarations_from_signature(_return_hint(Out))
+        assert any("output 'q'" in note for note in info.value.__notes__)
+
+    def test_enforce_rejects_at_decoration(self):
+        with pytest.raises(ValueError, match="2 Freq markers"):
+
+            @xra.enforce
+            def f(p: Annotated[xr.DataArray, Freq("D"), Freq("D")]): ...
+
+    def test_bare_string_beside_a_unit_marker_is_a_description(self):
+        hint = Annotated[xr.DataArray, "surface pressure", Unit("Pa")]
+        assert annotated_unit(hint) == "Pa"
+
+    def test_different_facets_still_combine(self):
+        hint = Annotated[
+            xr.DataArray,
+            Unit("Pa"),
+            Dims("time"),
+            Dtype("f8"),
+            Coords("time"),
+            Freq("D"),
+        ]
+        assert annotated_schema(hint) == [Dims("time"), Dtype("f8"), Coords("time")]

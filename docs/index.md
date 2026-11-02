@@ -18,17 +18,19 @@ from which
 
 ## How it works
 
-Declare properties as `typing.Annotated` metadata[^1] using typed markers --- `Dims("time", "x")`, `Coords("time")`, `Dtype("float64")`, `Unit("Pa")`, `Freq("W-SUN")` --- then apply a decorator that enforces them on every call:
+Declare properties as `typing.Annotated` metadata[^1] using typed markers --- `Dims("time", "x")`, `Coords("time")`, `Dtype("float64")`, `Unit("Pa")`, `Freq("W-SUN")` --- then apply one decorator that enforces them on every call:
 
 ```python
-@declare_units
-@declare_schema
+import xarray_annotated as xra
+
+
+@xra.enforce
 def normalise(
     p: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64"), Unit("Pa")],
 ) -> Annotated[xr.DataArray, Unit("Pa")]: ...
 ```
 
-The behaviour of `declare_*` decorators (e.g. whether a violation raises, warns, or is ignored) is set through a [policy](guides/policy.md) that can be scoped to a block, function, or global.
+The behaviour of `enforce` (e.g. whether a violation raises, warns, or is ignored) is set through a [policy](guides/policy.md) that can be scoped to a block, function, or global.
 
 Units can also be *converted automatically* thanks to the excellent [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io).
 

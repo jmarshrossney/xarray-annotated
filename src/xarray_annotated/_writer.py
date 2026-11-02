@@ -5,8 +5,8 @@ Every domain ships a reader (`Annotated → declaration`: `units_from_signature`
 (`declaration → Annotated`).  A tool that builds functions dynamically (codegen,
 graph nodes) needs to stamp a declared contract onto a generated signature;
 `annotate` returns a real `Annotated` object it can assign to
-`fn.__annotations__["return"]`, so the ordinary `declare_units` / `declare_schema` /
-`declare_freq` decorators then read it straight back.
+`fn.__annotations__["return"]`, so the ordinary `enforce` decorator then reads it
+straight back.
 
 It is deliberately cross-domain — it assembles the units `Unit` marker, the schema
 `Dims` / `Dtype` / `Coords` markers, and the temporal `Freq` marker — so it lives at
@@ -40,8 +40,8 @@ def annotate(
     The inverse of the `*_from_signature` readers: given facet values it returns a
     real `Annotated` object carrying the corresponding markers, in a fixed order
     (unit, dims, dtype, coords, freq).  Assign it to a function's return/parameter
-    annotation and the `declare_units` / `declare_schema` / `declare_freq` decorators
-    read it back exactly as they would a hand-written one.
+    annotation and the `enforce` decorator reads it back exactly as it would a
+    hand-written one.
 
     Each facet accepts either a raw value or an already-built marker, so a caller
     holding a mix (e.g. a `Unit` object but bare dim-name tuples) can pass both

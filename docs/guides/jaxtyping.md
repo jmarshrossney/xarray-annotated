@@ -35,15 +35,15 @@ import xarray as xr
 from beartype import beartype
 from jaxtyping import Float, jaxtyped
 
-from xarray_annotated.schema import Dims, declare_schema
-from xarray_annotated.units import Unit, declare_units
+import xarray_annotated as xra
+from xarray_annotated.schema import Dims
+from xarray_annotated.units import Unit
 
 Pressure = Float[xr.DataArray, "time x"]
 
 
 @jaxtyped(typechecker=beartype)
-@declare_units
-@declare_schema
+@xra.enforce
 def total(
     p: Annotated[Pressure, Unit("Pa"), Dims("time", "x")],
     q: Annotated[Pressure, Unit("Pa"), Dims("time", "x")],
@@ -62,7 +62,7 @@ That signature enforces four things:
 
 !!! warning "Put `@jaxtyped` outermost"
 
-    It then sees the call as the caller made it, with `@declare_units` converting
+    It then sees the call as the caller made it, with `@xra.enforce` converting
     underneath. Inverted, the type check runs against already-converted arrays.
 
 Binding the array type to a name (`Pressure`) rather than spelling it inline keeps

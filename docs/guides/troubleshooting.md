@@ -15,7 +15,7 @@ had no annotation at all.
 type Pressure = Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x")]  # ❌ ignored
 
 
-@declare_units
+@xra.enforce
 def f(p: Pressure) -> xr.DataArray: ...  # hPa in, hPa out — nothing happened
 ```
 
@@ -36,9 +36,8 @@ first on this page. If a decorator seems inert, check for `type` before anything
 
 ## `NameError` at decoration time { #nameerror-at-decoration-time }
 
-**Symptom.** Importing a module raises `NameError` from inside a `@declare_units` /
-`@declare_schema` / `@declare_freq` decorator, often naming `xr` or another type that is
-plainly imported somewhere.
+**Symptom.** Importing a module raises `NameError` from inside the `@xra.enforce`
+decorator, often naming `xr` or another type that is plainly imported somewhere.
 
 **Cause.** `from __future__ import annotations` in that module. Declarations are read as
 *runtime objects* out of the `Annotated` metadata; that import stringizes annotations,
@@ -85,7 +84,7 @@ UnitsWarning: [f] input 'x' unvalidated: no 'units' attribute (declared 'Pa')
 
 The array passed through unconverted.
 
-**Cause.** `@declare_units` validates by reading `da.attrs["units"]`. With nothing to read,
+**Cause.** `@xra.enforce` validates units by reading `da.attrs["units"]`. With nothing to read,
 it cannot confirm or convert anything. Note that xarray drops `attrs` through most
 arithmetic by default, so an array that had units upstream may well not have them here.
 
@@ -157,7 +156,7 @@ make that true, and nothing complains. The returned array is labelled correctly 
 the wrong numbers.
 
 ```python
-@declare_units
+@xra.enforce
 def daily_carbon(
     flux: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
 ) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
@@ -174,7 +173,7 @@ string. The only thing distinguishing them is the values, which are never inspec
 so the wrong quantity is caught at the first boundary that expects the right one:
 
 ```python
-@declare_units
+@xra.enforce
 def annual_budget(
     daily: Annotated[xr.DataArray, Unit("g m-2 d-1")],
 ) -> Annotated[xr.DataArray, Unit("g m-2 yr-1")]:
@@ -210,5 +209,5 @@ print(get_policy())
 ```
 
 If the goal was to reduce noise rather than to disable checking, prefer
-`on_mismatch="warn"` — with `enabled=False` `@declare_units` also stops converting inputs
+`on_mismatch="warn"` — with `enabled=False` `@xra.enforce` also stops converting inputs
 and stamping outputs, so arrays keep whatever units they arrived with.

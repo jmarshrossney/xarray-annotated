@@ -1,7 +1,7 @@
 """Tests for the `xarray_annotated.schema` structural-validation domain.
 
 Covers the markers (with their options), the annotation reader, the per-property
-checkers, the policy, and the `declare_schema` decorator.  Structural validation
+checkers, the policy, and `enforce` over schema markers.  Structural validation
 never mutates, so the checks assert/raise/warn but return arrays unchanged.
 """
 
@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
+import xarray_annotated as xra
 from xarray_annotated import schema, units
 from xarray_annotated.schema import Coords, Dims, Dtype, _annotations, _check, _config
 
@@ -361,13 +362,13 @@ class TestSchemaPolicy:
 
 
 # ---------------------------------------------------------------------------
-# declare_schema decorator
+# enforce over schema markers
 # ---------------------------------------------------------------------------
 
 
 class TestDeclareSchema:
     def test_validates_input_and_passes_through(self):
-        @schema.declare_schema
+        @xra.enforce
         def f(x: Annotated[xr.DataArray, Dims("time", "x")]) -> xr.DataArray:
             return x
 
@@ -377,7 +378,7 @@ class TestDeclareSchema:
             f(_da(("time",)))
 
     def test_keyword_and_non_dataarray_args(self):
-        @schema.declare_schema
+        @xra.enforce
         def f(
             flag: bool,
             x: Annotated[xr.DataArray, Dtype("float64")],
@@ -387,7 +388,7 @@ class TestDeclareSchema:
         assert f(True, x=_da()).shape  # keyword DataArray; non-DataArray passes through
 
     def test_optional_none_input_skipped(self):
-        @schema.declare_schema
+        @xra.enforce
         def f(
             x: Annotated[xr.DataArray | None, Dims("time", "x")] = None,
         ) -> xr.DataArray | None:
@@ -396,7 +397,7 @@ class TestDeclareSchema:
         assert f(None) is None
 
     def test_declared_default_is_validated(self):
-        @schema.declare_schema
+        @xra.enforce
         def f(
             x: Annotated[xr.DataArray, Dims("time", "x")] = _da(("time",)),
         ) -> xr.DataArray:
@@ -406,7 +407,7 @@ class TestDeclareSchema:
             f()  # x left at its non-conforming default
 
     def test_declared_default_honours_on_mismatch(self):
-        @schema.declare_schema(on_mismatch="warn")
+        @xra.enforce(schema_on_mismatch="warn")
         def f(
             x: Annotated[xr.DataArray, Dims("time", "x")] = _da(("time",)),
         ) -> xr.DataArray:
@@ -416,7 +417,7 @@ class TestDeclareSchema:
             f()
 
     def test_varargs_and_kwargs_survive_apply_defaults(self):
-        @schema.declare_schema
+        @xra.enforce
         def f(
             x: Annotated[xr.DataArray, Dims("time", "x")], *rest: int, **kw: int
         ) -> xr.DataArray:
@@ -428,7 +429,7 @@ class TestDeclareSchema:
         assert f(da, 1, 2, z=3) is da
 
     def test_output_single_validated(self):
-        @schema.declare_schema
+        @xra.enforce
         def f(n: int) -> Annotated[xr.DataArray, Dtype("float64")]:
             return _da(dtype="int64")
 
@@ -439,7 +440,7 @@ class TestDeclareSchema:
         class Out(TypedDict):
             good: Annotated[xr.DataArray, Dims("time", "x")]
 
-        @schema.declare_schema
+        @xra.enforce
         def f() -> Out:
             return {"good": _da(("time",))}
 
@@ -451,7 +452,7 @@ class TestDeclareSchema:
         class Out:
             good: Annotated[xr.DataArray, Dims("time", "x")]
 
-        @schema.declare_schema
+        @xra.enforce
         def f() -> Out:
             return Out(good=_da(("time",)))
 
@@ -459,7 +460,7 @@ class TestDeclareSchema:
             f()
 
     def test_decorator_on_mismatch_kwarg(self):
-        @schema.declare_schema(on_mismatch="warn")
+        @xra.enforce(schema_on_mismatch="warn")
         def f(x: Annotated[xr.DataArray, Dims("time", "x")]) -> xr.DataArray:
             return x
 
@@ -467,7 +468,7 @@ class TestDeclareSchema:
             f(_da(("time",)))
 
     def test_marker_override_beats_decorator(self):
-        @schema.declare_schema(on_mismatch="error")
+        @xra.enforce(schema_on_mismatch="error")
         def f(
             x: Annotated[xr.DataArray, Dims("time", "x", on_mismatch="warn")],
         ) -> xr.DataArray:
@@ -477,7 +478,7 @@ class TestDeclareSchema:
             f(_da(("time",)))
 
     def test_disabled_is_total_noop(self):
-        @schema.declare_schema
+        @xra.enforce
         def f(x: Annotated[xr.DataArray, Dims("nope")]) -> xr.DataArray:
             return x
 
@@ -485,23 +486,23 @@ class TestDeclareSchema:
             assert f(_da(("time", "x"))).shape
 
     def test_invalid_decorator_kwarg(self):
-        with pytest.raises(ValueError, match="Invalid on_mismatch"):
+        with pytest.raises(ValueError, match="Invalid schema_on_mismatch"):
 
-            @schema.declare_schema(on_mismatch="bogus")  # type: ignore[arg-type]
+            @xra.enforce(schema_on_mismatch="bogus")  # type: ignore[arg-type]
             def f(x: Annotated[xr.DataArray, Dims("time")]) -> xr.DataArray:
                 return x
 
     def test_fail_fast_bad_input_declaration(self):
         with pytest.raises(ValueError, match="invalid dtype"):
 
-            @schema.declare_schema
+            @xra.enforce
             def f(x: Annotated[xr.DataArray, Dtype("bogus")]) -> xr.DataArray:
                 return x
 
     def test_fail_fast_bad_output_declaration(self):
         with pytest.raises(ValueError, match="invalid dtype"):
 
-            @schema.declare_schema
+            @xra.enforce
             def f(n: int) -> Annotated[xr.DataArray, Dtype("bogus")]:
                 return _da()
 
@@ -516,6 +517,6 @@ class TestAnnotationsSurviveWraps:
         fn = ns["f"]
         fn.__annotations__["return"] = Annotated[xr.DataArray, Dims("time")]
 
-        wrapped = schema.declare_schema(fn)
+        wrapped = xra.enforce(fn)
         hints = typing.get_type_hints(wrapped, include_extras=True)
         assert "return" in hints

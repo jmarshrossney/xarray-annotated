@@ -26,7 +26,7 @@ from typing import (
     get_origin,
 )
 
-from .._annotations import _is_dataarray_type, walk_signature
+from .._annotations import _is_dataarray_type, _single_marker, walk_signature
 from ._config import OnMismatch, _validate_on_mismatch
 
 
@@ -223,14 +223,21 @@ def annotated_schema(hint: Any) -> list[SchemaMarker] | None:
         hint: A type hint, typically from `get_type_hints(..., include_extras=True)`.
 
     Returns:
-        A non-empty list of markers in annotation order, or `None`.
+        A non-empty list of markers in annotation order (at most one of each
+        type), or `None`.
+
+    Raises:
+        ValueError: If the hint carries two markers of the same type.
     """
     if get_origin(hint) is not Annotated:
         return None
     args = get_args(hint)
     if not _is_dataarray_type(args[0]):
         return None
-    markers = [m for m in args[1:] if isinstance(m, _SCHEMA_MARKERS)]
+    metadata = args[1:]
+    for marker_type in _SCHEMA_MARKERS:
+        _single_marker(metadata, marker_type)
+    markers = [m for m in metadata if isinstance(m, _SCHEMA_MARKERS)]
     return markers or None
 
 

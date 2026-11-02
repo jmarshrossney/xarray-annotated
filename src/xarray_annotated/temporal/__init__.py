@@ -13,9 +13,10 @@ the classic resample footgun of a series landing on Wednesdays::
 
     from typing import Annotated
     import xarray as xr
-    from xarray_annotated.temporal import declare_freq, Freq
+    import xarray_annotated as xra
+    from xarray_annotated.temporal import Freq
 
-    @declare_freq
+    @xra.enforce
     def weekly_mean(
         x: Annotated[xr.DataArray, Freq("D")],
     ) -> Annotated[xr.DataArray, Freq("W-SUN")]:

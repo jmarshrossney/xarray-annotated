@@ -231,7 +231,9 @@ def _infer(coord: xr.DataArray) -> str | None:
     on irregular spacing; both mean the same thing here: uninferable.
     """
     try:
-        return xr.infer_freq(coord)
+        # Type comes from pd.infer_freq's stub, but xarray sets
+        # future.infer_freq_returns_offset=False, so it is always str | None.
+        return xr.infer_freq(coord)  # pyright: ignore[reportReturnType]
     except ValueError:
         return None
 
@@ -242,8 +244,8 @@ def _report(ok: bool, severity: OnMismatch | OnUninferable, message: str) -> Non
         return
     if severity == "error":
         raise FreqError(message)
-    # stacklevel=3 targets the declare_freq call path (user -> wrapper ->
-    # check_freq -> _report); one frame too far for a direct check_freq call.
+    # stacklevel=3 targets a direct check_freq call (via _report); via enforce it
+    # lands on the wrapper line, still identified by the [qualname] prefix.
     warnings.warn(message, FreqWarning, stacklevel=3)
 
 

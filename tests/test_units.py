@@ -12,6 +12,7 @@ import pint
 import pytest
 import xarray as xr
 
+import xarray_annotated as xra
 from xarray_annotated import units
 from xarray_annotated.units import _annotations, _check, _config
 
@@ -669,8 +670,8 @@ class TestUnitMarker:
         with pytest.raises(ValueError, match="not a recognised"):
             units.assert_valid_unit(units.Unit("not_a_unit"), "ctx")
 
-    def test_declare_units_end_to_end_with_marker_input_and_output(self):
-        @units.declare_units
+    def test_enforce_end_to_end_with_marker_input_and_output(self):
+        @xra.enforce
         def f(
             p: Annotated[xr.DataArray, units.Unit("Pa")],
         ) -> Annotated[xr.DataArray, units.Unit("Pa")]:

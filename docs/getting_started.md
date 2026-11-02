@@ -67,17 +67,17 @@ The returned altitude is numerically wrong --- sea-level pressure has come back 
 
 ### The fix
 
-Here we use `xarray-annotated` to declare expected properties in the signature and enforce them at run-time with minimal boilerplate (just decorators).
+Here we use `xarray-annotated` to declare expected properties in the signature and enforce them at run-time with minimal boilerplate (one decorator).
 
 ```python
 from typing import Annotated
 import xarray as xr
-from xarray_annotated.schema import declare_schema, Dims
-from xarray_annotated.units import declare_units, Unit
+import xarray_annotated as xra
+from xarray_annotated.schema import Dims
+from xarray_annotated.units import Unit
 
 
-@declare_units
-@declare_schema
+@xra.enforce
 def altitude(
     p: Annotated[xr.DataArray, Dims("time"), Unit("Pa")],
 ) -> Annotated[xr.DataArray, Dims("time"), Unit("m")]:

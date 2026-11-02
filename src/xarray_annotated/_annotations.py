@@ -10,7 +10,7 @@ return shapes once, for everyone.
 
 import dataclasses
 import types
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import (
     Annotated,
     Any,
@@ -38,6 +38,25 @@ def unwrap_annotated(hint: Any) -> Any:
         The base type if `hint` is `Annotated`; otherwise `hint` unchanged.
     """
     return get_args(hint)[0] if get_origin(hint) is Annotated else hint
+
+
+def _single_marker[M](metadata: Iterable[Any], marker_type: type[M]) -> M | None:
+    """Return the one `marker_type` marker in `metadata`, or `None` if absent.
+
+    A hint declares each facet at most once.  Two markers of one type are either
+    contradictory (`Dims("x")` with `Dims("y")`) or redundant, so a second one is a
+    malformed declaration rather than something to resolve by position.
+
+    Raises:
+        ValueError: If `metadata` holds more than one `marker_type` marker.
+    """
+    found = [m for m in metadata if isinstance(m, marker_type)]
+    if len(found) > 1:
+        raise ValueError(
+            f"one Annotated hint declares {len(found)} {marker_type.__name__} "
+            f"markers ({', '.join(map(repr, found))}); declare at most one"
+        )
+    return found[0] if found else None
 
 
 def _is_dataarray_type(tp: Any) -> bool:
@@ -96,13 +115,22 @@ def walk_signature[T](
             `TypedDict` or dataclass; a single `T` if the return is one declared
             `Annotated[DataArray, ...]`; `None` otherwise.
     """
+    qualname = getattr(func, "__qualname__", repr(func))
+
+    def _extract(hint: Any, where: str) -> T | None:
+        try:
+            return extract(hint)
+        except ValueError as exc:
+            exc.add_note(f"in {qualname} {where}")
+            raise
+
     hints = get_type_hints(func, include_extras=True)
     ret = hints.pop("return", None)
 
     inputs = {
         name: payload
         for name, hint in hints.items()
-        if (payload := extract(hint)) is not None
+        if (payload := _extract(hint, f"input {name!r}")) is not None
     }
 
     output: dict[str, T] | T | None
@@ -111,16 +139,17 @@ def walk_signature[T](
         output = {
             name: payload
             for name, hint in ret_hints.items()
-            if (payload := extract(hint)) is not None
+            if (payload := _extract(hint, f"output {name!r}")) is not None
         }
     elif dataclasses.is_dataclass(ret):
         ret_hints = get_type_hints(ret, include_extras=True)
         output = {
             f.name: payload
             for f in dataclasses.fields(ret)
-            if (payload := extract(ret_hints.get(f.name))) is not None
+            if (payload := _extract(ret_hints.get(f.name), f"output {f.name!r}"))
+            is not None
         }
     else:
-        output = extract(ret)
+        output = _extract(ret, "output")
 
     return inputs, output

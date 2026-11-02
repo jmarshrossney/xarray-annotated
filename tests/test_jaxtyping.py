@@ -22,12 +22,12 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from xarray_annotated import annotate, units
+import xarray_annotated as xra
+from xarray_annotated import annotate
 from xarray_annotated._annotations import _is_dataarray_type
 from xarray_annotated.schema import (
     Dims,
     SchemaError,
-    declare_schema,
     schema_from_signature,
 )
 from xarray_annotated.units import Unit, units_from_signature
@@ -98,7 +98,7 @@ class TestReaders:
 
 class TestDecorators:
     def test_units_are_converted(self):
-        @units.declare_units
+        @xra.enforce
         def f(
             x: Annotated[FloatDA, Unit("Pa")],
         ) -> Annotated[FloatDA, Unit("Pa")]:
@@ -109,7 +109,7 @@ class TestDecorators:
         assert out.values[0, 0] == pytest.approx(100.0)
 
     def test_schema_mismatch_still_raises(self):
-        @declare_schema
+        @xra.enforce
         def f(x: Annotated[FloatDA, Dims("time", "x")]): ...
 
         with pytest.raises(SchemaError):
@@ -129,7 +129,7 @@ class TestFullStack:
     """The stack documented in ``docs/guides/jaxtyping.md``, pinned end to end.
 
     ``jaxtyped`` must be **outermost** so it sees the original call, before
-    ``declare_units`` has converted anything; the size-symbol binding it provides is
+    ``enforce`` has converted anything; the size-symbol binding it provides is
     what makes ``"time x"`` mean *the same sizes across arguments*.
     """
 
@@ -138,8 +138,7 @@ class TestFullStack:
         beartype = pytest.importorskip("beartype").beartype
 
         @jaxtyping.jaxtyped(typechecker=beartype)
-        @units.declare_units
-        @declare_schema
+        @xra.enforce
         def f(
             x: Annotated[FloatDA, Unit("Pa"), Dims("time", "x")],
             y: Annotated[FloatDA, Unit("Pa"), Dims("time", "x")],

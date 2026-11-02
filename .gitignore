@@ -17,5 +17,6 @@ notes/
 
 # Example.md gets built from examples/notebook.py
 docs/example.md
+docs/example_assets/
 
 .envrc
