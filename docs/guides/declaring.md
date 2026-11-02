@@ -345,7 +345,10 @@ that *warns* by default; see [the temporal policy](policy.md#temporal).
 ## Combining multiple checks
 
 A single `Annotated` hint can carry several markers, since a DataArray has all of dims,
-coords, and dtype at once. `@xra.enforce` reads and checks them all:
+coords, and dtype at once. `@xra.enforce` reads and checks them all. Each *kind* of marker
+may appear at most once per hint — `Dims("time"), Dims("x")` is contradictory, and
+`Coords("time"), Coords("lat")` is spelled `Coords("time", "lat")` — so a duplicate
+raises `ValueError` when the decorator is applied:
 
 ```python
 from typing import Annotated

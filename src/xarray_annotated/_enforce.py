@@ -15,7 +15,7 @@ That order is the reason this decorator exists: the per-domain decorators it
 replaces could be stacked in any order, and only one order was correct.
 
 Like the per-domain decorators before it, this is deliberately the *convenience*
-layer over public primitives — the `*_from_signature` readers and the
+layer over public primitives — the `declarations_from_signature` reader and the
 `check_units` / `apply_output_units` / `check_schema` / `check_freq` checkers.  A
 tool needing different behaviour should build its own consumer from those.
 """
@@ -24,61 +24,53 @@ import dataclasses
 import functools
 import inspect
 from collections.abc import Callable, Collection
-from typing import Any, NamedTuple
+from typing import Any
 
 import xarray as xr
 
-from ._annotations import walk_signature
 from ._config import resolve_enabled
+from ._reader import Declared, declarations_from_signature
 from .schema import _config as _schema
-from .schema._annotations import SchemaMarker, annotated_schema
+from .schema._annotations import SchemaMarker
 from .schema._check import assert_valid_schema, check_schema
 from .temporal import _config as _temporal
-from .temporal._annotations import Freq, annotated_freq
 from .temporal._check import assert_valid_freq, check_freq
 from .units import _config as _units
-from .units._annotations import annotated_unit
 from .units._check import apply_output_units, assert_valid_unit, check_units
 
 __all__ = ["enforce"]
 
-_DOMAINS = frozenset({"units", "schema", "temporal"})
+#: The `Declared` slots each domain owns.
+_SLOTS = {
+    "units": ("unit",),
+    "schema": ("dims", "dtype", "coords"),
+    "temporal": ("freq",),
+}
 
 
-class _Facets(NamedTuple):
-    """Every facet one hint declares, in each checker's own payload shape.
-
-    Not `Declared`: that folds schema markers into one slot per marker type, and
-    `check_schema` must see every marker on the hint.
-    """
-
-    unit: str | None
-    schema: list[SchemaMarker] | None
-    freq: Freq | None
+def _restrict(declared: Declared, domains: Collection[str]) -> Declared | None:
+    """Blank the slots of domains not in `domains`; `None` if nothing is left."""
+    blank = {
+        slot: None for d, slots in _SLOTS.items() if d not in domains for slot in slots
+    }
+    restricted = dataclasses.replace(declared, **blank) if blank else declared
+    return None if restricted == Declared() else restricted
 
 
-def _extractor(domains: Collection[str]) -> Callable[[Any], _Facets | None]:
-    """Build a `walk_signature` extractor reading only `domains`' facets."""
-
-    def extract(hint: Any) -> _Facets | None:
-        facets = _Facets(
-            unit=annotated_unit(hint) if "units" in domains else None,
-            schema=annotated_schema(hint) if "schema" in domains else None,
-            freq=annotated_freq(hint) if "temporal" in domains else None,
-        )
-        return None if facets == (None, None, None) else facets
-
-    return extract
+def _schema_markers(declared: Declared) -> list[SchemaMarker]:
+    return [
+        m for m in (declared.dims, declared.dtype, declared.coords) if m is not None
+    ]
 
 
-def _assert_valid(facets: _Facets, context: str) -> None:
+def _assert_valid(declared: Declared, context: str) -> None:
     """Fail fast on a malformed declaration (independent of policy)."""
-    if facets.unit is not None:
-        assert_valid_unit(facets.unit, context)
-    for marker in facets.schema or ():
+    if declared.unit is not None:
+        assert_valid_unit(declared.unit, context)
+    for marker in _schema_markers(declared):
         assert_valid_schema(marker, context)
-    if facets.freq is not None:
-        assert_valid_freq(facets.freq, context)
+    if declared.freq is not None:
+        assert_valid_freq(declared.freq, context)
 
 
 def _set_field(result: Any, name: str, value: xr.DataArray, qualname: str) -> None:
@@ -130,40 +122,54 @@ def _enforce(
         if value is not None:
             validate(value)
 
-    extract = _extractor(domains)
-
     def decorate(fn: Callable[..., Any]) -> Callable[..., Any]:
-        inputs, output = walk_signature(fn, extract)
+        read_inputs, read_output = declarations_from_signature(fn)
+        inputs = {
+            name: d
+            for name, raw in read_inputs.items()
+            if (d := _restrict(raw, domains)) is not None
+        }
+        output: dict[str, Declared] | Declared | None
+        if isinstance(read_output, dict):
+            output = {
+                name: d
+                for name, raw in read_output.items()
+                if (d := _restrict(raw, domains)) is not None
+            }
+        elif isinstance(read_output, Declared):
+            output = _restrict(read_output, domains)
+        else:
+            output = None
         sig = inspect.signature(fn)
         qualname = getattr(fn, "__qualname__", repr(fn))
 
-        for name, facets in inputs.items():
-            _assert_valid(facets, f"{qualname} input {name!r}")
-        if isinstance(output, _Facets):
+        for name, decl in inputs.items():
+            _assert_valid(decl, f"{qualname} input {name!r}")
+        if isinstance(output, Declared):
             _assert_valid(output, f"{qualname} output")
         elif isinstance(output, dict):
-            for name, facets in output.items():
-                _assert_valid(facets, f"{qualname} output {name!r}")
+            for name, decl in output.items():
+                _assert_valid(decl, f"{qualname} output {name!r}")
 
-        def _apply_output(value: Any, facets: _Facets, name: str) -> Any:
+        def _apply_output(value: Any, decl: Declared, name: str) -> Any:
             # Units first, so structure and frequency are checked on what the
             # caller receives.  apply_output_units may return a *new* array (a
             # converted quantified one), so its result is always used.
             if not isinstance(value, xr.DataArray):
                 return value
-            if facets.unit is not None:
+            if decl.unit is not None:
                 on_output = units_on_output or _units.get_policy().on_output
                 value = apply_output_units(
-                    value, facets.unit, name, on_output, qualname
+                    value, decl.unit.unit, name, on_output, qualname
                 )
-            if facets.schema is not None:
+            if markers := _schema_markers(decl):
                 on_mismatch = schema_on_mismatch or _schema.get_policy().on_mismatch
-                check_schema(value, facets.schema, name, on_mismatch, qualname)
-            if facets.freq is not None:
+                check_schema(value, markers, name, on_mismatch, qualname)
+            if decl.freq is not None:
                 pol = _temporal.get_policy()
                 check_freq(
                     value,
-                    facets.freq,
+                    decl.freq,
                     name,
                     temporal_on_mismatch or pol.on_mismatch,
                     temporal_on_uninferable or pol.on_uninferable,
@@ -172,17 +178,17 @@ def _enforce(
             return value
 
         def _outputs(result: Any) -> Any:
-            if isinstance(output, _Facets):
+            if isinstance(output, Declared):
                 return _apply_output(result, output, "return")
             if isinstance(output, dict):
                 if isinstance(result, dict):
-                    for name, facets in output.items():
+                    for name, decl in output.items():
                         if name in result:
-                            result[name] = _apply_output(result[name], facets, name)
+                            result[name] = _apply_output(result[name], decl, name)
                 elif dataclasses.is_dataclass(result):
-                    for name, facets in output.items():
+                    for name, decl in output.items():
                         value = getattr(result, name, None)
-                        applied = _apply_output(value, facets, name)
+                        applied = _apply_output(value, decl, name)
                         if applied is not value:
                             _set_field(result, name, applied, qualname)
             return result
@@ -198,33 +204,33 @@ def _enforce(
                 # them so a declared default is checked (and converted) too.
                 bound.apply_defaults()
                 for name, val in list(bound.arguments.items()):
-                    facets = inputs.get(name)
-                    if facets is None or not isinstance(val, xr.DataArray):
+                    decl = inputs.get(name)
+                    if decl is None or not isinstance(val, xr.DataArray):
                         continue
-                    if facets.unit is not None:
+                    if decl.unit is not None:
                         pol = _units.get_policy()
                         val = check_units(
                             val,
-                            facets.unit,
+                            decl.unit.unit,
                             name,
                             units_on_missing or pol.on_missing,
                             units_on_inexact or pol.on_inexact,
                             qualname,
                         )
                         bound.arguments[name] = val
-                    if facets.schema is not None:
+                    if markers := _schema_markers(decl):
                         check_schema(
                             val,
-                            facets.schema,
+                            markers,
                             name,
                             schema_on_mismatch or _schema.get_policy().on_mismatch,
                             qualname,
                         )
-                    if facets.freq is not None:
+                    if decl.freq is not None:
                         pol = _temporal.get_policy()
                         check_freq(
                             val,
-                            facets.freq,
+                            decl.freq,
                             name,
                             temporal_on_mismatch or pol.on_mismatch,
                             temporal_on_uninferable or pol.on_uninferable,
@@ -311,7 +317,7 @@ def enforce(
     """
     return _enforce(
         func,
-        domains=_DOMAINS,
+        domains=_SLOTS.keys(),
         units_on_missing=units_on_missing,
         units_on_inexact=units_on_inexact,
         units_on_output=units_on_output,

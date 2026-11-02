@@ -16,6 +16,10 @@ one marker per slot rather than a mix of strings and objects.  A bare-string uni
 shorthand is normalised to a `Unit`, so the shape does not depend on how the unit
 was spelled.
 
+One slot per marker type is lossless because a hint may declare each facet at most
+once: the domain extractors reject a second `Unit` / `Dims` / `Dtype` / `Coords` /
+`Freq` on one hint as a malformed declaration (`ValueError`).
+
 Like `annotate`, this is cross-domain — it assembles every domain's markers into one
 value — so it lives at the package root rather than in any one domain.
 """
@@ -43,6 +47,9 @@ class Declared:
     slot holds the corresponding marker or `None` when that facet was not
     declared; the unit is always a `Unit` (its bare-string shorthand is
     normalised on read), so `.unit.unit` recovers the string.
+
+    A hint carrying two markers of one type never reaches here: reading it raises
+    `ValueError`, so no declaration is dropped.
 
     The field order (`unit`, `dims`, `dtype`, `coords`, `freq`) matches `annotate`'s
     keyword arguments, so `annotate(unit=d.unit, dims=d.dims, dtype=d.dtype,

@@ -20,6 +20,7 @@ from typing import (
 
 from .._annotations import (
     _is_dataarray_type,
+    _single_marker,
     unwrap_annotated,
     walk_signature,
 )
@@ -79,8 +80,8 @@ class Unit:
 def annotated_unit(hint: Any) -> str | None:
     """Return the declared unit carried by an `Annotated` type hint, or `None`.
 
-    The unit is the first `Unit(...)` marker in the `Annotated` metadata, and —
-    falling back — the first `str`.  So both spellings resolve identically:
+    The unit is the `Unit(...)` marker in the `Annotated` metadata (at most one), and
+    — falling back — the first `str`.  So both spellings resolve identically:
 
         `Annotated[DataArray, Unit("degC")]` → `"degC"`
         `Annotated[DataArray, "degC"]`       → `"degC"`
@@ -112,8 +113,11 @@ def annotated_unit(hint: Any) -> str | None:
         hint: A type hint, typically from `get_type_hints(..., include_extras=True)`.
 
     Returns:
-        The declared unit (first `Unit` marker, else first `str`) if the base
+        The declared unit (the `Unit` marker, else the first `str`) if the base
         type is a `DataArray`; `None` otherwise.
+
+    Raises:
+        ValueError: If the hint carries more than one `Unit` marker.
 
     Examples:
         >>> from typing import Annotated
@@ -134,9 +138,9 @@ def annotated_unit(hint: Any) -> str | None:
         return None
     metadata = args[1:]
     # The typed marker wins over a bare string, regardless of relative order.
-    for meta in metadata:
-        if isinstance(meta, Unit):
-            return meta.unit
+    marker = _single_marker(metadata, Unit)
+    if marker is not None:
+        return marker.unit
     for meta in metadata:
         if isinstance(meta, str):
             return meta
