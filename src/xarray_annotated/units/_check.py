@@ -190,7 +190,7 @@ def units_equal(a: str | Unit, b: str | Unit) -> bool:
 
 def check_units(
     da: xr.DataArray,
-    declared: str,
+    declared: str | Unit,
     name: str,
     on_missing: OnMissing | None = None,
     on_inexact: OnInexact | None = None,
@@ -203,7 +203,8 @@ def check_units(
 
     Behaviour follows the active `Policy` (`get_policy`); `on_missing` and
     `on_inexact` override their axes for this call when given (`None` defers to
-    the policy).  If the policy is disabled the array is returned unchanged.
+    the policy).  When `declared` is a `Unit` marker, its own overrides win over
+    both.  If the policy is disabled the array is returned unchanged.
 
     Three events are handled, each building on the one before:
 
@@ -223,12 +224,13 @@ def check_units(
 
     Args:
         da: The input `DataArray` to validate and convert.
-        declared: The expected unit string (e.g. `"Pa"`).
+        declared: The expected unit string (e.g. `"Pa"`), or a `Unit` marker,
+            whose `on_missing` / `on_inexact` overrides then apply.
         name: A label for the array, used in error/warning messages.
         on_missing: Override the on-missing axis for this call (`None` defers
-            to the active policy).
+            to the active policy); a marker's own override wins.
         on_inexact: Override the on-inexact axis for this call (`None` defers
-            to the active policy).
+            to the active policy); a marker's own override wins.
         qualname: A qualifier prepended to warning messages as `[qualname]`,
             identifying the calling site.
 
@@ -257,12 +259,16 @@ def check_units(
     pol = get_policy()
     if not pol.enabled:
         return da
-    on_missing = (
-        pol.on_missing if on_missing is None else _validate_on_missing(on_missing)
-    )
-    on_inexact = (
-        pol.on_inexact if on_inexact is None else _validate_on_inexact(on_inexact)
-    )
+    if on_missing is not None:
+        _validate_on_missing(on_missing)
+    if on_inexact is not None:
+        _validate_on_inexact(on_inexact)
+    if isinstance(declared, Unit):
+        on_missing = declared.on_missing or on_missing
+        on_inexact = declared.on_inexact or on_inexact
+        declared = declared.unit
+    on_missing = on_missing or pol.on_missing
+    on_inexact = on_inexact or pol.on_inexact
 
     prefix = f"[{qualname}] " if qualname else ""
     quantified = da.pint.units  # None unless the data is a pint Quantity
@@ -450,7 +456,7 @@ def _apply_output_quantified(
 
 def apply_output_units(
     da: xr.DataArray,
-    declared: str,
+    declared: str | Unit,
     name: str,
     on_output: OnOutput | None = None,
     qualname: str | None = None,
@@ -513,10 +519,11 @@ def apply_output_units(
 
     Args:
         da: The returned `DataArray`.
-        declared: The declared unit string (e.g. `"Pa"`).
+        declared: The declared unit string (e.g. `"Pa"`), or a `Unit` marker,
+            whose `on_output` override then applies.
         name: A label for the value, used in error messages.
         on_output: Override the on-output axis for this call (`None` defers to
-            the active policy).
+            the active policy); a marker's own override wins.
         qualname: A qualifier prepended to messages as `[qualname]`.
 
     Returns:
@@ -543,7 +550,12 @@ def apply_output_units(
     pol = get_policy()
     if not pol.enabled:
         return da
-    on_output = pol.on_output if on_output is None else _validate_on_output(on_output)
+    if on_output is not None:
+        _validate_on_output(on_output)
+    if isinstance(declared, Unit):
+        on_output = declared.on_output or on_output
+        declared = declared.unit
+    on_output = on_output or pol.on_output
     prefix = f"[{qualname}] " if qualname else ""
 
     quantified = da.pint.units

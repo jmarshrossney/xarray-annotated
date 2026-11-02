@@ -164,9 +164,7 @@ def _enforce(
                 return value
             if decl.unit is not None:
                 on_output = units_on_output or _units.get_policy().on_output
-                value = apply_output_units(
-                    value, decl.unit.unit, name, on_output, qualname
-                )
+                value = apply_output_units(value, decl.unit, name, on_output, qualname)
             if markers := _schema_markers(decl):
                 on_mismatch = schema_on_mismatch or _schema.get_policy().on_mismatch
                 check_schema(value, markers, name, on_mismatch, qualname)
@@ -216,7 +214,7 @@ def _enforce(
                         pol = _units.get_policy()
                         val = check_units(
                             val,
-                            decl.unit.unit,
+                            decl.unit,
                             name,
                             units_on_missing or pol.on_missing,
                             units_on_inexact or pol.on_inexact,
