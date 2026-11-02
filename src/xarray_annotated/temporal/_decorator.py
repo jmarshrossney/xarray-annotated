@@ -4,7 +4,12 @@ import warnings
 from collections.abc import Callable
 from typing import Any
 
-from ._config import OnMismatch, OnUninferable
+from ._config import (
+    OnMismatch,
+    OnUninferable,
+    _validate_on_mismatch,
+    _validate_on_uninferable,
+)
 
 
 def declare_freq(
@@ -37,6 +42,11 @@ def declare_freq(
         DeprecationWarning,
         stacklevel=2,
     )
+    # Validated here so errors name the keywords this caller used.
+    if on_mismatch is not None:
+        _validate_on_mismatch(on_mismatch)
+    if on_uninferable is not None:
+        _validate_on_uninferable(on_uninferable)
     from .._enforce import _enforce  # deferred: _enforce imports this package
 
     return _enforce(

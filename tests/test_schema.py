@@ -486,7 +486,7 @@ class TestDeclareSchema:
             assert f(_da(("time", "x"))).shape
 
     def test_invalid_decorator_kwarg(self):
-        with pytest.raises(ValueError, match="Invalid on_mismatch"):
+        with pytest.raises(ValueError, match="Invalid schema_on_mismatch"):
 
             @xra.enforce(schema_on_mismatch="bogus")  # type: ignore[arg-type]
             def f(x: Annotated[xr.DataArray, Dims("time")]) -> xr.DataArray:

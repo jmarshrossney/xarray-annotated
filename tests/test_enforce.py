@@ -113,8 +113,7 @@ class TestKeywords:
         ],
     )
     def test_bad_value_rejected_at_decoration(self, kwarg):
-        axis = kwarg.split("_", 1)[1]
-        with pytest.raises(ValueError, match=f"Invalid {axis} 'bogus'"):
+        with pytest.raises(ValueError, match=f"^Invalid {kwarg} 'bogus'"):
             xra.enforce(**{kwarg: "bogus"})  # type: ignore[arg-type]
 
     def test_units_on_missing_overrides_policy(self):

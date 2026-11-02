@@ -565,13 +565,13 @@ class TestDeclareFreq:
             assert f(da) is da
 
     def test_invalid_decorator_kwargs(self):
-        with pytest.raises(ValueError, match="Invalid on_mismatch"):
+        with pytest.raises(ValueError, match="Invalid temporal_on_mismatch"):
 
             @xra.enforce(temporal_on_mismatch="bogus")  # type: ignore[arg-type]
             def f(x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
                 return x
 
-        with pytest.raises(ValueError, match="Invalid on_uninferable"):
+        with pytest.raises(ValueError, match="Invalid temporal_on_uninferable"):
 
             @xra.enforce(temporal_on_uninferable="bogus")  # type: ignore[arg-type]
             def g(x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:

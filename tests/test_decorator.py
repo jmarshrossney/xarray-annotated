@@ -194,7 +194,7 @@ class TestPolicyResolution:
         np.testing.assert_allclose(out.values, [[10.0]])
 
     def test_invalid_on_missing_kwarg_raises_at_decoration(self):
-        with pytest.raises(ValueError, match="Invalid on_missing"):
+        with pytest.raises(ValueError, match="Invalid units_on_missing"):
 
             @xra.enforce(units_on_missing="bogus")  # type: ignore[arg-type]
             def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
@@ -454,7 +454,7 @@ class TestOnOutput:
 
     @pytest.mark.parametrize("bad", ["convert", "check", "STAMP_", "", "warn"])
     def test_invalid_value_rejected(self, bad):
-        with pytest.raises(ValueError, match="Invalid on_output"):
+        with pytest.raises(ValueError, match="Invalid units_on_output"):
             xra.enforce(units_on_output=bad)
 
     def test_invalid_value_rejected_by_set_policy(self):

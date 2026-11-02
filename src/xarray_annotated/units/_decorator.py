@@ -4,7 +4,14 @@ import warnings
 from collections.abc import Callable
 from typing import Any
 
-from ._config import OnInexact, OnMissing, OnOutput
+from ._config import (
+    OnInexact,
+    OnMissing,
+    OnOutput,
+    _validate_on_inexact,
+    _validate_on_missing,
+    _validate_on_output,
+)
 
 
 def declare_units(
@@ -39,6 +46,14 @@ def declare_units(
         DeprecationWarning,
         stacklevel=2,
     )
+    # Validated here so errors name the keywords this caller used.
+    for value, validate in (
+        (on_missing, _validate_on_missing),
+        (on_inexact, _validate_on_inexact),
+        (on_output, _validate_on_output),
+    ):
+        if value is not None:
+            validate(value)
     from .._enforce import _enforce  # deferred: _enforce imports this package
 
     return _enforce(

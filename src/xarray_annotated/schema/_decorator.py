@@ -4,7 +4,7 @@ import warnings
 from collections.abc import Callable
 from typing import Any
 
-from ._config import OnMismatch
+from ._config import OnMismatch, _validate_on_mismatch
 
 
 def declare_schema(
@@ -34,6 +34,8 @@ def declare_schema(
         DeprecationWarning,
         stacklevel=2,
     )
+    if on_mismatch is not None:
+        _validate_on_mismatch(on_mismatch)  # names the keyword this caller used
     from .._enforce import _enforce  # deferred: _enforce imports this package
 
     return _enforce(func, domains={"schema"}, schema_on_mismatch=on_mismatch)

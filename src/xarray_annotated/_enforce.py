@@ -24,7 +24,7 @@ import dataclasses
 import functools
 import inspect
 from collections.abc import Callable, Collection
-from typing import Any
+from typing import Any, get_args
 
 import xarray as xr
 
@@ -111,16 +111,21 @@ def _enforce(
     temporal_on_uninferable: _temporal.OnUninferable | None = None,
 ) -> Callable[..., Any]:
     """`enforce`, restricted to `domains` (the deprecated decorators' kernel)."""
-    for value, validate in (
-        (units_on_missing, _units._validate_on_missing),
-        (units_on_inexact, _units._validate_on_inexact),
-        (units_on_output, _units._validate_on_output),
-        (schema_on_mismatch, _schema._validate_on_mismatch),
-        (temporal_on_mismatch, _temporal._validate_on_mismatch),
-        (temporal_on_uninferable, _temporal._validate_on_uninferable),
+    for keyword, value, allowed in (
+        ("units_on_missing", units_on_missing, _units.OnMissing),
+        ("units_on_inexact", units_on_inexact, _units.OnInexact),
+        ("units_on_output", units_on_output, _units.OnOutput),
+        ("schema_on_mismatch", schema_on_mismatch, _schema.OnMismatch),
+        ("temporal_on_mismatch", temporal_on_mismatch, _temporal.OnMismatch),
+        ("temporal_on_uninferable", temporal_on_uninferable, _temporal.OnUninferable),
     ):
-        if value is not None:
-            validate(value)
+        # Checked here rather than by the domain validators, which name the
+        # unprefixed axis (`on_missing`) instead of the keyword the caller passed.
+        if value is not None and value not in get_args(allowed):
+            raise ValueError(
+                f"Invalid {keyword} {value!r}. "
+                f"Choose one of {sorted(get_args(allowed))}."
+            )
 
     def decorate(fn: Callable[..., Any]) -> Callable[..., Any]:
         read_inputs, read_output = declarations_from_signature(fn)

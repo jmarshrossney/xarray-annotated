@@ -97,3 +97,18 @@ class TestBehaviour:
 
         with pytest.warns(temporal.FreqWarning):
             g(_da())
+
+    @pytest.mark.parametrize(
+        ("decorator", "keyword"),
+        [
+            (units.declare_units, "on_missing"),
+            (units.declare_units, "on_inexact"),
+            (units.declare_units, "on_output"),
+            (schema.declare_schema, "on_mismatch"),
+            (temporal.declare_freq, "on_mismatch"),
+            (temporal.declare_freq, "on_uninferable"),
+        ],
+    )
+    def test_bad_keyword_error_names_the_old_keyword(self, decorator, keyword):
+        with pytest.raises(ValueError, match=f"^Invalid {keyword} 'bogus'"):
+            decorator(**{keyword: "bogus"})
