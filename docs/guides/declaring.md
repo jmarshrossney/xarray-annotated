@@ -201,7 +201,9 @@ On each call, under the active [units policy](policy.md#units), `@xra.enforce` v
 and converts every declared `DataArray` **input**, runs the function, then stamps each
 declared `DataArray` **output** with its unit. A `TypedDict` or `dataclass` return is
 stamped per-field; a bare `Annotated[DataArray, ...]` return takes that unit.
-Non-`DataArray` arguments and returns pass through untouched.
+Non-`DataArray` arguments and returns pass through untouched. The policy can be
+overridden for one declaration on the marker itself — `Unit("degC", on_inexact="convert")`
+— see [Units policy](policy.md#units).
 
 Inputs and outputs are treated differently, and the difference matters: an input is
 **checked**, an output is **stamped**. The decorator trusts a function to return what it
