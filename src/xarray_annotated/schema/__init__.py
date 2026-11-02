@@ -6,13 +6,15 @@ coordinates (``Coords``), and dtype (``Dtype``).  The structural counterpart to
 ``xarray_annotated.units``, but simpler: structural validation only *asserts* (it
 never converts or mutates).
 
-Declare several at once inside ``Annotated`` and apply them with ``declare_schema``::
+Declare several at once inside ``Annotated`` and apply them with
+``xarray_annotated.enforce``::
 
     from typing import Annotated
     import xarray as xr
-    from xarray_annotated.schema import declare_schema, Dims, Dtype
+    import xarray_annotated as xra
+    from xarray_annotated.schema import Dims, Dtype
 
-    @declare_schema
+    @xra.enforce
     def f(
         x: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64")],
     ) -> xr.DataArray: ...

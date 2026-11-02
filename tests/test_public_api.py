@@ -11,7 +11,7 @@ import importlib
 
 import pytest
 
-import xarray_annotated as xa
+import xarray_annotated as xra
 
 DOMAINS = ("units", "schema", "temporal")
 MODULES = ("xarray_annotated", *(f"xarray_annotated.{d}" for d in DOMAINS))
@@ -88,7 +88,7 @@ class TestInternalHelpersStayInternal:
 
     @pytest.mark.parametrize("name", ["check_dims", "check_coords", "check_dtype"])
     def test_not_reachable_from_the_domain(self, name):
-        assert not hasattr(xa.schema, name)
+        assert not hasattr(xra.schema, name)
 
     @pytest.mark.parametrize("name", ["_check_dims", "_check_coords", "_check_dtype"])
     def test_still_available_privately(self, name):
@@ -97,7 +97,7 @@ class TestInternalHelpersStayInternal:
         assert callable(getattr(_check, name))
 
     def test_public_entry_point_is_check_schema(self):
-        assert "check_schema" in xa.schema.__all__
+        assert "check_schema" in xra.schema.__all__
 
 
 def test_integrations_are_never_imported():
@@ -128,4 +128,4 @@ def test_version_matches_pyproject():
 
     pyproject = Path(__file__).parent.parent / "pyproject.toml"
     expected = tomllib.loads(pyproject.read_text())["project"]["version"]
-    assert xa.__version__ == expected
+    assert xra.__version__ == expected

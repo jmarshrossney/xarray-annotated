@@ -184,8 +184,8 @@ def _report(ok: bool, severity: OnMismatch, message: str) -> None:
         return
     if severity == "error":
         raise SchemaError(message)
-    # stacklevel=3 targets the declare_schema call path (user -> wrapper ->
-    # check_schema -> _report); one frame too far for a direct check_schema call.
+    # stacklevel=3 targets a direct check_schema call (via _report); via enforce it
+    # lands on the wrapper line, still identified by the [qualname] prefix.
     warnings.warn(message, SchemaWarning, stacklevel=3)
 
 

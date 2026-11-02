@@ -283,7 +283,7 @@ def check_units(
                 f"(declared {declared!r})"
             )
         if on_missing == "warn":
-            # stacklevel=2 targets a direct check_units call; via declare_units it
+            # stacklevel=2 targets a direct check_units call; via enforce it
             # lands on the wrapper line, still identified by the [qualname] prefix.
             warnings.warn(
                 f"{prefix}input {name!r} unvalidated: no 'units' attribute "

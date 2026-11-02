@@ -14,8 +14,8 @@ switch, `enabled`.
 Every axis resolves **once per call**, taking the first of:
 
 1. a **per-marker** override — `Dtype("float64", on_mismatch="warn")`;
-2. a **per-function** argument — `@declare_schema(on_mismatch="warn")`, or the same
-   keyword passed to a `check_*` primitive;
+2. a **per-function** argument — `@xra.enforce(schema_on_mismatch="warn")`, named
+   `<domain>_<axis>`, or the unprefixed keyword passed to a `check_*` primitive;
 3. the **environment variable** for that axis;
 4. a process-wide override set with `set_policy(...)` or scoped with `policy(...)`;
 5. the built-in default.
@@ -47,7 +47,7 @@ The switch lives in one place, so reaching for it through any domain's `policy` 
 
 !!! warning "Disabling is not free of consequences"
 
-    `@declare_units` normally *converts* inputs and *stamps* outputs. With `enabled=False`
+    `@xra.enforce` normally *converts* inputs and *stamps* outputs. With `enabled=False`
     that stops too, so a function declaring `Unit("Pa")` will happily receive `hPa` and
     return an array whose `units` attribute is whatever the body left there.
 
@@ -84,7 +84,7 @@ accidentally swallows a malformed-declaration `ValueError`.
 Per function:
 
 ```python
-@declare_schema(on_mismatch="warn")
+@xra.enforce(schema_on_mismatch="warn")
 def lenient(x: Annotated[xr.DataArray, Dims("time", "x")]) -> xr.DataArray: ...
 ```
 
@@ -104,7 +104,7 @@ Three behavioural axes on top of `enabled`. Note that **dimensional** mismatches
 Both may be overridden per function (each defaults to the active policy when omitted):
 
 ```python
-@declare_units(on_missing="error", on_inexact="error")
+@xra.enforce(units_on_missing="error", units_on_inexact="error")
 def strict_node(x: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray: ...
 ```
 
@@ -141,7 +141,7 @@ Environment variable: `XARRAY_ANNOTATED_UNITS_ON_INEXACT` (default `convert`).
 
 ### `on_output` — trusting a declared return value { #units-on_output }
 
-The two axes above govern **inputs**. Outputs are treated differently: `@declare_units`
+The two axes above govern **inputs**. Outputs are treated differently: `@xra.enforce`
 *stamps* a declared return — it overwrites `attrs["units"]` with the declared unit —
 rather than checking it.
 
@@ -150,7 +150,7 @@ so a body that converts by scalar multiplication returns an array still carrying
 **input's** label:
 
 ```python
-@declare_units
+@xra.enforce
 def to_pascals(
     p: Annotated[xr.DataArray, Unit("hPa")],
 ) -> Annotated[xr.DataArray, Unit("Pa")]:

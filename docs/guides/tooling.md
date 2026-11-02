@@ -2,11 +2,10 @@
 
 !!! note "You probably don't need this page"
 
-    `@declare_schema`, `@declare_units` and `@declare_freq` are the recommended entry
-    point, and most users need nothing else. Everything below is for *building tooling* on
+    `@xra.enforce` is the recommended entry point, and most users need nothing else. Everything below is for *building tooling* on
     top of the declarations — skip it unless you are.
 
-The primitives the decorators are built from are public too, for code that needs to
+The primitives the decorator is built from are public too, for code that needs to
 validate an array by hand, or to *inspect* declarations without calling anything —
 build-time graph checks, documentation generation, code generation, custom consumers.
 
@@ -244,9 +243,8 @@ from xarray_annotated.units import Unit
 annotate(unit=Unit("degC"), dims=("time", "x"))
 ```
 
-Assign the result to a function's `__annotations__` and the `@declare_units` /
-`@declare_schema` / `@declare_freq` decorators read it back exactly as if it were
-hand-written.
+Assign the result to a function's `__annotations__` and `@xra.enforce` reads it back
+exactly as if it were hand-written.
 
 The first positional argument is the base type, which defaults to `xr.DataArray`. Pass a
 jaxtyping array type there to keep dtype/shape checking on the generated hint —

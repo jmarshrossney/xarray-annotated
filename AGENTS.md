@@ -26,8 +26,9 @@
 - **New domain facet: touch `_writer.py` and `_reader.py`** — `annotate()` writes facet values → `Annotated`; `declarations_from_signature()` reads signature → per-parameter `Declared`. Round-trip exact.
 - **New property within domain: follow existing patterns** — Schema's `_CHECKERS` dict dispatches marker type → checker; additive via registry. Each domain mirrors layout: `_annotations.py` / `_check.py` / `_config.py` / `_decorator.py`, flat re-export via `__all__`.
 - **`walk_signature` is the shared reader kernel** — `_annotations.walk_signature(func, extract)`. Each domain supplies an extractor (one `Annotated` hint → payload or `None`); handles `TypedDict`/dataclass/single return shapes once.
-- **Decorator scaffold triplicated (deferred consolidation)** — same structure per domain, different leaf verb (units converts+stamps; schema/temporal validate only). Collapsing to shared generic deferred.
-- **Root `__init__.py` imports subpackages, never re-exports domain names** — `from xarray_annotated import units; units.declare_units`. Prevents name collisions.
+- **One decorator, `enforce`, in `_enforce.py`; units always first** — inputs: `check_units` converts, *then* `check_schema`/`check_freq` see the converted array; outputs: `apply_output_units`, *then* schema/freq check what the caller receives. That order is the reason it replaced the stackable per-domain decorators; don't split it back up. Per-function kwargs are `<domain>_<axis>` (`temporal_`, not `freq_`, matching the env vars). It reads hints with its own `_Facets` extractor, not `Declared`, which keeps only one marker per schema type.
+- **`declare_units`/`declare_schema`/`declare_freq` are deprecated shims** — `_enforce` restricted to one domain, so old stacks behave as before. They import `_enforce` inside the function to avoid an import cycle. Remove them together with `tests/test_deprecated.py`.
+- **Root `__init__.py` imports subpackages, never re-exports domain names** — `from xarray_annotated import units; units.check_units`. Cross-domain names (`enforce`, `annotate`, `declarations_from_signature`) are the exception. Prevents name collisions.
 
 ## Conventions
 

@@ -1,8 +1,8 @@
 """Tests for the `xarray_annotated.temporal` frequency-validation domain.
 
 Covers the `Freq` marker and its reader, the spacing/phase model behind
-`freq_compatible`, the runtime `check_freq`, the policy, and the `declare_freq`
-decorator.  Frequency validation never mutates: the checks assert/raise/warn but
+`freq_compatible`, the runtime `check_freq`, the policy, and `enforce` over `Freq`
+markers.  Frequency validation never mutates: the checks assert/raise/warn but
 return arrays unchanged.
 """
 
@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 import xarray as xr
 
+import xarray_annotated as xra
 from xarray_annotated import temporal, units
 from xarray_annotated.schema import Dims
 from xarray_annotated.temporal import Freq, _annotations, _config
@@ -419,13 +420,13 @@ class TestPolicy:
 
 
 # ---------------------------------------------------------------------------
-# declare_freq decorator
+# enforce over Freq markers
 # ---------------------------------------------------------------------------
 
 
 class TestDeclareFreq:
     def test_validates_input_and_passes_through(self):
-        @temporal.declare_freq
+        @xra.enforce
         def f(x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
             return x
 
@@ -435,7 +436,7 @@ class TestDeclareFreq:
             f(_da(pd.date_range("2020-01-01", periods=5, freq="7D")))
 
     def test_keyword_and_non_dataarray_args(self):
-        @temporal.declare_freq
+        @xra.enforce
         def f(flag: bool, x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
             return x
 
@@ -443,7 +444,7 @@ class TestDeclareFreq:
         assert f(True, x=da) is da
 
     def test_optional_none_input_skipped(self):
-        @temporal.declare_freq
+        @xra.enforce
         def f(
             x: Annotated[xr.DataArray | None, Freq("D")] = None,
         ) -> xr.DataArray | None:
@@ -452,7 +453,7 @@ class TestDeclareFreq:
         assert f(None) is None
 
     def test_declared_default_is_validated(self):
-        @temporal.declare_freq
+        @xra.enforce
         def f(
             x: Annotated[xr.DataArray, Freq("D")] = _da(
                 pd.date_range("2020-01-01", periods=5, freq="7D")
@@ -464,7 +465,7 @@ class TestDeclareFreq:
             f()  # x left at its non-conforming default
 
     def test_declared_default_honours_on_mismatch(self):
-        @temporal.declare_freq(on_mismatch="warn")
+        @xra.enforce(temporal_on_mismatch="warn")
         def f(
             x: Annotated[xr.DataArray, Freq("D")] = _da(
                 pd.date_range("2020-01-01", periods=5, freq="7D")
@@ -476,7 +477,7 @@ class TestDeclareFreq:
             f()
 
     def test_varargs_and_kwargs_survive_apply_defaults(self):
-        @temporal.declare_freq
+        @xra.enforce
         def f(
             x: Annotated[xr.DataArray, Freq("D")], *rest: int, **kw: int
         ) -> xr.DataArray:
@@ -488,7 +489,7 @@ class TestDeclareFreq:
         assert f(da, 1, 2, z=3) is da
 
     def test_output_single_validated(self):
-        @temporal.declare_freq
+        @xra.enforce
         def f(n: int) -> Annotated[xr.DataArray, Freq("W-SUN")]:
             # a Wednesday-anchored weekly axis: right spacing, wrong phase
             return _da(pd.date_range("2020-01-01", periods=5, freq="7D"))
@@ -500,7 +501,7 @@ class TestDeclareFreq:
         class Out(TypedDict):
             weekly: Annotated[xr.DataArray, Freq("W-SUN")]
 
-        @temporal.declare_freq
+        @xra.enforce
         def f() -> Out:
             return {"weekly": _da(pd.date_range("2020-01-01", periods=5, freq="D"))}
 
@@ -512,7 +513,7 @@ class TestDeclareFreq:
         class Out:
             weekly: Annotated[xr.DataArray, Freq("W-SUN")]
 
-        @temporal.declare_freq
+        @xra.enforce
         def f() -> Out:
             return Out(weekly=_da(pd.date_range("2020-01-01", periods=5, freq="D")))
 
@@ -520,7 +521,7 @@ class TestDeclareFreq:
             f()
 
     def test_decorator_kwargs(self):
-        @temporal.declare_freq(on_mismatch="warn")
+        @xra.enforce(temporal_on_mismatch="warn")
         def f(x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
             return x
 
@@ -528,7 +529,7 @@ class TestDeclareFreq:
             f(_da(pd.date_range("2020-01-01", periods=5, freq="7D")))
 
     def test_decorator_on_uninferable_kwarg(self):
-        @temporal.declare_freq(on_uninferable="error")
+        @xra.enforce(temporal_on_uninferable="error")
         def f(x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
             return x
 
@@ -536,7 +537,7 @@ class TestDeclareFreq:
             f(_da(pd.date_range("2020-01-01", periods=2, freq="D")))
 
     def test_marker_override_beats_decorator(self):
-        @temporal.declare_freq(on_mismatch="error")
+        @xra.enforce(temporal_on_mismatch="error")
         def f(
             x: Annotated[xr.DataArray, Freq("D", on_mismatch="warn")],
         ) -> xr.DataArray:
@@ -546,7 +547,7 @@ class TestDeclareFreq:
             f(_da(pd.date_range("2020-01-01", periods=5, freq="7D")))
 
     def test_wraps_metadata_preserved(self):
-        @temporal.declare_freq
+        @xra.enforce
         def f(x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
             """Docstring."""
             return x
@@ -555,7 +556,7 @@ class TestDeclareFreq:
         assert f.__doc__ == "Docstring."
 
     def test_disabled_is_total_noop(self):
-        @temporal.declare_freq
+        @xra.enforce
         def f(x: Annotated[xr.DataArray, Freq("ME")]) -> xr.DataArray:
             return x
 
@@ -566,27 +567,27 @@ class TestDeclareFreq:
     def test_invalid_decorator_kwargs(self):
         with pytest.raises(ValueError, match="Invalid on_mismatch"):
 
-            @temporal.declare_freq(on_mismatch="bogus")  # type: ignore[arg-type]
+            @xra.enforce(temporal_on_mismatch="bogus")  # type: ignore[arg-type]
             def f(x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
                 return x
 
         with pytest.raises(ValueError, match="Invalid on_uninferable"):
 
-            @temporal.declare_freq(on_uninferable="bogus")  # type: ignore[arg-type]
+            @xra.enforce(temporal_on_uninferable="bogus")  # type: ignore[arg-type]
             def g(x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
                 return x
 
     def test_fail_fast_bad_input_declaration(self):
         with pytest.raises(ValueError, match="invalid frequency"):
 
-            @temporal.declare_freq
+            @xra.enforce
             def f(x: Annotated[xr.DataArray, Freq("M")]) -> xr.DataArray:
                 return x
 
     def test_fail_fast_bad_output_declaration(self):
         with pytest.raises(ValueError, match="invalid frequency"):
 
-            @temporal.declare_freq
+            @xra.enforce
             def f(n: int) -> Annotated[xr.DataArray, Freq("nonsense")]:
                 return _da(pd.date_range("2020-01-01", periods=5, freq="D"))
 
@@ -601,6 +602,6 @@ class TestAnnotationsSurviveWraps:
         fn = ns["f"]
         fn.__annotations__["return"] = Annotated[xr.DataArray, Freq("D")]
 
-        wrapped = temporal.declare_freq(fn)
+        wrapped = xra.enforce(fn)
         hints = typing.get_type_hints(wrapped, include_extras=True)
         assert "return" in hints

@@ -15,7 +15,7 @@
 
 import marimo
 
-__generated_with = "0.23.16"
+__generated_with = "0.25.2"
 app = marimo.App(app_title="xarray-annotated: a worked example")
 
 
@@ -80,14 +80,10 @@ def _():
     import numpy as np
     import xarray as xr
 
-    from xarray_annotated.schema import (
-        Coords,
-        Dims,
-        Dtype,
-        declare_schema,
-    )
-    from xarray_annotated.temporal import Freq, declare_freq
-    from xarray_annotated.units import Unit, declare_units, use_cf_units
+    import xarray_annotated as xra
+    from xarray_annotated.schema import Coords, Dims, Dtype
+    from xarray_annotated.temporal import Freq
+    from xarray_annotated.units import Unit, use_cf_units
 
     # Catch an annoying warning from cf-xarray when matplotlib not available.
     with warnings.catch_warnings():
@@ -120,11 +116,9 @@ def _():
         TypedDict,
         UMOL_S_TO_G_D,
         Unit,
-        declare_freq,
-        declare_schema,
-        declare_units,
         np,
         xr,
+        xra,
     )
 
 
@@ -467,22 +461,8 @@ def _(mo):
 
 
 @app.cell
-def _(
-    Annotated,
-    Coords,
-    Dims,
-    Dtype,
-    Freq,
-    TypedDict,
-    Unit,
-    declare_freq,
-    declare_schema,
-    declare_units,
-    xr,
-):
-    @declare_units
-    @declare_schema
-    @declare_freq
+def _(Annotated, Coords, Dims, Dtype, Freq, TypedDict, Unit, xr, xra):
+    @xra.enforce
     def screen_quality_declared(
         flux: Annotated[
             xr.DataArray,
@@ -508,7 +488,7 @@ def _(
         gpp: Annotated[xr.DataArray, Dims("time"), Unit("umol m-2 s-1")]
         reco: Annotated[xr.DataArray, Dims("time"), Unit("umol m-2 s-1")]
 
-    @declare_units
+    @xra.enforce
     def partition_fluxes_declared(
         nee: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
         tair: Annotated[xr.DataArray, Unit("degC")],  # (6)
@@ -519,22 +499,21 @@ def _(
         gpp = (reco - nee).where(ppfd > 5.0, 0.0)  # no photosynthesis in the dark
         return {"gpp": gpp, "reco": reco}
 
-    @declare_freq
+    @xra.enforce
     def daily_mean_declared(
         flux: Annotated[xr.DataArray, Freq("30min")],
     ) -> Annotated[xr.DataArray, Freq("D")]:  # (7)
         """Mean half-hourly flux within each day."""
         return flux.resample(time="D").mean()
 
-    @declare_freq
+    @xra.enforce
     def weekly_mean_declared(
         daily: Annotated[xr.DataArray, Freq("D")],
     ) -> Annotated[xr.DataArray, Freq("W-SUN")]:  # (8)
         """Mean daily flux within each week ending on a Sunday."""
         return daily.resample(time="W-SUN").mean()
 
-    @declare_units
-    @declare_freq
+    @xra.enforce
     def compare_with_satellite_declared(
         modelled: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")],  # (9)
         observed: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")],  # (10)
@@ -659,8 +638,8 @@ def _(mo):
 
 
 @app.cell
-def _(Annotated, UMOL_S_TO_G_D, Unit, declare_units, xr):
-    @declare_units
+def _(Annotated, UMOL_S_TO_G_D, Unit, xr, xra):
+    @xra.enforce
     def to_mass_flux(
         flux: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
     ) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
