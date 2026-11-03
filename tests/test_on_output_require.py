@@ -204,3 +204,27 @@ class TestWiring:
             assert units.apply_output_units(_da(), "Pa", "r", mode).attrs == {
                 "units": "Pa"
             }
+
+
+class TestPerFieldDeclarationWithoutAContainer:
+    class _Out(TypedDict):
+        a: Annotated[xr.DataArray, Unit("Pa", on_output="require")]
+
+    @pytest.mark.parametrize("returned", [None, 1.0, _da("Pa")])
+    def test_require_raises(self, returned):
+        @xra.enforce
+        def f() -> TestPerFieldDeclarationWithoutAContainer._Out:
+            return returned  # type: ignore[return-value]
+
+        with pytest.raises(ValueError, match="output 'a' carries no value"):
+            f()
+
+    def test_other_modes_pass_it_through(self):
+        class Out(TypedDict):
+            a: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.enforce
+        def f() -> Out:
+            return None  # type: ignore[return-value]
+
+        assert f() is None

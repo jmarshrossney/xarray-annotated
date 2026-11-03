@@ -55,30 +55,22 @@ def _assert_valid(declared: Declared, context: str) -> None:
         assert_valid_freq(declared.freq, context)
 
 
-def _set_field(result: Any, name: str, value: xr.DataArray, qualname: str) -> None:
-    """Write a converted output back onto a dataclass return value.
+def _with_fields(result: Any, changes: dict[str, xr.DataArray]) -> Any:
+    """Write applied outputs back onto a dataclass return value.
 
-    Only reached when applying the declared unit produced a *new* array, which
-    for a dataclass means a pint-quantified field that needed converting — a
-    plain field is stamped in place and never comes through here.
+    Written only once every field has passed, so a failed check leaves `result` as
+    it was.  A frozen dataclass cannot take the write, so it is rebuilt instead,
+    which runs its `__post_init__` again.
 
-    A frozen dataclass cannot take the write. `setattr` raises
-    `FrozenInstanceError` (an `AttributeError`, despite reading like a type
-    error), which on its own says nothing about units; re-raise it with the
-    cause and the way out.
-
-    Raises:
-        dataclasses.FrozenInstanceError: If `result` is frozen.
+    Returns:
+        `result`, or its frozen replacement.
     """
     try:
-        setattr(result, name, value)
-    except dataclasses.FrozenInstanceError as exc:
-        raise dataclasses.FrozenInstanceError(
-            f"[{qualname}] output {name!r} is pint-quantified and needs converting "
-            f"to its declared unit, but the returned dataclass is frozen so the "
-            f"converted array cannot be written back. Dequantify the field in the "
-            f"function body (`.pint.dequantify()`), or drop `frozen=True`."
-        ) from exc
+        for name, value in changes.items():
+            setattr(result, name, value)
+    except dataclasses.FrozenInstanceError:
+        return dataclasses.replace(result, **changes)
+    return result
 
 
 def enforce(
@@ -122,6 +114,8 @@ def enforce(
     `Unit("Pa", convert=True)`).
 
     Usable bare (`@xra.enforce`) or called (`@xra.enforce(units_on_output=...)`).
+    On an `async def`, the checks run when the coroutine is awaited, and outputs
+    are applied to the awaited result.
 
     Args:
         func: The function to decorate (when used bare); `None` when called with
@@ -133,7 +127,8 @@ def enforce(
         The wrapped function, or a decorator when `func` is `None`.
 
     Raises:
-        ValueError: If a keyword or a declaration is malformed (at decoration).
+        ValueError: If a keyword or a declaration is malformed, or a `*args` or
+            `**kwargs` parameter carries a declaration (at decoration).
 
     Example:
         >>> from typing import Annotated
@@ -167,6 +162,16 @@ def enforce(
 
         for name, decl in inputs.items():
             _assert_valid(decl, f"{qualname} input {name!r}")
+            if sig.parameters[name].kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            ):
+                raise ValueError(
+                    f"{qualname} input {name!r}: enforce cannot check a declaration "
+                    f"on a variadic parameter, since it binds a tuple or dict rather "
+                    f"than a DataArray. Use named parameters, or call the checkers "
+                    f"on each element in the function body."
+                )
         if isinstance(output, Declared):
             _assert_valid(output, f"{qualname} output")
         elif isinstance(output, dict):
@@ -208,44 +213,62 @@ def enforce(
                         if name in result:
                             result[name] = applied
                 elif dataclasses.is_dataclass(result):
+                    changes = {}
                     for name, decl in output.items():
                         value = getattr(result, name, None)
                         applied = _apply_output(value, decl, name)
                         if applied is not value:
-                            _set_field(result, name, applied, qualname)
+                            changes[name] = applied
+                    return _with_fields(result, changes)
+                else:
+                    # Not the declared container, so every declared field is missing.
+                    for name, decl in output.items():
+                        _apply_output(None, decl, name)
             return result
+
+        def _inputs(args: Any, kwargs: Any) -> tuple[Any, Any]:
+            if not inputs:
+                return args, kwargs
+            bound = sig.bind_partial(*args, **kwargs)
+            # bind_partial omits parameters left at their default; apply
+            # them so a declared default is checked (and converted) too.
+            bound.apply_defaults()
+            for name, val in list(bound.arguments.items()):
+                decl = inputs.get(name)
+                if decl is None or not isinstance(val, xr.DataArray):
+                    continue
+                if decl.unit is not None:
+                    val = check_units(val, decl.unit, name, qualname=qualname)
+                    bound.arguments[name] = val
+                if markers := decl.schema:
+                    check_schema(val, markers, name, qualname=qualname)
+                if decl.freq is not None:
+                    check_freq(
+                        val,
+                        decl.freq,
+                        name,
+                        on_uninferable=temporal_on_uninferable,
+                        qualname=qualname,
+                    )
+            return bound.args, bound.kwargs
 
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             if not resolve_enabled():
                 # Switched off: a total no-op, conversion and stamping included.
                 return fn(*args, **kwargs)
-            if inputs:
-                bound = sig.bind_partial(*args, **kwargs)
-                # bind_partial omits parameters left at their default; apply
-                # them so a declared default is checked (and converted) too.
-                bound.apply_defaults()
-                for name, val in list(bound.arguments.items()):
-                    decl = inputs.get(name)
-                    if decl is None or not isinstance(val, xr.DataArray):
-                        continue
-                    if decl.unit is not None:
-                        val = check_units(val, decl.unit, name, qualname=qualname)
-                        bound.arguments[name] = val
-                    if markers := decl.schema:
-                        check_schema(val, markers, name, qualname=qualname)
-                    if decl.freq is not None:
-                        check_freq(
-                            val,
-                            decl.freq,
-                            name,
-                            on_uninferable=temporal_on_uninferable,
-                            qualname=qualname,
-                        )
-                args, kwargs = bound.args, bound.kwargs
+            args, kwargs = _inputs(args, kwargs)
             return _outputs(fn(*args, **kwargs))
 
-        wrapper.__annotations__ = dict(fn.__annotations__)
-        return wrapper
+        @functools.wraps(fn)
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            if not resolve_enabled():
+                return await fn(*args, **kwargs)
+            args, kwargs = _inputs(args, kwargs)
+            return _outputs(await fn(*args, **kwargs))
+
+        chosen = async_wrapper if inspect.iscoroutinefunction(fn) else wrapper
+        chosen.__annotations__ = dict(fn.__annotations__)
+        return chosen
 
     return decorate if func is None else decorate(func)

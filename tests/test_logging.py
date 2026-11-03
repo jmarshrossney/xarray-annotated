@@ -164,3 +164,18 @@ class TestQuietByDefault:
             units.check_units(_da(), Unit("Pa", convert=True), "p")
             schema.check_schema(_da(), Dims("time"), "p", on_mismatch="ignore")
         assert audit.records == []
+
+
+class TestOverLongLabelUnderStamp:
+    def test_is_neither_parsed_nor_echoed(self, audit, monkeypatch):
+        label = "e" * 300
+
+        def fail(*_):
+            raise AssertionError("over-long label reached the parser")
+
+        monkeypatch.setattr(units._check, "units_equal", fail)
+        out = units.apply_output_units(_da(label), "Pa", "return")
+        assert out.attrs["units"] == "Pa"
+        [(level, msg)] = _records(audit, UNITS)
+        assert level == logging.DEBUG
+        assert label not in msg

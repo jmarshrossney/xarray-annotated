@@ -432,3 +432,74 @@ class TestUnitMarker:
         # unhashable (would break tools that cache/hash annotations).
         hash(Annotated[xr.DataArray, units.Unit("degC")])
         assert hash(units.Unit("degC")) == hash(units.Unit("degC"))
+
+
+class TestConversionLeavesCoordsAlone:
+    def _da(self):
+        return xr.DataArray(
+            [1.0, 2.0],
+            dims="lat",
+            coords={
+                "lat": ("lat", [10.0, 20.0], {"units": "degrees_north"}),
+                "height": ("lat", [1.0, 2.0], {"units": "metre"}),
+            },
+            attrs={"units": "hPa", "long_name": "pressure"},
+        )
+
+    def test_unparseable_coord_label_does_not_block_conversion(self):
+        out = units.check_units(self._da(), Unit("Pa", convert=True), "p")
+        np.testing.assert_allclose(out.values, [100.0, 200.0])
+        assert out.attrs == {"units": "Pa", "long_name": "pressure"}
+
+    def test_coord_labels_keep_their_spelling(self):
+        out = units.check_units(self._da(), Unit("Pa", convert=True), "p")
+        assert out.lat.attrs["units"] == "degrees_north"
+        assert out.height.attrs["units"] == "metre"
+        np.testing.assert_allclose(out.lat.values, [10.0, 20.0])
+
+    def test_input_is_not_modified(self):
+        da = self._da()
+        units.check_units(da, Unit("Pa", convert=True), "p")
+        assert da.attrs["units"] == "hPa"
+        np.testing.assert_allclose(da.values, [1.0, 2.0])
+
+    def test_dimensional_mismatch_is_still_named(self):
+        da = xr.DataArray([1.0], attrs={"units": "kg"})
+        with pytest.raises(pint.DimensionalityError) as info:
+            units.check_units(da, Unit("Pa", convert=True), "p")
+        assert "while validating input 'p'" in info.value.__notes__[0]
+
+
+class TestUnitsEqualIsPhysical:
+    @pytest.mark.parametrize(
+        ("a", "b"),
+        [("Pa", "N/m**2"), ("Pa", "kg/m/s**2"), ("Hz", "1/s"), ("delta_degC", "K")],
+    )
+    def test_same_scale_different_composition_is_equal(self, a, b):
+        assert units.units_equal(a, b)
+
+    @pytest.mark.parametrize(
+        ("a", "b"),
+        [
+            ("Pa", "hPa"),
+            ("degC", "K"),  # same size of degree, different zero
+            ("degC", "delta_degC"),  # compatible, but pint refuses to convert
+            ("percent", "1"),
+            ("dB", "1"),
+            ("Pa", "kg"),
+        ],
+    )
+    def test_different_values_or_dimensions_are_not_equal(self, a, b):
+        assert not units.units_equal(a, b)
+
+    def test_recomposed_input_passes_without_convert(self):
+        da = xr.DataArray([1.0], attrs={"units": "kg/m/s**2"})
+        out = units.check_units(da, "Pa", "p")
+        np.testing.assert_array_equal(out.values, da.values)
+        assert out.attrs["units"] == "Pa"
+
+    @pytest.mark.parametrize("on_output", ["strict", "require"])
+    def test_recomposed_output_label_is_no_mismatch(self, on_output):
+        da = xr.DataArray([1.0], attrs={"units": "N/m**2"})
+        out = units.apply_output_units(da, "Pa", "return", on_output)
+        assert out.attrs["units"] == "Pa"

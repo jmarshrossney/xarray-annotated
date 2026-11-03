@@ -3,8 +3,8 @@
 The "usage side" of the package: given a declared unit string (typically read
 off a signature by `_annotations`), validate an actual `DataArray` against it
 and, where the declaration opts in, convert it into the declared unit.
-Conversion is delegated to pint-xarray's `.pint` accessor via the active
-registry.
+Conversion goes through the active registry: pint directly for an `attrs`-labelled
+array, pint-xarray's `.pint` accessor for a quantified one.
 
 Every non-trivial action is logged at DEBUG to the `xarray_annotated.units`
 logger: an opted-in input conversion, an output stamped over a different label,
@@ -12,6 +12,7 @@ a converted quantified output.
 """
 
 import logging
+import math
 from typing import Any
 
 import pint
@@ -59,12 +60,24 @@ def resolve_on_output(declared: str | Unit, on_output: OnOutput | None) -> OnOut
     return marker or on_output or DEFAULT_ON_OUTPUT
 
 
+def _is_unverifiable(have: Any) -> bool:
+    """Whether a label must stay out of pint's parser and messages: `_MAX_UNIT_LEN`."""
+    return not isinstance(have, str) or len(have) > _MAX_UNIT_LEN
+
+
 def _labels_differ(have: Any, declared: str) -> bool:
     """Whether a label names a different unit; unparseable labels count as different."""
     try:
         return not units_equal(have, declared)
     except Exception:
         return True
+
+
+def _stamped(da: xr.DataArray, declared: str) -> xr.DataArray:
+    """A copy of `da` labelled `declared`, sharing its data but not its attrs."""
+    stamped = da.copy(deep=False)
+    stamped.attrs["units"] = declared
+    return stamped
 
 
 def _quantified_label(unit: pint.Unit) -> str:
@@ -173,9 +186,11 @@ def units_compatible(a: str | Unit, b: str | Unit) -> bool:
 def units_equal(a: str | Unit, b: str | Unit) -> bool:
     """Return whether two units are the *same* unit (no conversion needed).
 
-    Compares the parsed units, so different spellings of the same unit are equal
-    (`"Pa"` == `"pascal"`, `"1"` == `"dimensionless"`) while a prefixed unit
-    differs (`"hPa"` != `"Pa"`).  This is the distinction `convert` turns
+    Compares what converting would do to the values, so different spellings and
+    compositions of one unit are equal (`"Pa"` == `"pascal"` == `"N/m**2"`,
+    `"1"` == `"dimensionless"`) while a prefixed unit differs (`"hPa"` != `"Pa"`).
+    pint treats radians as dimensionless, so `"rad"` == `"1"` and `"Hz"` ==
+    `"rad/s"`.  This is the distinction `convert` turns
     on: a value-changing conversion is one where the units are compatible but
     *not* equal, and needs opting into; equivalent spellings imply no value
     change.
@@ -196,12 +211,32 @@ def units_equal(a: str | Unit, b: str | Unit) -> bool:
         True
         >>> units_equal(Unit("Pa"), Unit("pascal"))  # markers accepted too
         True
+        >>> units_equal("Pa", "kg/m/s**2")
+        True
         >>> units_equal("hPa", "Pa")
         False
     """
     a = a.unit if isinstance(a, Unit) else a
     b = b.unit if isinstance(b, Unit) else b
-    return get_registry().Unit(a) == get_registry().Unit(b)
+    registry = get_registry()
+    unit_a, unit_b = registry.Unit(a), registry.Unit(b)
+    if unit_a == unit_b:
+        return True
+    if not unit_a.is_compatible_with(unit_b):
+        return False
+    try:
+        # Two points, because an offset unit can agree with another at one of them.
+        return all(
+            math.isclose(
+                registry.Quantity(x, unit_a).to(unit_b).magnitude,
+                x,
+                rel_tol=1e-12,
+                abs_tol=1e-12,
+            )
+            for x in (0.0, 1.0)
+        )
+    except pint.DimensionalityError:
+        return False  # compatible by dimension, yet no conversion: degC, delta_degC
 
 
 def check_units(
@@ -309,17 +344,14 @@ def check_units(
         ) from exc
     if quantified is None and units_equal(have, declared):
         # Same unit, differently spelled ("pascal" for "Pa", "1" for
-        # "dimensionless"): nothing to convert, so the quantify/convert/dequantify
-        # round-trip below would copy the entire buffer purely to rewrite a string
-        # -- and would rewrite the *coordinates'* unit spellings on the way past.
+        # "dimensionless"): nothing to convert, so the conversion below would copy
+        # the entire buffer purely to rewrite a string.
         # A shallow copy shares the data and takes its own attrs dict, so the
         # caller's array is left exactly as it was.
         #
         # Quantified inputs still go the long way round: they are contracted to
         # come back dequantified, and only dequantify can do that.
-        relabelled = da.copy(deep=False)
-        relabelled.attrs["units"] = declared
-        return relabelled
+        return _stamped(da, declared)
     if units_compatible(have, declared) and not units_equal(have, declared):
         # Dimensionally compatible but value-changing (e.g. hPa -> Pa).  Whether
         # that is correct depends on the quantity (an annual total is not a daily
@@ -339,10 +371,16 @@ def check_units(
             declared,
         )
     try:
-        # quantify() is not a no-op on already-quantified data -- it raises when
-        # a leftover attrs label disagrees with the Quantity -- so skip it there.
-        source = da if quantified is not None else da.pint.quantify()
-        converted = source.pint.to(declared).pint.dequantify()
+        if quantified is not None:
+            converted = da.pint.to(declared).pint.dequantify()
+        else:
+            # Only the data has a declared unit. quantify() would also parse the
+            # coords' labels, so "degrees_north" could abort this conversion.
+            data = get_registry().Quantity(da.data, have).to(declared).magnitude
+            converted = da.copy(deep=False, data=data)
+    except pint.DimensionalityError as err:
+        err.add_note(f"while validating input {name!r}")
+        raise
     except PintExceptionGroup as group:
         # pint-xarray wraps conversion failures in an ExceptionGroup; surface the
         # underlying DimensionalityError directly for a clean, catchable error.
@@ -354,8 +392,8 @@ def check_units(
             err.add_note(f"while validating input {name!r}")
             raise err from None
         raise
-    # dequantify writes pint's canonical unit name (e.g. 'pascal'); restore the
-    # declared unit string so downstream re-parsing uses our spelling.
+    # dequantify writes pint's canonical unit name (e.g. 'pascal'), and the plain
+    # path still holds the old label; stamp the declared spelling over either.
     converted.attrs["units"] = declared
     return converted
 
@@ -535,8 +573,9 @@ def apply_output_units(
         qualname: A qualifier prepended to messages as `[qualname]`.
 
     Returns:
-        For an `attrs`-labelled or unlabelled array, `da` itself with
-        `attrs["units"]` set to `declared` (mutated in place).  For a quantified
+        For an `attrs`-labelled or unlabelled array, a shallow copy of `da` with
+        `attrs["units"]` set to `declared`; `da` itself is left as it was, since a
+        body may have returned the caller's own array.  For a quantified
         array, an array in `declared` with `attrs` untouched — the same object
         when it was already in `declared`, otherwise a converted new one.  Always
         use the return value rather than relying on mutation.
@@ -575,20 +614,26 @@ def apply_output_units(
     if have is None:
         if on_output == "require":
             raise ValueError(_require_message(prefix, name, declared, "no unit"))
-        da.attrs["units"] = declared
-        return da
+        return _stamped(da, declared)
     if on_output == "stamp":
-        if _log.isEnabledFor(logging.DEBUG) and _labels_differ(have, declared):
-            _log.debug(
-                "%soutput %r: stamping declared %r over label %r",
-                prefix,
-                name,
-                declared,
-                have,
-            )
-        da.attrs["units"] = declared
-        return da
-    if not isinstance(have, str) or len(have) > _MAX_UNIT_LEN:
+        if _log.isEnabledFor(logging.DEBUG):
+            if _is_unverifiable(have):
+                _log.debug(
+                    "%soutput %r: stamping declared %r over an unverifiable label",
+                    prefix,
+                    name,
+                    declared,
+                )
+            elif _labels_differ(have, declared):
+                _log.debug(
+                    "%soutput %r: stamping declared %r over label %r",
+                    prefix,
+                    name,
+                    declared,
+                    have,
+                )
+        return _stamped(da, declared)
+    if _is_unverifiable(have):
         # Unverifiable for the same reasons as on the input path.
         if on_output == "require":
             raise ValueError(
@@ -603,8 +648,7 @@ def apply_output_units(
             declared,
             on_output,
         )
-        da.attrs["units"] = declared
-        return da
+        return _stamped(da, declared)
     try:
         get_registry().Unit(have)
     except Exception:
@@ -623,8 +667,7 @@ def apply_output_units(
             declared,
             on_output,
         )
-        da.attrs["units"] = declared
-        return da
+        return _stamped(da, declared)
 
     # "strict" and "require" compare a parseable label alike.
     if not units_equal(have, declared):
@@ -649,8 +692,7 @@ def apply_output_units(
                 f"{prefix}output {name!r}: unit {have!r} differs from declared "
                 f"{declared!r} and on_output={on_output!r} requires them to match"
             )
-    da.attrs["units"] = declared
-    return da
+    return _stamped(da, declared)
 
 
 def require_dataarray(

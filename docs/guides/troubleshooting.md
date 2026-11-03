@@ -130,8 +130,7 @@ comes back **still quantified**, with `attrs` untouched:
   error, not the expected staleness that makes stamping the right default for `attrs`.
 - `on_output="strict"` raises on any unit other than the declared one.
 
-If a function must return something dequantified — to put it in a frozen dataclass, say —
-call `.pint.dequantify()` in the body.
+If a function must return something dequantified, call `.pint.dequantify()` in the body.
 
 
 ## `DimensionalityError` that no policy will suppress { #dimensionalityerror }

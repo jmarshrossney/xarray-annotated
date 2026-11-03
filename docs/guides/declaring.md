@@ -24,7 +24,9 @@ others.
 `DataArray` parameter or return — `Annotated[xr.DataArray, Dims("time", "x")]` (a
 structural marker), `Annotated[xr.DataArray, Unit("Pa")]` (a unit), or
 `Annotated[xr.DataArray, Freq("7D")]` (a frequency). The annotation is the single source
-of truth, read once and never written twice.
+of truth, read once and never written twice. An optional value can be spelled either way
+round, `Annotated[xr.DataArray | None, Unit("Pa")]` or
+`Annotated[xr.DataArray, Unit("Pa")] | None`, and a `TypedDict` field may be `NotRequired`.
 
 **One decorator.** `@xra.enforce` (with `import xarray_annotated as xra`) reads every
 marker off the signature and applies each on every call. The structural properties —
@@ -279,6 +281,9 @@ see through the spelling:
 Freq("W")  # weekly, any weekday  — accepts a W-WED axis
 Freq("W-SUN")  # weekly, Sundays only — rejects a W-WED axis
 ```
+
+A quarterly anchor names a set of four dates, not one month, so `"QE-MAR"` and `"QE-DEC"`
+are the same declaration, and `"QE-MAR"` and `"QE-NOV"` conflict.
 
 !!! note "A deliberate divergence from pandas"
 

@@ -48,9 +48,9 @@ def annotate(
     without unwrapping:
 
         * `unit`   — a unit string (`"Pa"`) or a `Unit`.
-        * `dims`   — an iterable of dim names (`("time", "x")`) or a `Dims`.
+        * `dims`   — a dim name, an iterable of them (`("time", "x")`), or a `Dims`.
         * `dtype`  — a dtype string (`"float64"`) or a `Dtype`.
-        * `coords` — an iterable of coord names or a `Coords`.
+        * `coords` — a coord name, an iterable of them, or a `Coords`.
         * `freq`   — an offset string (`"7D"`) or a `Freq`.
 
     A facet left as `None` contributes no marker.  When no facet is given, `base`
@@ -80,6 +80,10 @@ def annotate(
         >>> annotate() is xr.DataArray
         True
     """
+    if isinstance(dims, str):
+        dims = (dims,)
+    if isinstance(coords, str):
+        coords = (coords,)
     markers: list[Any] = []
     if unit is not None:
         markers.append(unit if isinstance(unit, Unit) else Unit(unit))

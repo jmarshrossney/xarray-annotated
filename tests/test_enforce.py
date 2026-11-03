@@ -6,7 +6,8 @@ applied *before* structure and frequency on both sides of the call — and the
 surface that is new with it.
 """
 
-import dataclasses
+import asyncio
+import inspect
 import typing
 from dataclasses import dataclass
 from typing import Annotated, TypedDict
@@ -87,7 +88,7 @@ class TestOrdering:
         assert out.p.dtype == np.float64
         assert units.units_equal(f"{out.p.pint.units:~P}", "Pa")
 
-    def test_frozen_dataclass_conversion_still_explained(self):
+    def test_frozen_dataclass_field_is_converted_too(self):
         @dataclass(frozen=True)
         class Out:
             p: Annotated[xr.DataArray, Unit("Pa"), Dims("time")]
@@ -96,8 +97,7 @@ class TestOrdering:
         def f() -> Out:
             return Out(p=_int_da().pint.quantify())
 
-        with pytest.raises(dataclasses.FrozenInstanceError, match="frozen"):
-            f()
+        assert units.units_equal(f"{f().p.pint.units:~P}", "Pa")
 
 
 class TestKeywords:
@@ -210,3 +210,145 @@ class TestWrapper:
             return {"p": None}
 
         assert f() == {"p": None}
+
+
+class TestAsync:
+    def test_output_is_applied_to_the_awaited_result(self):
+        @xra.enforce
+        async def f(
+            p: Annotated[xr.DataArray, Unit("Pa", convert=True)],
+        ) -> Annotated[xr.DataArray, Unit("kPa"), Dims("time")]:
+            return p / 1000.0
+
+        out = asyncio.run(f(_int_da().astype(float)))
+        assert out.attrs["units"] == "kPa"
+
+    def test_output_checks_run(self):
+        @xra.enforce
+        async def f() -> Annotated[xr.DataArray, Dims("nope")]:
+            return _int_da()
+
+        with pytest.raises(schema.SchemaError):
+            asyncio.run(f())
+
+    def test_require_sees_the_awaited_result(self):
+        @xra.enforce
+        async def f() -> Annotated[xr.DataArray, Unit("Pa", on_output="require")]:
+            return _int_da("Pa")
+
+        assert asyncio.run(f()).attrs["units"] == "Pa"
+
+    def test_input_checks_run(self):
+        @xra.enforce
+        async def f(p: Annotated[xr.DataArray, Unit("kg")]) -> None: ...
+
+        with pytest.raises(pint.DimensionalityError):
+            asyncio.run(f(_int_da("Pa")))
+
+    def test_disabled_is_a_noop(self):
+        @xra.enforce
+        async def f() -> Annotated[xr.DataArray, Unit("Pa")]:
+            return _int_da(None)
+
+        with xra.enabled(False):
+            assert "units" not in asyncio.run(f()).attrs
+
+    def test_stays_a_coroutine_function(self):
+        @xra.enforce
+        async def f() -> None: ...
+
+        assert inspect.iscoroutinefunction(f)
+
+
+class TestOutputStampLeavesTheInputAlone:
+    def _passthrough(self):
+        @xra.enforce
+        def f(x: xr.DataArray) -> Annotated[xr.DataArray, Unit("Pa")]:
+            return x
+
+        return f
+
+    def test_caller_array_keeps_its_label(self):
+        da = _int_da("hPa")
+        out = self._passthrough()(da)
+        assert out.attrs["units"] == "Pa"
+        assert da.attrs["units"] == "hPa"
+
+    def test_data_is_not_copied(self):
+        da = xr.DataArray(np.zeros(3), dims="x", attrs={"units": "hPa"})
+        assert np.shares_memory(self._passthrough()(da).values, da.values)
+
+    def test_later_check_failure_leaves_it_alone(self):
+        @xra.enforce
+        def f(x: xr.DataArray) -> Annotated[xr.DataArray, Unit("Pa"), Dims("nope")]:
+            return x
+
+        da = _int_da("hPa")
+        with pytest.raises(schema.SchemaError):
+            f(da)
+        assert da.attrs["units"] == "hPa"
+
+    def test_unlabelled_array_stays_unlabelled(self):
+        da = xr.DataArray([1.0])
+        assert self._passthrough()(da).attrs["units"] == "Pa"
+        assert "units" not in da.attrs
+
+    @pytest.mark.parametrize("frozen", [True, False])
+    def test_dataclass_field(self, frozen):
+        @dataclass(frozen=frozen)
+        class Out:
+            p: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.enforce
+        def f(x: xr.DataArray) -> Out:
+            return Out(p=x)
+
+        da = _int_da("hPa")
+        assert f(da).p.attrs["units"] == "Pa"
+        assert da.attrs["units"] == "hPa"
+
+    def test_frozen_dataclass_takes_a_conversion(self):
+        @dataclass(frozen=True)
+        class Out:
+            p: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.enforce
+        def f() -> Out:
+            return Out(p=_int_da("hPa").astype(float).pint.quantify())
+
+        out = f().p
+        assert units.units_equal(f"{out.pint.units:~P}", "Pa")
+        np.testing.assert_allclose(out.pint.magnitude, _int_da().values * 100.0)
+
+    def test_dict_field(self):
+        class Out(TypedDict):
+            p: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.enforce
+        def f(x: xr.DataArray) -> Out:
+            return {"p": x}
+
+        da = _int_da("hPa")
+        assert f(da)["p"].attrs["units"] == "Pa"
+        assert da.attrs["units"] == "hPa"
+
+
+class TestVariadics:
+    def test_declared_var_positional_is_rejected(self):
+        with pytest.raises(ValueError, match=r"'xs'.*variadic"):
+
+            @xra.enforce
+            def f(*xs: Annotated[xr.DataArray, Unit("Pa")]) -> None: ...
+
+    def test_declared_var_keyword_is_rejected(self):
+        with pytest.raises(ValueError, match=r"'xs'.*variadic"):
+
+            @xra.enforce
+            def f(**xs: Annotated[xr.DataArray, Dims("x")]) -> None: ...
+
+    def test_undeclared_variadics_are_fine(self):
+        @xra.enforce
+        def f(p: Annotated[xr.DataArray, Unit("Pa")], *a: int, **k: str) -> int:
+            return len(a) + len(k)
+
+        assert f(_int_da("Pa"), 1, 2, z="3") == 3
