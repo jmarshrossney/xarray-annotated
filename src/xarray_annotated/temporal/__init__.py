@@ -26,7 +26,7 @@ the classic resample footgun of a series landing on Wednesdays::
 check of a producer/consumer edge.
 """
 
-from ._annotations import Freq, annotated_freq, freq_from_signature
+from ._annotations import Freq
 from ._check import (
     FreqError,
     FreqWarning,
@@ -47,9 +47,7 @@ __all__ = [
     "OnMismatch",
     "OnUninferable",
     "UninferableFreqWarning",
-    "annotated_freq",
     "assert_valid_freq",
     "check_freq",
     "freq_compatible",
-    "freq_from_signature",
 ]

@@ -20,18 +20,17 @@ checked)::
     @xra.enforce
     def f(p: Annotated[xr.DataArray, Unit("Pa"), Dims("time"), Freq("D")]): ...
 
-The top level is deliberately thin — the domains' checker and reader names
-stay in their subpackages, and some (``OnMismatch``) share a name across
-domains.  The exceptions are the
-markers (``Coords``, ``Dims``, ``Dtype``, ``Freq``, ``Unit``), which are unique
-across domains and are combined freely in one hint, and the domain-*agnostic*
+The top level is deliberately thin — the domains' checker names stay in their
+subpackages, and some (``OnMismatch``) share a name across domains.  The exceptions
+are the markers (``Coords``, ``Dims``, ``Dtype``, ``Freq``, ``Unit``), which are
+unique across domains and are combined freely in one hint, and the domain-*agnostic*
 names: ``enforce``; the ``enabled`` switch, the only global setting; the shared
-declaration *writer* ``annotate`` and its inverse *reader*
-``declarations_from_signature`` (which reads every facet declared on a signature
-into one uniform ``Declared`` value); and the ``Annotated`` introspection kernel
-(``unwrap_annotated``, ``walk_signature``).  ``walk_signature`` is the shared
-driver behind every domain's reader, so a third-party facet author can use it to
-build their own ``*_from_signature`` reader.
+declaration *writer* ``annotate`` and its inverse *readers*
+``declaration_from_hint`` and ``declarations_from_signature`` (which read every facet
+declared on a hint or a signature into one uniform ``Declared`` value); and the
+``Annotated`` introspection kernel (``unwrap_annotated``, ``walk_signature``).
+``walk_signature`` is the driver behind the readers, so a third-party facet author
+can use it to build their own ``*_from_signature`` reader.
 """
 
 from importlib.metadata import version as _version
@@ -40,7 +39,7 @@ from . import schema, temporal, units
 from ._annotations import unwrap_annotated, walk_signature
 from ._config import enabled
 from ._enforce import enforce
-from ._reader import Declared, declarations_from_signature
+from ._reader import Declared, declaration_from_hint, declarations_from_signature
 from ._writer import annotate
 from .schema import Coords, Dims, Dtype
 from .temporal import Freq
@@ -57,6 +56,7 @@ __all__ = [
     "Unit",
     "__version__",
     "annotate",
+    "declaration_from_hint",
     "declarations_from_signature",
     "enabled",
     "enforce",

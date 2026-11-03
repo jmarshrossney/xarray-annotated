@@ -39,47 +39,24 @@ class TestAllIsHonest:
         assert list(mod.__all__) == sorted(set(mod.__all__))
 
 
-class TestReadersAreExportedConsistently:
-    """Every domain has a signature reader *and* a single-hint reader; a facet
-    author imitating one domain must find the same surface in the others."""
+class TestReaders:
+    """Reading is cross-domain: the root readers are the only ones."""
 
     @pytest.mark.parametrize(
-        ("domain", "name"),
-        [
-            ("units", "units_from_signature"),
-            ("schema", "schema_from_signature"),
-            ("temporal", "freq_from_signature"),
-        ],
+        "name", ["Declared", "declaration_from_hint", "declarations_from_signature"]
     )
-    def test_signature_readers(self, domain, name):
-        assert name in importlib.import_module(f"xarray_annotated.{domain}").__all__
+    def test_root_readers(self, name):
+        assert name in xra.__all__
 
-    @pytest.mark.parametrize(
-        ("domain", "name"),
-        [
-            ("units", "annotated_unit"),
-            ("schema", "annotated_schema"),
-            ("temporal", "annotated_freq"),
-        ],
-    )
-    def test_single_hint_readers(self, domain, name):
-        assert name in importlib.import_module(f"xarray_annotated.{domain}").__all__
-
-    def test_single_hint_readers_are_usable_from_the_domain(self):
-        """The point of exporting them: a caller need not reach into a private
-        module to read one annotation."""
-        from typing import Annotated
-
-        import xarray as xr
-
-        from xarray_annotated.schema import Dims, annotated_schema
-        from xarray_annotated.temporal import Freq, annotated_freq
-        from xarray_annotated.units import Unit, annotated_unit
-
-        hint = Annotated[xr.DataArray, Unit("Pa"), Dims("time"), Freq("D")]
-        assert annotated_unit(hint) == "Pa"
-        assert annotated_schema(hint) == [Dims("time")]
-        assert annotated_freq(hint) == Freq("D")
+    @pytest.mark.parametrize("domain", DOMAINS)
+    def test_domains_export_no_readers(self, domain):
+        names = importlib.import_module(f"xarray_annotated.{domain}").__all__
+        readers = [
+            n
+            for n in names
+            if n.endswith("_from_signature") or n.startswith("annotated_")
+        ]
+        assert not readers
 
 
 class TestInternalHelpersStayInternal:

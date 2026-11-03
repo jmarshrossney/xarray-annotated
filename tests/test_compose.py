@@ -7,11 +7,8 @@
 3. All three domains on one hint: each reads only its own markers, so one hint
    can declare a unit, a structure, and a frequency at once.
 
-The markers of every domain coexist in one ``Annotated``: ``annotated_schema``
-collects only the typed schema markers, ``annotated_freq`` only the ``Freq`` marker,
-and ``annotated_unit`` reads the ``Unit`` marker (or, as shorthand, the first bare
-``str``) — so each reader ignores the others' metadata. Both unit forms are exercised
-below.
+The markers of every domain coexist in one ``Annotated``, and each domain reads only
+its own.
 """
 
 from typing import Annotated
@@ -24,9 +21,9 @@ import xarray as xr
 
 import xarray_annotated as xra
 from xarray_annotated import schema, temporal
-from xarray_annotated.schema import Coords, Dims, Dtype, schema_from_signature
-from xarray_annotated.temporal import Freq, freq_from_signature
-from xarray_annotated.units import Unit, units_from_signature
+from xarray_annotated.schema import Coords, Dims, Dtype
+from xarray_annotated.temporal import Freq
+from xarray_annotated.units import Unit
 
 
 def _da(dims=("time", "x"), dtype="float64", coords=(), unit=None, fill=0.0):
@@ -125,16 +122,15 @@ class TestComposeDecorators:
         assert out.attrs["units"] == "Pa"
         np.testing.assert_allclose(out.values, np.full(out.shape, 1000.0))
 
-    def test_bare_string_unit_coexists_with_markers(self):
-        # shorthand form: a bare unit string still coexists with schema markers
+    def test_same_unit_respelling_needs_no_conversion(self):
         @xra.enforce
         def f(
-            x: Annotated[xr.DataArray, Dims("time", "x"), "Pa"],
-        ) -> Annotated[xr.DataArray, Dims("time", "x"), "Pa"]:
+            x: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")],
+        ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
             return x
 
-        # The shorthand cannot opt into conversion, so only a same-unit spelling
-        # passes; it is relabelled with the values untouched.
+        # With no opt-in to conversion only a same-unit spelling passes; it is
+        # relabelled with the values untouched.
         out = f(_da(("time", "x"), unit="pascal", fill=10.0))
         assert out.attrs["units"] == "Pa"
         np.testing.assert_allclose(out.values, np.full(out.shape, 10.0))
@@ -143,7 +139,9 @@ class TestComposeDecorators:
 
     def test_dims_mismatch_raises_with_valid_units(self):
         @xra.enforce
-        def f(x: Annotated[xr.DataArray, Dims("time", "x"), "Pa"]) -> xr.DataArray:
+        def f(
+            x: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")],
+        ) -> xr.DataArray:
             return x
 
         # units convert cleanly (Pa -> Pa), then inner schema rejects the dims
@@ -152,7 +150,9 @@ class TestComposeDecorators:
 
     def test_units_dimensional_mismatch_raises_with_valid_dims(self):
         @xra.enforce
-        def f(x: Annotated[xr.DataArray, Dims("time", "x"), "Pa"]) -> xr.DataArray:
+        def f(
+            x: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")],
+        ) -> xr.DataArray:
             return x
 
         # outer units runs first: kg vs Pa raises before schema sees the array
@@ -178,7 +178,7 @@ class TestComposeDecorators:
 
     def test_output_stamped_and_validated(self):
         @xra.enforce
-        def f(n: int) -> Annotated[xr.DataArray, Dims("time", "x"), "Pa"]:
+        def f(n: int) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
             return _da(("time", "x"), fill=5.0)  # raw output, no units attr
 
         out = f(1)
@@ -187,7 +187,7 @@ class TestComposeDecorators:
 
     def test_output_dims_mismatch_raises(self):
         @xra.enforce
-        def f(n: int) -> Annotated[xr.DataArray, Dims("time", "x"), "Pa"]:
+        def f(n: int) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
             return _da(("time",), fill=5.0)
 
         # inner schema validates the output before outer units stamps it
@@ -225,18 +225,16 @@ class TestComposeAllThreeDomains:
         # tell users to alias with `=` instead; this is what happens if they don't.
         def f(x: LazyWeekly) -> None: ...
 
-        assert units_from_signature(f)[0] == {}
-        assert schema_from_signature(f)[0] == {}
-        assert freq_from_signature(f)[0] == {}
+        assert xra.declarations_from_signature(f)[0] == {}
 
-    def test_bare_string_unit_coexists_with_freq(self):
-        # A bare string is a unit (or a description) — never a frequency.
+    def test_bare_string_beside_freq_is_a_description(self):
+        # A bare string is a description: never a unit, never a frequency.
         @xra.enforce
         def f(x: Annotated[xr.DataArray, "hPa", Freq("7D")]) -> xr.DataArray:
             return x
 
-        out = f(_timeseries(unit="hPa", fill=1.0))
-        assert out.attrs["units"] == "hPa"
+        out = f(_timeseries(unit="kg", fill=1.0))
+        assert out.attrs["units"] == "kg"
 
     def test_units_convert_before_freq_check(self):
         @xra.enforce

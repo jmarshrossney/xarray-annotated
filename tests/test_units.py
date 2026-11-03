@@ -4,8 +4,7 @@ CF/UDUNITS-only cases live in ``test_cf.py``.
 """
 
 import warnings
-from dataclasses import dataclass
-from typing import Annotated, TypedDict
+from typing import Annotated
 
 import numpy as np
 import pint
@@ -14,7 +13,7 @@ import xarray as xr
 
 import xarray_annotated as xra
 from xarray_annotated import Unit, units
-from xarray_annotated.units import _annotations, _check, _config
+from xarray_annotated.units import _check, _config
 
 
 def _da(values, unit=None):
@@ -363,142 +362,6 @@ class TestUnitsEqual:
 
 
 # ---------------------------------------------------------------------------
-# units_from_signature: reading declarations off a function's annotations
-# ---------------------------------------------------------------------------
-
-
-class TestUnitsFromSignature:
-    def test_extracts_inputs_and_typeddict_outputs(self):
-        class Out(TypedDict):
-            gpp: Annotated[xr.DataArray, "g / m**2 / d"]
-            lue: Annotated[xr.DataArray, "g / MJ"]
-
-        def node(
-            temp: Annotated[xr.DataArray, "degC"],
-            plain: xr.DataArray,
-            scalar: int = 3,
-        ) -> Out: ...
-
-        inputs, outputs = units.units_from_signature(node)
-        # Only Annotated params with a string unit contribute; others are ignored.
-        assert inputs == {"temp": "degC"}
-        assert outputs == {"gpp": "g / m**2 / d", "lue": "g / MJ"}
-
-    def test_bare_annotated_return(self):
-        def node(x: Annotated[xr.DataArray, "1"]) -> Annotated[xr.DataArray, "1"]: ...
-
-        inputs, outputs = units.units_from_signature(node)
-        assert inputs == {"x": "1"}
-        assert outputs == "1"
-
-    def test_no_annotations(self):
-        def node(x: xr.DataArray) -> xr.DataArray: ...
-
-        inputs, outputs = units.units_from_signature(node)
-        assert inputs == {}
-        assert outputs is None
-
-    def test_partial_typeddict_only_annotated_fields_contribute(self):
-        # A node with a mix of unit-carrying and metadata-free outputs: only the
-        # annotated fields appear in the declared output units.
-        class Out(TypedDict):
-            gpp: Annotated[xr.DataArray, "g / m**2 / d"]
-            diagnostic: xr.DataArray  # no unit annotation
-
-        def node() -> Out: ...
-
-        _, outputs = units.units_from_signature(node)
-        assert outputs == {"gpp": "g / m**2 / d"}
-
-    def test_extracts_dataclass_outputs(self):
-        @dataclass
-        class Out:
-            gpp: Annotated[xr.DataArray, "g / m**2 / d"]
-            lue: Annotated[xr.DataArray, "g / MJ"]
-
-        def node(
-            temp: Annotated[xr.DataArray, "degC"],
-        ) -> Out: ...
-
-        inputs, outputs = units.units_from_signature(node)
-        assert inputs == {"temp": "degC"}
-        assert outputs == {"gpp": "g / m**2 / d", "lue": "g / MJ"}
-
-    def test_partial_dataclass_only_annotated_fields_contribute(self):
-        @dataclass
-        class Out:
-            gpp: Annotated[xr.DataArray, "g / m**2 / d"]
-            diagnostic: xr.DataArray
-
-        def node() -> Out: ...
-
-        _, outputs = units.units_from_signature(node)
-        assert outputs == {"gpp": "g / m**2 / d"}
-
-    def test_dataclass_skipped_when_not_return_annotation(self):
-        @dataclass
-        class Params:
-            temp: Annotated[xr.DataArray, "degC"]
-
-        def node(p: Params) -> xr.DataArray: ...
-
-        inputs, outputs = units.units_from_signature(node)
-        assert inputs == {}  # Params is not DataArray, so no input unit
-        assert outputs is None  # bare DataArray return has no unit annotation
-
-    def test_metadata_on_non_dataarray_param_is_not_a_unit(self):
-        # A descriptive string on a *non-DataArray* parameter is metadata, not a
-        # unit: only DataArray annotations carry units. So a config param like a
-        # documented flag is ignored.
-        def node(flag: Annotated[bool, "toggles X"] = True) -> xr.DataArray: ...
-
-        inputs, _ = units.units_from_signature(node)
-        assert inputs == {}
-
-    def test_unit_then_description_takes_unit_first(self):
-        # Extra metadata after the unit (e.g. a human-readable description) is
-        # ignored: the unit is the first string. This is the supported way to
-        # attach both a unit and a description to a parameter.
-        def node(
-            v: Annotated[xr.DataArray, "m / s", "z component of velocity"],
-        ) -> xr.DataArray: ...
-
-        inputs, _ = units.units_from_signature(node)
-        assert inputs == {"v": "m / s"}
-        units.assert_valid_unit(inputs["v"], "v")  # no raise: description ignored
-
-    def test_non_string_metadata_before_unit_is_skipped(self):
-        # Only strings are considered; a non-string marker before the unit string
-        # does not shadow it.
-        def node(v: Annotated[xr.DataArray, 42, "m / s"]) -> xr.DataArray: ...
-
-        inputs, _ = units.units_from_signature(node)
-        assert inputs == {"v": "m / s"}
-
-    def test_description_before_unit_is_misread_and_fails_fast(self):
-        # The convention is unit-first. A description placed *before* the unit is
-        # mis-read as the unit -- but it fails loudly rather than passing silently
-        # (unless the description itself parses as a unit).
-        def node(
-            v: Annotated[xr.DataArray, "z component of velocity", "m / s"],
-        ) -> xr.DataArray: ...
-
-        inputs, _ = units.units_from_signature(node)
-        assert inputs == {"v": "z component of velocity"}
-        with pytest.raises(ValueError, match="not a recognised"):
-            units.assert_valid_unit(inputs["v"], "v")
-
-    def test_unit_on_optional_dataarray_param_is_read(self):
-        # An optional DataArray (DataArray | None) still carries its declared unit.
-        def node(
-            x: Annotated[xr.DataArray | None, "g / m**2"] = None,
-        ) -> xr.DataArray: ...
-
-        inputs, _ = units.units_from_signature(node)
-        assert inputs == {"x": "g / m**2"}
-
-
-# ---------------------------------------------------------------------------
 # unwrap_annotated: seeing through unit metadata to the base type
 # ---------------------------------------------------------------------------
 
@@ -506,81 +369,36 @@ class TestUnitsFromSignature:
 class TestUnwrapAnnotated:
     def test_unwraps_annotated_to_base_type(self):
         assert (
-            _annotations.unwrap_annotated(Annotated[xr.DataArray, "degC"])
-            is xr.DataArray
+            xra.unwrap_annotated(Annotated[xr.DataArray, Unit("degC")]) is xr.DataArray
         )
 
     def test_passes_through_plain_types(self):
-        assert _annotations.unwrap_annotated(xr.DataArray) is xr.DataArray
-        assert _annotations.unwrap_annotated(int) is int
+        assert xra.unwrap_annotated(xr.DataArray) is xr.DataArray
+        assert xra.unwrap_annotated(int) is int
 
 
 # ---------------------------------------------------------------------------
-# Unit typed marker: self-identifying, composable alternative to the bare string
+# Unit typed marker: the one way to declare a unit
 # ---------------------------------------------------------------------------
 
 
 class TestUnitMarker:
-    def test_marker_resolves_to_unit_string(self):
-        assert (
-            _annotations.annotated_unit(Annotated[xr.DataArray, units.Unit("degC")])
-            == "degC"
-        )
-
-    def test_marker_and_string_resolve_identically(self):
-        marker = _annotations.annotated_unit(Annotated[xr.DataArray, units.Unit("Pa")])
-        string = _annotations.annotated_unit(Annotated[xr.DataArray, "Pa"])
-        assert marker == string == "Pa"
-
-    def test_marker_wins_over_string_string_first(self):
-        # The typed marker owns its slot regardless of ordering.
-        assert (
-            _annotations.annotated_unit(
-                Annotated[xr.DataArray, "degC", units.Unit("Pa")]
-            )
-            == "Pa"
-        )
-
-    def test_marker_wins_over_string_marker_first(self):
-        assert (
-            _annotations.annotated_unit(
-                Annotated[xr.DataArray, units.Unit("Pa"), "degC"]
-            )
-            == "Pa"
-        )
+    def test_marker_is_read_regardless_of_position(self):
+        for hint in (
+            Annotated[xr.DataArray, "surface pressure", units.Unit("Pa")],
+            Annotated[xr.DataArray, units.Unit("Pa"), "surface pressure"],
+            Annotated[xr.DataArray, 42, units.Unit("Pa")],
+        ):
+            declared = xra.declaration_from_hint(hint)
+            assert declared is not None
+            assert declared.unit == units.Unit("Pa")
 
     def test_marker_on_non_dataarray_is_not_a_unit(self):
-        # A Unit marker on a non-DataArray param is not a unit (no leak), just as
-        # a descriptive string on such a param is not.
-        assert _annotations.annotated_unit(Annotated[bool, units.Unit("degC")]) is None
+        hint = Annotated[bool, units.Unit("degC")]
+        assert xra.declaration_from_hint(hint) is None
 
     def test_dataarray_with_no_unit_or_string_metadata_is_none(self):
-        # A DataArray annotated only with non-string, non-Unit metadata declares
-        # no unit.
-        assert _annotations.annotated_unit(Annotated[xr.DataArray, 42]) is None
-
-    def test_marker_round_trips_through_signature_as_str(self):
-        class Out(TypedDict):
-            gpp: Annotated[xr.DataArray, units.Unit("g / m**2 / d")]
-
-        def node(
-            temp: Annotated[xr.DataArray, units.Unit("degC")],
-        ) -> Out: ...
-
-        inputs, outputs = units.units_from_signature(node)
-        # Resolved to plain strings, exactly as the bare-string form.
-        assert inputs == {"temp": "degC"}
-        assert isinstance(inputs["temp"], str)
-        assert outputs == {"gpp": "g / m**2 / d"}
-
-    def test_marker_bare_return_round_trips_as_str(self):
-        def node(
-            x: Annotated[xr.DataArray, units.Unit("1")],
-        ) -> Annotated[xr.DataArray, units.Unit("1")]: ...
-
-        inputs, outputs = units.units_from_signature(node)
-        assert inputs == {"x": "1"}
-        assert outputs == "1"
+        assert xra.declaration_from_hint(Annotated[xr.DataArray, 42]) is None
 
     def test_assert_valid_unit_accepts_marker(self):
         units.assert_valid_unit(units.Unit("degC"), "ctx")  # no raise

@@ -190,7 +190,3 @@ class TestReaders:
         def f(p: annotate(unit=marker)) -> None: ...  # type: ignore[valid-type]
 
         assert declarations_from_signature(f)[0]["p"].unit == marker
-
-    def test_string_readers_return_the_plain_unit(self):
-        hint = Annotated[xr.DataArray, Unit("Pa", convert=True)]
-        assert units.annotated_unit(hint) == "Pa"

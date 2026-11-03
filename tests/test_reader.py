@@ -15,12 +15,16 @@ import pytest
 import xarray as xr
 
 import xarray_annotated as xra
-from xarray_annotated import Declared, annotate, declarations_from_signature
-from xarray_annotated.schema import Coords, Dims, Dtype, annotated_schema
-from xarray_annotated.temporal import Freq, annotated_freq
+from xarray_annotated import (
+    Declared,
+    annotate,
+    declaration_from_hint,
+    declarations_from_signature,
+)
+from xarray_annotated.schema import Coords, Dims, Dtype
+from xarray_annotated.temporal import Freq
 from xarray_annotated.units import (
     Unit,
-    annotated_unit,
     units_compatible,
     units_equal,
 )
@@ -69,24 +73,106 @@ class TestInputs:
             unit=Unit("degC"), dims=Dims("time"), freq=Freq("W-SUN")
         )
 
-    def test_bare_string_is_never_a_freq(self):
-        # The bare-string shorthand belongs to units; temporal has none.
-        def node(a: Annotated[xr.DataArray, "7D"]) -> None: ...
+    def test_bare_string_declares_nothing(self):
+        # A string is a description, whatever it happens to spell.
+        def node(
+            a: Annotated[xr.DataArray, "Pa"], b: Annotated[xr.DataArray, "7D"]
+        ) -> None: ...
 
         inputs, _ = declarations_from_signature(node)
-        assert inputs["a"].freq is None
+        assert inputs == {}
 
-    def test_bare_string_unit_normalises_to_marker(self):
-        def node(a: Annotated[xr.DataArray, "Pa"]) -> None: ...
 
-        inputs, _ = declarations_from_signature(node)
-        # The bare-string shorthand reads back as a Unit marker, so the shape does
-        # not depend on how the unit was spelled.
-        assert inputs["a"] == Declared(unit=Unit("Pa"))
-        assert isinstance(inputs["a"].unit, Unit)
+class TestSingleHint:
+    def test_reads_every_facet(self):
+        hint = Annotated[
+            xr.DataArray,
+            Unit("Pa"),
+            Dims("time"),
+            Dtype("f8"),
+            Coords("time"),
+            Freq("D"),
+        ]
+        assert declaration_from_hint(hint) == Declared(
+            unit=Unit("Pa"),
+            dims=Dims("time"),
+            dtype=Dtype("f8"),
+            coords=Coords("time"),
+            freq=Freq("D"),
+        )
+
+    def test_optional_dataarray_is_read(self):
+        hint = Annotated[xr.DataArray | None, Unit("Pa"), Freq("D")]
+        assert declaration_from_hint(hint) == Declared(unit=Unit("Pa"), freq=Freq("D"))
+
+    def test_keeps_unit_overrides(self):
+        marker = Unit("Pa", convert=True, on_output="strict")
+        declared = declaration_from_hint(Annotated[xr.DataArray, marker])
+        assert declared is not None
+        assert declared.unit == marker
+
+    @pytest.mark.parametrize(
+        "hint",
+        [
+            xr.DataArray,
+            None,
+            Annotated[bool, Unit("Pa")],
+            Annotated[bool, "toggles X"],
+            Annotated[xr.DataArray, "Pa"],
+            Annotated[xr.DataArray, 42],
+        ],
+    )
+    def test_declares_nothing(self, hint):
+        assert declaration_from_hint(hint) is None
+
+    def test_drives_walk_signature(self):
+        def node(a: Annotated[xr.DataArray, Unit("Pa")]) -> None: ...
+
+        assert xra.walk_signature(node, declaration_from_hint) == (
+            declarations_from_signature(node)
+        )
+
+
+class TestSchemaProperty:
+    def test_collects_the_schema_slots(self):
+        declared = Declared(
+            unit=Unit("Pa"), dims=Dims("time"), coords=Coords("time"), freq=Freq("D")
+        )
+        assert declared.schema == [Dims("time"), Coords("time")]
+
+    def test_empty_when_no_schema_facet(self):
+        assert Declared(unit=Unit("Pa")).schema == []
 
 
 class TestOutputShapes:
+    def test_undeclared_typeddict_field_is_omitted(self):
+        class Out(TypedDict):
+            a: Annotated[xr.DataArray, Unit("Pa")]
+            b: xr.DataArray
+
+        def node() -> Out: ...
+
+        assert declarations_from_signature(node)[1] == {"a": Declared(unit=Unit("Pa"))}
+
+    def test_undeclared_dataclass_field_is_omitted(self):
+        @dataclass
+        class Out:
+            a: Annotated[xr.DataArray, Unit("Pa")]
+            b: int
+
+        def node() -> Out: ...
+
+        assert declarations_from_signature(node)[1] == {"a": Declared(unit=Unit("Pa"))}
+
+    def test_dataclass_parameter_is_not_read(self):
+        @dataclass
+        class Params:
+            a: Annotated[xr.DataArray, Unit("Pa")]
+
+        def node(p: Params) -> None: ...
+
+        assert declarations_from_signature(node) == ({}, None)
+
     def test_single_declared_return(self):
         def node() -> Annotated[xr.DataArray, Unit("Pa"), Dims("t")]: ...
 
@@ -199,28 +285,24 @@ class TestPredicatesAcceptMarkers:
 
 
 DUPLICATES = [
-    pytest.param((Unit("Pa"), Unit("hPa")), "Unit", annotated_unit, id="unit"),
-    pytest.param((Dims("time"), Dims("x")), "Dims", annotated_schema, id="dims"),
-    pytest.param(
-        (Dtype("float64"), Dtype("int64")), "Dtype", annotated_schema, id="dtype"
-    ),
-    pytest.param(
-        (Coords("time"), Coords("lat")), "Coords", annotated_schema, id="coords"
-    ),
-    pytest.param((Freq("D"), Freq("7D")), "Freq", annotated_freq, id="freq"),
+    pytest.param((Unit("Pa"), Unit("hPa")), "Unit", id="unit"),
+    pytest.param((Dims("time"), Dims("x")), "Dims", id="dims"),
+    pytest.param((Dtype("float64"), Dtype("int64")), "Dtype", id="dtype"),
+    pytest.param((Coords("time"), Coords("lat")), "Coords", id="coords"),
+    pytest.param((Freq("D"), Freq("7D")), "Freq", id="freq"),
 ]
 
 
 class TestOneMarkerPerFacet:
     """A hint declares each facet at most once, so ``Declared`` loses nothing."""
 
-    @pytest.mark.parametrize(("markers", "kind", "reader"), DUPLICATES)
-    def test_domain_reader_rejects_a_duplicate(self, markers, kind, reader):
+    @pytest.mark.parametrize(("markers", "kind"), DUPLICATES)
+    def test_hint_reader_rejects_a_duplicate(self, markers, kind):
         with pytest.raises(ValueError, match=f"2 {kind} markers"):
-            reader(Annotated[xr.DataArray, *markers])
+            declaration_from_hint(Annotated[xr.DataArray, *markers])
 
-    @pytest.mark.parametrize(("markers", "kind", "reader"), DUPLICATES)
-    def test_error_names_the_parameter(self, markers, kind, reader):
+    @pytest.mark.parametrize(("markers", "kind"), DUPLICATES)
+    def test_error_names_the_parameter(self, markers, kind):
         def node(p: Annotated[xr.DataArray, *markers]) -> None: ...  # type: ignore[valid-type]
 
         with pytest.raises(ValueError, match=f"2 {kind} markers") as info:
@@ -243,7 +325,7 @@ class TestOneMarkerPerFacet:
 
     def test_bare_string_beside_a_unit_marker_is_a_description(self):
         hint = Annotated[xr.DataArray, "surface pressure", Unit("Pa")]
-        assert annotated_unit(hint) == "Pa"
+        assert declaration_from_hint(hint) == Declared(unit=Unit("Pa"))
 
     def test_different_facets_still_combine(self):
         hint = Annotated[
@@ -254,4 +336,6 @@ class TestOneMarkerPerFacet:
             Coords("time"),
             Freq("D"),
         ]
-        assert annotated_schema(hint) == [Dims("time"), Dtype("f8"), Coords("time")]
+        declared = declaration_from_hint(hint)
+        assert declared is not None
+        assert declared.schema == [Dims("time"), Dtype("f8"), Coords("time")]

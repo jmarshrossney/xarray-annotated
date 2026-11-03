@@ -138,7 +138,7 @@ so it is refused.
 
 Equivalent spellings of the same unit (`"pascal"` for `"Pa"`) imply no value change and
 are always accepted. `convert` is set only on the marker: there is no per-function
-keyword or `check_units` argument, and the bare-string shorthand cannot opt in. Every conversion is [logged](#auditing) at `DEBUG`.
+keyword or `check_units` argument. Every conversion is [logged](#auditing) at `DEBUG`.
 
 ### `on_output` — trusting a declared return value { #units-on_output }
 

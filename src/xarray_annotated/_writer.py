@@ -1,9 +1,9 @@
 """Writing declarations *onto* an annotation — the inverse of the readers.
 
-Every domain ships a reader (`Annotated → declaration`: `units_from_signature`,
-`schema_from_signature`, `freq_from_signature`); this is the one shared *writer*
-(`declaration → Annotated`).  A tool that builds functions dynamically (codegen,
-graph nodes) needs to stamp a declared contract onto a generated signature;
+Where `declaration_from_hint` reads `Annotated → declaration`, this is the one
+shared *writer* (`declaration → Annotated`).  A tool that builds functions
+dynamically (codegen, graph nodes) needs to stamp a declared contract onto a
+generated signature;
 `annotate` returns a real `Annotated` object it can assign to
 `fn.__annotations__["return"]`, so the ordinary `enforce` decorator then reads it
 straight back.
@@ -37,7 +37,7 @@ def annotate(
 ) -> Any:
     """Build an `Annotated[base, <markers>]` hint from declared facet values.
 
-    The inverse of the `*_from_signature` readers: given facet values it returns a
+    The inverse of `declaration_from_hint`: given facet values it returns a
     real `Annotated` object carrying the corresponding markers, in a fixed order
     (unit, dims, dtype, coords, freq).  Assign it to a function's return/parameter
     annotation and the `enforce` decorator reads it back exactly as it would a
@@ -56,10 +56,6 @@ def annotate(
     A facet left as `None` contributes no marker.  When no facet is given, `base`
     is returned unchanged (no `Annotated` wrapper), so `annotate()` is a safe
     no-op default.
-
-    Note the `freq` string is a *writer* convenience only: there is no bare-string
-    shorthand on the read side, so a frequency must be spelled as a `Freq` marker in
-    a hand-written annotation.
 
     Args:
         base: The base type to annotate (default `xarray.DataArray`).

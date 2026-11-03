@@ -1,6 +1,6 @@
 """Tests for the top-level ``annotate`` declaration writer.
 
-``annotate`` is the inverse of the ``*_from_signature`` readers: what it writes
+``annotate`` is the inverse of ``declarations_from_signature``: what it writes
 onto a function's annotations must read back identically.  The round-trip tests
 below assert exactly that, which is the writer's whole contract (it lets a codegen
 path stamp a contract onto a generated function and have ``enforce`` pick it
@@ -12,10 +12,17 @@ from typing import Annotated, get_args, get_origin
 import xarray as xr
 
 import xarray_annotated
-from xarray_annotated import _annotations, annotate, unwrap_annotated, walk_signature
-from xarray_annotated.schema import Coords, Dims, Dtype, schema_from_signature
-from xarray_annotated.temporal import Freq, freq_from_signature
-from xarray_annotated.units import Unit, units_from_signature
+from xarray_annotated import (
+    Declared,
+    _annotations,
+    annotate,
+    declarations_from_signature,
+    unwrap_annotated,
+    walk_signature,
+)
+from xarray_annotated.schema import Coords, Dims, Dtype
+from xarray_annotated.temporal import Freq
+from xarray_annotated.units import Unit
 
 
 def _return_hint(hint):
@@ -85,7 +92,7 @@ class TestTopLevelKernelExports:
 
 
 class TestRoundTrip:
-    def test_reads_back_through_signature_readers(self):
+    def test_reads_back_through_signature_reader(self):
         hint = annotate(
             unit="Pa",
             dims=("time",),
@@ -94,10 +101,10 @@ class TestRoundTrip:
             freq="7D",
         )
         fn = _return_hint(hint)
-        assert units_from_signature(fn)[1] == "Pa"
-        assert schema_from_signature(fn)[1] == [
-            Dims("time"),
-            Dtype("float64"),
-            Coords("time"),
-        ]
-        assert freq_from_signature(fn)[1] == Freq("7D")
+        assert declarations_from_signature(fn)[1] == Declared(
+            unit=Unit("Pa"),
+            dims=Dims("time"),
+            dtype=Dtype("float64"),
+            coords=Coords("time"),
+            freq=Freq("7D"),
+        )

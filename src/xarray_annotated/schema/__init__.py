@@ -24,8 +24,6 @@ from ._annotations import (
     Coords,
     Dims,
     Dtype,
-    annotated_schema,
-    schema_from_signature,
 )
 from ._check import (
     SchemaError,
@@ -46,10 +44,8 @@ __all__ = [
     "OnMismatch",
     "SchemaError",
     "SchemaWarning",
-    "annotated_schema",
     "assert_valid_schema",
     "check_schema",
     "dims_compatible",
     "dtype_compatible",
-    "schema_from_signature",
 ]

@@ -31,7 +31,6 @@ import xarray as xr
 
 from ._config import resolve_enabled
 from ._reader import Declared, declarations_from_signature
-from .schema._annotations import SchemaMarker
 from .schema._check import assert_valid_schema, check_schema
 from .temporal import _config as _temporal
 from .temporal._check import assert_valid_freq, check_freq
@@ -46,17 +45,11 @@ from .units._check import (
 __all__ = ["enforce"]
 
 
-def _schema_markers(declared: Declared) -> list[SchemaMarker]:
-    return [
-        m for m in (declared.dims, declared.dtype, declared.coords) if m is not None
-    ]
-
-
 def _assert_valid(declared: Declared, context: str) -> None:
     """Fail fast on a malformed declaration (independent of policy)."""
     if declared.unit is not None:
         assert_valid_unit(declared.unit, context)
-    for marker in _schema_markers(declared):
+    for marker in declared.schema:
         assert_valid_schema(marker, context)
     if declared.freq is not None:
         assert_valid_freq(declared.freq, context)
@@ -99,8 +92,8 @@ def enforce(
     Reads the decorated function's type hints once: parameters annotated
     `Annotated[DataArray, ...]` declare inputs, and a `TypedDict` / dataclass
     return (or a bare `Annotated[DataArray, ...]` return) declares outputs.  Any
-    mix of `Unit` (or its bare-string shorthand), `Dims` / `Coords` / `Dtype`,
-    and `Freq` markers may sit on one hint.
+    mix of `Unit`, `Dims` / `Coords` / `Dtype`, and `Freq` markers may sit on one
+    hint.
 
     On each call the wrapper:
 
@@ -192,7 +185,7 @@ def enforce(
                 value = apply_output_units(
                     value, decl.unit, name, units_on_output, qualname
                 )
-            if markers := _schema_markers(decl):
+            if markers := decl.schema:
                 check_schema(value, markers, name, qualname=qualname)
             if decl.freq is not None:
                 check_freq(
@@ -239,7 +232,7 @@ def enforce(
                     if decl.unit is not None:
                         val = check_units(val, decl.unit, name, qualname=qualname)
                         bound.arguments[name] = val
-                    if markers := _schema_markers(decl):
+                    if markers := decl.schema:
                         check_schema(val, markers, name, qualname=qualname)
                     if decl.freq is not None:
                         check_freq(
