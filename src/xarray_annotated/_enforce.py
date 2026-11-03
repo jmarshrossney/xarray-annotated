@@ -122,6 +122,8 @@ def enforce(
     `Unit("Pa", convert=True)`).
 
     Usable bare (`@xra.enforce`) or called (`@xra.enforce(units_on_output=...)`).
+    On an `async def`, the checks run when the coroutine is awaited, and outputs
+    are applied to the awaited result.
 
     Args:
         func: The function to decorate (when used bare); `None` when called with
@@ -219,37 +221,49 @@ def enforce(
                         _apply_output(None, decl, name)
             return result
 
+        def _inputs(args: Any, kwargs: Any) -> tuple[Any, Any]:
+            if not inputs:
+                return args, kwargs
+            bound = sig.bind_partial(*args, **kwargs)
+            # bind_partial omits parameters left at their default; apply
+            # them so a declared default is checked (and converted) too.
+            bound.apply_defaults()
+            for name, val in list(bound.arguments.items()):
+                decl = inputs.get(name)
+                if decl is None or not isinstance(val, xr.DataArray):
+                    continue
+                if decl.unit is not None:
+                    val = check_units(val, decl.unit, name, qualname=qualname)
+                    bound.arguments[name] = val
+                if markers := decl.schema:
+                    check_schema(val, markers, name, qualname=qualname)
+                if decl.freq is not None:
+                    check_freq(
+                        val,
+                        decl.freq,
+                        name,
+                        on_uninferable=temporal_on_uninferable,
+                        qualname=qualname,
+                    )
+            return bound.args, bound.kwargs
+
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             if not resolve_enabled():
                 # Switched off: a total no-op, conversion and stamping included.
                 return fn(*args, **kwargs)
-            if inputs:
-                bound = sig.bind_partial(*args, **kwargs)
-                # bind_partial omits parameters left at their default; apply
-                # them so a declared default is checked (and converted) too.
-                bound.apply_defaults()
-                for name, val in list(bound.arguments.items()):
-                    decl = inputs.get(name)
-                    if decl is None or not isinstance(val, xr.DataArray):
-                        continue
-                    if decl.unit is not None:
-                        val = check_units(val, decl.unit, name, qualname=qualname)
-                        bound.arguments[name] = val
-                    if markers := decl.schema:
-                        check_schema(val, markers, name, qualname=qualname)
-                    if decl.freq is not None:
-                        check_freq(
-                            val,
-                            decl.freq,
-                            name,
-                            on_uninferable=temporal_on_uninferable,
-                            qualname=qualname,
-                        )
-                args, kwargs = bound.args, bound.kwargs
+            args, kwargs = _inputs(args, kwargs)
             return _outputs(fn(*args, **kwargs))
 
-        wrapper.__annotations__ = dict(fn.__annotations__)
-        return wrapper
+        @functools.wraps(fn)
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            if not resolve_enabled():
+                return await fn(*args, **kwargs)
+            args, kwargs = _inputs(args, kwargs)
+            return _outputs(await fn(*args, **kwargs))
+
+        chosen = async_wrapper if inspect.iscoroutinefunction(fn) else wrapper
+        chosen.__annotations__ = dict(fn.__annotations__)
+        return chosen
 
     return decorate if func is None else decorate(func)

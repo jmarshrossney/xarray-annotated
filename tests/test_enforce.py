@@ -6,7 +6,9 @@ applied *before* structure and frequency on both sides of the call — and the
 surface that is new with it.
 """
 
+import asyncio
 import dataclasses
+import inspect
 import typing
 from dataclasses import dataclass
 from typing import Annotated, TypedDict
@@ -210,3 +212,51 @@ class TestWrapper:
             return {"p": None}
 
         assert f() == {"p": None}
+
+
+class TestAsync:
+    def test_output_is_applied_to_the_awaited_result(self):
+        @xra.enforce
+        async def f(
+            p: Annotated[xr.DataArray, Unit("Pa", convert=True)],
+        ) -> Annotated[xr.DataArray, Unit("kPa"), Dims("time")]:
+            return p / 1000.0
+
+        out = asyncio.run(f(_int_da().astype(float)))
+        assert out.attrs["units"] == "kPa"
+
+    def test_output_checks_run(self):
+        @xra.enforce
+        async def f() -> Annotated[xr.DataArray, Dims("nope")]:
+            return _int_da()
+
+        with pytest.raises(schema.SchemaError):
+            asyncio.run(f())
+
+    def test_require_sees_the_awaited_result(self):
+        @xra.enforce
+        async def f() -> Annotated[xr.DataArray, Unit("Pa", on_output="require")]:
+            return _int_da("Pa")
+
+        assert asyncio.run(f()).attrs["units"] == "Pa"
+
+    def test_input_checks_run(self):
+        @xra.enforce
+        async def f(p: Annotated[xr.DataArray, Unit("kg")]) -> None: ...
+
+        with pytest.raises(pint.DimensionalityError):
+            asyncio.run(f(_int_da("Pa")))
+
+    def test_disabled_is_a_noop(self):
+        @xra.enforce
+        async def f() -> Annotated[xr.DataArray, Unit("Pa")]:
+            return _int_da(None)
+
+        with xra.enabled(False):
+            assert "units" not in asyncio.run(f()).attrs
+
+    def test_stays_a_coroutine_function(self):
+        @xra.enforce
+        async def f() -> None: ...
+
+        assert inspect.iscoroutinefunction(f)
