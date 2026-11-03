@@ -66,6 +66,16 @@ class FreqWarning(UserWarning):
     """Warning issued for a frequency mismatch or an uninferable time axis."""
 
 
+class UninferableFreqWarning(FreqWarning):
+    """Warning issued when a time axis is too short or irregular to check.
+
+    A subclass so a warnings filter can silence short test fixtures without
+    also hiding genuine mismatches::
+
+        filterwarnings = ["ignore::xarray_annotated.temporal.UninferableFreqWarning"]
+    """
+
+
 class FreqError(Exception):
     """Raised for a frequency mismatch under ``on_mismatch="error"``.
 
@@ -243,7 +253,12 @@ def _infer(coord: xr.DataArray) -> str | None:
         return None
 
 
-def _report(ok: bool, severity: OnMismatch | OnUninferable, message: str) -> None:
+def _report(
+    ok: bool,
+    severity: OnMismatch | OnUninferable,
+    message: str,
+    category: type[FreqWarning] = FreqWarning,
+) -> None:
     """Act on a check result under the resolved severity."""
     if ok:
         return
@@ -254,7 +269,7 @@ def _report(ok: bool, severity: OnMismatch | OnUninferable, message: str) -> Non
         raise FreqError(message)
     # stacklevel=3 targets a direct check_freq call (via _report); via enforce it
     # lands on the wrapper line, still identified by the [qualname] prefix.
-    warnings.warn(message, FreqWarning, stacklevel=3)
+    warnings.warn(message, category, stacklevel=3)
 
 
 def check_freq(
@@ -325,6 +340,7 @@ def check_freq(
                 uninferable,
                 f"{prefix} frequency of {dim!r} is uninferable (fewer than three "
                 f"points, or irregular spacing), so {marker!r} was not checked",
+                UninferableFreqWarning,
             )
             continue
         ok = freq_compatible(marker, Freq(inferred))

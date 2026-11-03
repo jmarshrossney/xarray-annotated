@@ -5,11 +5,12 @@ off a signature by `_annotations`) and the behaviour for each axis, validate an
 actual `DataArray` against it and convert it into the declared unit. Conversion
 is delegated to pint-xarray's `.pint` accessor via the active registry.
 
-Every non-trivial action is logged to the `xarray_annotated.units` logger: a
-conversion nobody chose (the default `on_inexact`) and an input passed
-unvalidated under `on_missing="ignore"` at INFO; a conversion chosen by a marker
-or keyword, an output stamped over a different label, and a converted quantified
-output at DEBUG.
+Every non-trivial action is logged to the `xarray_annotated.units` logger.
+INFO marks values changed without anyone opting in (a conversion under the
+default `on_inexact`) or a check that could not run being let through (an input
+passed unvalidated under `on_missing="ignore"`).  DEBUG marks chosen or routine
+actions: a conversion chosen by a marker or keyword, an output stamped over a
+different label, a converted quantified output.
 """
 
 import logging

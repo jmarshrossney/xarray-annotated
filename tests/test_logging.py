@@ -1,8 +1,8 @@
-"""The audit trail: every non-trivial action is logged, at a level that says
-whether anyone chose it.
+"""The audit trail: every non-trivial action is logged.
 
-INFO marks what nobody chose (a default conversion, a check passed under
-``ignore``); DEBUG marks what was chosen or is routine.
+INFO marks values changed without anyone opting in (a default conversion), or a
+failed or untestable check let through (anything under ``ignore``); DEBUG marks
+chosen or routine actions.
 """
 
 import logging

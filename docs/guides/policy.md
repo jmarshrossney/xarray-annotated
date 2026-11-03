@@ -279,7 +279,7 @@ spacing. The declaration was not violated; it was never *tested*.
 | `on_uninferable` | on an uninferable time axis                      |
 |------------------|--------------------------------------------------|
 | `error`          | raises `FreqError`                               |
-| `warn` (default) | emits `FreqWarning`, returns the array unchanged |
+| `warn` (default) | emits `UninferableFreqWarning`, returns the array unchanged |
 | `ignore`         | silently returns the array unchanged             |
 
 The default is `warn`, not `error`, because a short axis is legitimate — a two-timestep
@@ -289,8 +289,12 @@ setting:
 
 ```toml
 [tool.pytest.ini_options]
-filterwarnings = ["ignore::xarray_annotated.temporal.FreqWarning"]
+filterwarnings = ["ignore::xarray_annotated.temporal.UninferableFreqWarning"]
 ```
+
+`UninferableFreqWarning` subclasses `FreqWarning`, so the filter leaves `on_mismatch="warn"`
+warnings — genuine contract violations — visible, and existing `FreqWarning` filters still
+match both.
 
 
 ## Configuring a module { #for-a-module }
@@ -328,8 +332,10 @@ logging.basicConfig()
 logging.getLogger("xarray_annotated").setLevel(logging.DEBUG)
 ```
 
-The level says whether anyone chose what happened. `INFO` marks what nobody chose, and is
-what an audit is usually looking for; `DEBUG` adds what was chosen or is routine.
+`INFO` is what an audit is usually looking for: values changed without anyone opting in,
+or a check that failed or could not run being let through. An `"ignore"` is always chosen,
+but a contract that went unchecked is still worth seeing. `DEBUG` adds chosen or routine
+actions.
 
 | Event                                                              | Level   |
 |--------------------------------------------------------------------|---------|

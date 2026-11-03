@@ -30,6 +30,7 @@ from ._annotations import Freq, annotated_freq, freq_from_signature
 from ._check import (
     FreqError,
     FreqWarning,
+    UninferableFreqWarning,
     assert_valid_freq,
     check_freq,
     freq_compatible,
@@ -46,6 +47,7 @@ __all__ = [
     "FreqWarning",
     "OnMismatch",
     "OnUninferable",
+    "UninferableFreqWarning",
     "annotated_freq",
     "assert_valid_freq",
     "check_freq",

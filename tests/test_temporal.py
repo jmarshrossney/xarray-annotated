@@ -257,6 +257,22 @@ class TestCheckFreq:
             warnings.simplefilter("error")
             temporal.check_freq(da, Freq("D"), "x", on_uninferable="ignore")
 
+    def test_uninferable_has_its_own_category(self):
+        da = _da(pd.date_range("2020-01-01", periods=2, freq="D"))
+        with pytest.warns(temporal.UninferableFreqWarning):
+            temporal.check_freq(da, Freq("D"), "x")
+        assert issubclass(temporal.UninferableFreqWarning, temporal.FreqWarning)
+
+    def test_filtering_uninferable_keeps_mismatch_warnings(self):
+        short = _da(pd.date_range("2020-01-01", periods=2, freq="D"))
+        weekly = _da(pd.date_range("2020-01-05", periods=4, freq="W-SUN"))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            warnings.simplefilter("ignore", temporal.UninferableFreqWarning)
+            temporal.check_freq(short, Freq("D"), "x")
+            temporal.check_freq(weekly, Freq("D"), "x", on_mismatch="warn")
+        assert [type(w.message) for w in caught] == [temporal.FreqWarning]
+
     def test_irregular_spacing_is_uninferable(self):
         da = _da(pd.to_datetime(["2020-01-01", "2020-01-02", "2020-01-05"]))
         assert xr.infer_freq(da["time"]) is None
