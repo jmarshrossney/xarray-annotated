@@ -15,16 +15,17 @@ one correct order (units are converted before structure and frequency are
 checked)::
 
     import xarray_annotated as xra
-    from xarray_annotated.schema import Dims
-    from xarray_annotated.temporal import Freq
-    from xarray_annotated.units import Unit
+    from xarray_annotated import Dims, Freq, Unit
 
     @xra.enforce
     def f(p: Annotated[xr.DataArray, Unit("Pa"), Dims("time"), Freq("D")]): ...
 
-The top level is deliberately thin — nothing domain-specific is re-exported
-here, so the domains never collide in a shared namespace.  The only names
-surfaced at the top level are domain-*agnostic*: ``enforce``; the shared
+The top level is deliberately thin — the domains' policy, checker and reader
+names stay in their subpackages, since several of them (``Policy``,
+``set_policy``, ...) share a name across domains.  The exceptions are the
+markers (``Coords``, ``Dims``, ``Dtype``, ``Freq``, ``Unit``), which are unique
+across domains and are combined freely in one hint, and the domain-*agnostic*
+names: ``enforce``; the shared
 declaration *writer* ``annotate`` and its inverse *reader*
 ``declarations_from_signature`` (which reads every facet declared on a signature
 into one uniform ``Declared`` value); and the ``Annotated`` introspection kernel
@@ -40,11 +41,19 @@ from ._annotations import unwrap_annotated, walk_signature
 from ._enforce import enforce
 from ._reader import Declared, declarations_from_signature
 from ._writer import annotate
+from .schema import Coords, Dims, Dtype
+from .temporal import Freq
+from .units import Unit
 
 __version__ = _version("xarray-annotated")
 
 __all__ = [
+    "Coords",
     "Declared",
+    "Dims",
+    "Dtype",
+    "Freq",
+    "Unit",
     "__version__",
     "annotate",
     "declarations_from_signature",

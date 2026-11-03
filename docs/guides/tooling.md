@@ -24,7 +24,8 @@ Validates a single array against a marker or list of markers and returns it
 **unchanged** (or raises `SchemaError`):
 
 ```python
-from xarray_annotated.schema import check_schema, Dims
+from xarray_annotated import Dims
+from xarray_annotated.schema import check_schema
 
 check_schema(da, Dims("time", "x"), name="da", on_mismatch=None, qualname=None)
 ```
@@ -81,7 +82,8 @@ Validates a single array's time axis and returns it **unchanged** (or raises
 `FreqError`), taking the same shape of arguments:
 
 ```python
-from xarray_annotated.temporal import check_freq, Freq
+from xarray_annotated import Freq
+from xarray_annotated.temporal import check_freq
 
 check_freq(
     da, Freq("7D"), name="da", on_mismatch=None, on_uninferable=None, qualname=None
@@ -139,7 +141,8 @@ declare several):
 ```python
 from typing import Annotated
 import xarray as xr
-from xarray_annotated.schema import schema_from_signature, Dims, Dtype
+from xarray_annotated import Dims, Dtype
+from xarray_annotated.schema import schema_from_signature
 
 
 def node(
@@ -165,9 +168,10 @@ when you already hold one hint and don't want to reach into a private module:
 ```python
 from typing import Annotated
 import xarray as xr
-from xarray_annotated.units import Unit, annotated_unit
-from xarray_annotated.schema import Dims, annotated_schema
-from xarray_annotated.temporal import Freq, annotated_freq
+from xarray_annotated import Dims, Freq, Unit
+from xarray_annotated.units import annotated_unit
+from xarray_annotated.schema import annotated_schema
+from xarray_annotated.temporal import annotated_freq
 
 hint = Annotated[xr.DataArray, Unit("Pa"), Dims("time"), Freq("D")]
 
@@ -193,8 +197,7 @@ read-side counterpart to `annotate` (below), and their round-trip is exact:
 from typing import Annotated
 import xarray as xr
 from xarray_annotated import declarations_from_signature
-from xarray_annotated.schema import Dims, Dtype
-from xarray_annotated.units import Unit
+from xarray_annotated import Dims, Dtype, Unit
 
 
 def node(
@@ -238,7 +241,7 @@ Each facet accepts either a raw value or an already-built marker, so a caller ho
 pass both without unwrapping:
 
 ```python
-from xarray_annotated.units import Unit
+from xarray_annotated import Unit
 
 annotate(unit=Unit("degC"), dims=("time", "x"))
 ```

@@ -36,8 +36,7 @@ from beartype import beartype
 from jaxtyping import Float, jaxtyped
 
 import xarray_annotated as xra
-from xarray_annotated.schema import Dims
-from xarray_annotated.units import Unit
+from xarray_annotated import Dims, Unit
 
 Pressure = Float[xr.DataArray, "time x"]
 

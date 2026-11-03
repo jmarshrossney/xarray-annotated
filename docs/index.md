@@ -21,7 +21,11 @@ from which
 Declare properties as `typing.Annotated` metadata[^1] using typed markers --- `Dims("time", "x")`, `Coords("time")`, `Dtype("float64")`, `Unit("Pa")`, `Freq("W-SUN")` --- then apply one decorator that enforces them on every call:
 
 ```python
+from typing import Annotated
+
+import xarray as xr
 import xarray_annotated as xra
+from xarray_annotated import Dims, Dtype, Unit
 
 
 @xra.enforce
@@ -30,7 +34,7 @@ def normalise(
 ) -> Annotated[xr.DataArray, Unit("Pa")]: ...
 ```
 
-The behaviour of `enforce` (e.g. whether a violation raises, warns, or is ignored) is set through a [policy](guides/policy.md) that can be scoped to a block, function, or global.
+The behaviour of `enforce` (e.g. whether a violation raises, warns, or is ignored) is set through a [policy](guides/policy.md).
 
 Units can also be *converted automatically* thanks to the excellent [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io).
 
@@ -41,7 +45,7 @@ See [Getting started](getting_started.md) for a worked walkthrough.
 `xarray.DataArray` objects carry properties that matter for correctness but are invisible to the type system: dimensions, coordinates, and dtype are structural assertions that every array makes, and the `units` attribute (`"hPa"`, `"degC"`, `"g m-2 d-1"`) carries a physical unit.
 xarray itself doesn't enforce any of these contracts, so it's common to find bugs that swap dims, feed an integer array where a float is expected, or mix up units.
 
-Structural properties are easy to check (`if array.dims() != ("time", "lat", "lon"): raise ...`), but this can lead to a lot of boilerplate that's not necessarily visible in, or even compatible with, the public documentation.
+Structural properties are easy to check (`if array.dims != ("time", "lat", "lon"): raise ...`), but this can lead to a lot of boilerplate that's not necessarily visible in, or even compatible with, the public documentation.
 For units, mercifully, a technical solution already exists in the form of [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io), which provide unit arithmetic and automatic conversion.
 Still, there remains a gap between where expectations are declared --- a docstring, probably --- and where they're enforced, if they are at all.
 

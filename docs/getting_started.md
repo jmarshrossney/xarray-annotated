@@ -73,8 +73,7 @@ Here we use `xarray-annotated` to declare expected properties in the signature a
 from typing import Annotated
 import xarray as xr
 import xarray_annotated as xra
-from xarray_annotated.schema import Dims
-from xarray_annotated.units import Unit
+from xarray_annotated import Dims, Unit
 
 
 @xra.enforce

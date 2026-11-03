@@ -80,7 +80,7 @@ apply `@xra.enforce` to check every declared input and output on each call:
 from typing import Annotated
 import xarray as xr
 import xarray_annotated as xra
-from xarray_annotated.schema import Dims
+from xarray_annotated import Dims
 
 
 @xra.enforce
@@ -125,7 +125,7 @@ Declare required coordinates with the `Coords` marker, applied the same way with
 from typing import Annotated
 import xarray as xr
 import xarray_annotated as xra
-from xarray_annotated.schema import Coords
+from xarray_annotated import Coords
 
 
 @xra.enforce
@@ -153,7 +153,7 @@ Declare an expected dtype with the `Dtype` marker, again applied with `@xra.enfo
 from typing import Annotated
 import xarray as xr
 import xarray_annotated as xra
-from xarray_annotated.schema import Dtype
+from xarray_annotated import Dtype
 
 
 @xra.enforce
@@ -187,7 +187,7 @@ validate, convert, and stamp declared inputs and outputs on each call:
 from typing import Annotated
 import xarray as xr
 import xarray_annotated as xra
-from xarray_annotated.units import Unit
+from xarray_annotated import Unit
 
 
 @xra.enforce
@@ -270,7 +270,7 @@ bug is a *phase* error — a resample that silently lands on the wrong weekday:
 from typing import Annotated
 import xarray as xr
 import xarray_annotated as xra
-from xarray_annotated.temporal import Freq
+from xarray_annotated import Freq
 
 
 @xra.enforce
@@ -334,7 +334,8 @@ array in hand** — for a build-time check that a producer's output frequency ca
 consumer's declared input:
 
 ```python
-from xarray_annotated.temporal import Freq, freq_compatible
+from xarray_annotated import Freq
+from xarray_annotated.temporal import freq_compatible
 
 freq_compatible(Freq("7D"), Freq("W-WED"))  # True
 freq_compatible(Freq("W-SUN"), Freq("W-WED"))  # False
@@ -356,7 +357,7 @@ raises `ValueError` when the decorator is applied:
 from typing import Annotated
 import xarray as xr
 import xarray_annotated as xra
-from xarray_annotated.schema import Dims, Coords
+from xarray_annotated import Coords, Dims
 
 
 @xra.enforce
@@ -375,8 +376,7 @@ over the bare-string shorthand here, precisely because the annotation is shared 
 from typing import Annotated
 import xarray as xr
 import xarray_annotated as xra
-from xarray_annotated.schema import Dims, Coords, Dtype
-from xarray_annotated.units import Unit
+from xarray_annotated import Coords, Dims, Dtype, Unit
 
 
 @xra.enforce
@@ -399,7 +399,7 @@ frequency at once:
 
 ```python
 import xarray_annotated as xra
-from xarray_annotated.temporal import Freq
+from xarray_annotated import Freq
 
 
 @xra.enforce
