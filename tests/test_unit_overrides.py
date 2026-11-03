@@ -1,9 +1,9 @@
-"""Per-declaration units policy: overrides carried on the ``Unit`` marker (#17).
+"""Per-declaration units behaviour: overrides carried on the ``Unit`` marker (#17).
 
 Whether a value-changing conversion is acceptable is a property of a parameter,
 not of the process.  A ``Unit`` marker may override each units axis, and the
-override beats the decorator keyword, the environment and the process policy;
-only the package-wide master switch beats it.
+override beats the decorator keyword and the default; only the package-wide
+switch beats it.
 """
 
 from typing import Annotated, TypedDict
@@ -60,19 +60,15 @@ class TestMarker:
 class TestThroughEnforce:
     def test_issue_17_pair_in_one_function(self):
         # The motivating case: one parameter must convert, another must refuse,
-        # and the process policy cannot say both.
+        # and no single function-wide setting can say both.
         @xra.enforce
         def f(
             tair: Annotated[xr.DataArray, Unit("degC", on_inexact="convert")],
             total: Annotated[xr.DataArray, Unit("g / m**2 / year", on_inexact="error")],
         ) -> None: ...
 
-        with units.policy(on_inexact="error"):
-            f(_da(283.15, "K"), _da(1.0, "g / m**2 / year"))  # tair converts anyway
-        with (
-            units.policy(on_inexact="convert"),
-            pytest.raises(ValueError, match=r"'total'.*on_inexact='error'"),
-        ):
+        f(_da(283.15, "K"), _da(1.0, "g / m**2 / year"))  # tair converts
+        with pytest.raises(ValueError, match=r"'total'.*on_inexact='error'"):
             f(_da(283.15, "K"), _da(1.0, "g / m**2 / day"))
 
     def test_converted_value_is_correct(self):
@@ -80,8 +76,7 @@ class TestThroughEnforce:
         def f(t: Annotated[xr.DataArray, Unit("degC", on_inexact="convert")]):
             return t
 
-        with units.policy(on_inexact="error"):
-            np.testing.assert_allclose(f(_da(283.15, "K")).values, [10.0])
+        np.testing.assert_allclose(f(_da(283.15, "K")).values, [10.0])
 
     def test_marker_beats_enforce_keyword(self):
         @xra.enforce(units_on_inexact="error")
@@ -100,23 +95,11 @@ class TestThroughEnforce:
         with pytest.raises(ValueError, match="'q'"):
             f(_da(), _da())
 
-    def test_marker_beats_env_var(self, monkeypatch):
-        monkeypatch.setenv("XARRAY_ANNOTATED_UNITS_ON_INEXACT", "error")
-
-        @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa", on_inexact="convert")]):
-            return p
-
-        assert f(_da()).attrs["units"] == "Pa"
-
     def test_on_missing_override(self):
         @xra.enforce
         def f(p: Annotated[xr.DataArray, Unit("Pa", on_missing="error")]): ...
 
-        with (
-            units.policy(on_missing="ignore"),
-            pytest.raises(ValueError, match="no 'units' attribute"),
-        ):
+        with pytest.raises(ValueError, match="no 'units' attribute"):
             f(_da(unit=None))
 
     def test_on_output_override(self):
@@ -152,16 +135,13 @@ class TestThroughEnforce:
         def f(p: Annotated[xr.DataArray, Unit("Pa", on_missing="error")]):
             return p
 
-        with units.policy(enabled=False):
+        with xra.enabled(False):
             assert f(_da(unit=None)).attrs == {}
 
 
 class TestPrimitivesAcceptTheMarker:
     def test_check_units(self):
-        with (
-            units.policy(on_inexact="convert"),
-            pytest.raises(ValueError, match="on_inexact='error'"),
-        ):
+        with pytest.raises(ValueError, match="on_inexact='error'"):
             units.check_units(_da(), Unit("Pa", on_inexact="error"), "p")
 
     def test_check_units_marker_beats_argument(self):

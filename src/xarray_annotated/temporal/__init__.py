@@ -37,10 +37,6 @@ from ._check import (
 from ._config import (
     OnMismatch,
     OnUninferable,
-    Policy,
-    get_policy,
-    policy,
-    set_policy,
 )
 from ._decorator import declare_freq
 
@@ -50,14 +46,10 @@ __all__ = [
     "FreqWarning",
     "OnMismatch",
     "OnUninferable",
-    "Policy",
     "annotated_freq",
     "assert_valid_freq",
     "check_freq",
     "declare_freq",
     "freq_compatible",
     "freq_from_signature",
-    "get_policy",
-    "policy",
-    "set_policy",
 ]

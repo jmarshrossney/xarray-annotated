@@ -63,10 +63,9 @@ reusable declaration with `=` rather than a PEP 695 `type` statement. Both are c
 in [Troubleshooting](troubleshooting.md).
 
 **Policy governs the consequences.** Every check resolves a *policy* deciding whether a
-violation raises, warns, or is silently ignored — overridable per marker, per function,
-per block, or process-wide, and switchable off entirely. Each section below states its
-default; [Configuring validation](policy.md) has the full set of axes, the environment
-variables, and the scoping tools.
+violation raises, warns, or is ignored — overridable per marker or per function, and
+switchable off entirely. Each section below states its default;
+[Configuring validation](policy.md) has the full set of axes and how they resolve.
 
 
 ## Dims
@@ -200,7 +199,7 @@ def normalise_pressure(
     return p
 ```
 
-On each call, under the active [units policy](policy.md#units), `@xra.enforce` validates
+On each call, under the [units policy](policy.md#units), `@xra.enforce` validates
 and converts every declared `DataArray` **input**, runs the function, then stamps each
 declared `DataArray` **output** with its unit. A `TypedDict` or `dataclass` return is
 stamped per-field; a bare `Annotated[DataArray, ...]` return takes that unit.

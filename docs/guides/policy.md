@@ -1,12 +1,13 @@
 # Configuring validation
 
 Declaring a property says what you expect. This page is about the other half: what
-happens when the expectation isn't met, and how to change it — per marker, per function,
-per block, or for a whole process.
+happens when the expectation isn't met, and how to change it — per marker or per
+function.
 
-Each of the three domains — `schema`, `units`, `temporal` — has its own **policy**: a
-small set of axes governing the response to a validation event. They share one master
-switch, `enabled`.
+Each domain — `schema`, `units`, `temporal` — has a few **axes**, each governing the
+response to one validation event. Behaviour is configured **only where it is declared**:
+there is no process-wide setting and no environment variable that loosens or tightens a
+check. The one global is the switch that turns the package [off](#enabled).
 
 
 ## How a setting is resolved { #resolution }
@@ -17,56 +18,69 @@ Every axis resolves **once per call**, taking the first of:
    `Unit("degC", on_inexact="convert")`;
 2. a **per-function** argument — `@xra.enforce(schema_on_mismatch="warn")`, named
    `<domain>_<axis>`, or the unprefixed keyword passed to a `check_*` primitive;
-3. the **environment variable** for that axis;
-4. a process-wide override set with `set_policy(...)` or scoped with `policy(...)`;
-5. the built-in default.
+3. the built-in default.
 
-The rule of thumb: the more specific the statement, the more it wins. A marker override
-is a claim about *this particular declaration* and beats everything; the built-in default
-is a claim about nothing in particular and loses to everything.
+The more specific statement wins: a marker override is a claim about *this particular
+declaration*, a keyword about the whole function. Either way, reading the signature and
+its decorator tells you how a function validates.
 
-Not every axis is available at every level. Every units axis and every `on_mismatch` can
-be set on a marker; `temporal`'s `on_uninferable` cannot, since a short or irregular axis
-is a property of the data rather than of the declaration.
+Not every axis is available on a marker. Every units axis and every `on_mismatch` can be;
+`temporal`'s `on_uninferable` cannot, since a short or irregular axis is a property of the
+data rather than of the declaration.
+
+The defaults are chosen to be right for most code:
+
+| Domain   | Axis             | Default   |
+|----------|------------------|-----------|
+| schema   | `on_mismatch`    | `error`   |
+| units    | `on_missing`     | `warn`    |
+| units    | `on_inexact`     | `convert` |
+| units    | `on_output`      | `stamp`   |
+| temporal | `on_mismatch`    | `error`   |
+| temporal | `on_uninferable` | `warn`    |
 
 
-## The `enabled` switch { #enabled }
+## Switching the package off { #enabled }
 
-`enabled` is shared by all three domains. Setting it to `False` makes **every** decorator
-a total no-op: no validation, no conversion, no stamping, and no per-call overhead beyond
-the wrapper itself.
+`xra.enabled(False)` makes **every** decorator and `check_*` primitive a total no-op for
+the block: no validation, no conversion, no stamping, and no per-call overhead beyond the
+wrapper itself. The environment variable `XARRAY_ANNOTATED_ENABLED` does the same for a
+whole process (`0`, `false`, `no` or `off`).
 
 ```python
-from xarray_annotated.units import policy as units_policy
+import xarray_annotated as xra
 
-with units_policy(enabled=False):  # disables *every* decorator for the block
+with xra.enabled(False):
     ...
 ```
 
-The switch lives in one place, so reaching for it through any domain's `policy` or
-`set_policy` sets it for all of them. Its environment variable is
-`XARRAY_ANNOTATED_ENABLED`.
+The block **beats the environment variable in both directions**: `xra.enabled(True)`
+restores checking inside a process started with `XARRAY_ANNOTATED_ENABLED=false`. A block
+applies to the current thread or async task only, and the innermost block wins. There is
+deliberately no process-wide setter: a call at import scope that changes behaviour is the
+kind of setting this package keeps out of the code.
 
-!!! warning "Disabling is not free of consequences"
+!!! warning "Off means off, conversion included"
 
-    `@xra.enforce` normally *converts* inputs and *stamps* outputs. With `enabled=False`
-    that stops too, so a function declaring `Unit("Pa")` will happily receive `hPa` and
-    return an array whose `units` attribute is whatever the body left there.
+    `@xra.enforce` normally *converts* inputs and *stamps* outputs. When switched off that
+    stops too, so a function declaring `Unit("Pa")` will happily receive `hPa` and return
+    an array whose `units` attribute is whatever the body left there.
 
-    Disabling is appropriate for a hot loop over data you have already validated at the
-    boundary. It is not a way to make a failing pipeline pass — for that you want
-    `on_mismatch="warn"`, which keeps you informed.
+    Switching off is appropriate for a hot loop over data you have already validated at
+    the boundary, or for tests that are not about units. If a test passes only with the
+    package switched on, the code under test depends on a conversion — worth knowing. To
+    make a failing pipeline pass, switch the axis on the declaration instead
+    (`on_mismatch="warn"`), which keeps you informed.
 
 Declaration checks are the exception: a typo'd unit or an unparseable dtype still raises
-at decoration time, regardless of this switch. A malformed declaration is a bug in your
+at decoration time, even when switched off. A malformed declaration is a bug in your
 source, not a property of the data.
 
 
 ## Schema policy { #schema }
 
-Because structural validation never converts, the schema policy has a single behavioural
-axis on top of `enabled`, shared by all three structural markers (`Dims`, `Coords`,
-`Dtype`).
+Because structural validation never converts, the schema domain has a single axis,
+shared by all three structural markers (`Dims`, `Coords`, `Dtype`).
 
 ### `on_mismatch` { #schema-on_mismatch }
 
@@ -76,8 +90,7 @@ axis on top of `enabled`, shared by all three structural markers (`Dims`, `Coord
 | `warn`            | emits `SchemaWarning`, returns the array unchanged |
 | `ignore`          | silently returns the array unchanged               |
 
-Environment variable: `XARRAY_ANNOTATED_SCHEMA_ON_MISMATCH`. The default is `error`,
-because a structural mismatch usually signals a genuine wiring bug rather than a
+The default is `error`, because a structural mismatch usually signals a genuine wiring bug rather than a
 tolerance question.
 
 `SchemaError` is deliberately **not** a `ValueError`, so catching a mismatch never
@@ -99,11 +112,11 @@ Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64", on_mismatch="warn")]
 
 ## Units policy { #units }
 
-Three behavioural axes on top of `enabled`. Note that **dimensional** mismatches (e.g.
+Three axes. Note that **dimensional** mismatches (e.g.
 `"kg"` where `"Pa"` is declared) are not governed by any of them — they always raise
 `pint.DimensionalityError`.
 
-Each may be overridden per function (each defaults to the active policy when omitted):
+Each may be set per function:
 
 ```python
 @xra.enforce(units_on_missing="error", units_on_inexact="error")
@@ -124,8 +137,8 @@ def partition(
 ) -> xr.DataArray: ...
 ```
 
-A marker override beats the `enforce` keyword, the environment and `set_policy`, so the
-behaviour of `partition` no longer depends on how the process was configured. `on_missing`
+A marker override beats the `enforce` keyword, so the behaviour of `partition` is stated
+next to each parameter it applies to. `on_missing`
 and `on_inexact` apply where the marker declares an input and `on_output` where it declares
 an output; an override that doesn't apply where the marker sits is ignored.
 
@@ -139,18 +152,18 @@ Governs only the "can't validate" cases: a missing or unparseable `units` attrib
 | `warn`       | emits `UnitsWarning`, returns input unchanged | always raises        |
 | `ignore`     | silently returns input unchanged              | always raises        |
 
-Environment variable: `XARRAY_ANNOTATED_UNITS_ON_MISSING` (default `warn`).
+The default is `warn`.
 
 ### `on_inexact` — value-changing conversion { #units-on_inexact }
 
-By default (`convert`), a dimensionally compatible unit is silently converted
-(`"hPa"` → `"Pa"`). `on_inexact` controls what happens when the actual unit is compatible
+By default (`convert`), a dimensionally compatible unit is converted without a warning
+(`"hPa"` → `"Pa"`), though it is [logged](#auditing). `on_inexact` controls what happens when the actual unit is compatible
 with the declared one but *not identical* — any conversion that would change the values,
 including affine ones like `"K"` → `"degC"`:
 
 | `on_inexact` | value-changing conversion                 |
 |--------------|-------------------------------------------|
-| `convert`    | performs the conversion silently          |
+| `convert`    | performs the conversion (logged)          |
 | `warn`       | converts, but emits `UnitsWarning`        |
 | `error`      | raises `ValueError` instead of converting |
 
@@ -158,7 +171,7 @@ Equivalent spellings of the same unit (`"pascal"` for `"Pa"`) imply no value cha
 always convert. `error` is useful when implicit conversion would hide a likely mistake
 upstream, and you'd rather the caller fix the unit at the source.
 
-Environment variable: `XARRAY_ANNOTATED_UNITS_ON_INEXACT` (default `convert`).
+The default is `convert`.
 
 ### `on_output` — trusting a declared return value { #units-on_output }
 
@@ -191,7 +204,7 @@ The rows describe a return value labelled through `attrs`. A pint-quantified ret
 *converted* to the declaration instead of stamped, under every setting (`strict` raises
 rather than converting) — see [Quantified arrays](troubleshooting.md#quantified-arrays).
 
-Environment variable: `XARRAY_ANNOTATED_UNITS_ON_OUTPUT` (default `stamp`).
+The default is `stamp`.
 
 !!! warning "`strict` is for unit-aware bodies only"
 
@@ -232,14 +245,14 @@ The declared unit is now checked against something real: a compatible unit is co
 `require` makes forgetting this impossible to do silently — a bare return raises, with a
 message pointing at `.pint.quantify()`. So does returning something that is not a
 `DataArray` at all (the library's raw numpy array, `None`, or a `TypedDict` missing the
-declared key), and a quantified return whose unit the active registry cannot parse. See [For a module](#for-a-module) to apply it to a
-whole module of wrappers.
+declared key), and a quantified return whose unit the active registry cannot parse. See
+[Configuring a module](#for-a-module) to apply it to a whole module of wrappers.
 
 
 ## Temporal policy { #temporal }
 
-A frequency declaration can fail in two genuinely different ways, so the policy has two
-behavioural axes on top of `enabled`.
+A frequency declaration can fail in two genuinely different ways, so the domain has two
+axes.
 
 ### `on_mismatch` — the declaration was violated { #temporal-on_mismatch }
 
@@ -252,8 +265,7 @@ coordinate, or an ambiguous pair of them, is reported here too.
 | `warn`            | emits `FreqWarning`, returns the array unchanged |
 | `ignore`          | silently returns the array unchanged             |
 
-Environment variable: `XARRAY_ANNOTATED_TEMPORAL_ON_MISMATCH`. Also settable per marker:
-`Freq("D", on_mismatch="warn")`.
+The default is `error`. Also settable per marker: `Freq("D", on_mismatch="warn")`.
 
 `FreqError` is deliberately **not** a `ValueError`, so catching a mismatch never
 accidentally swallows a malformed-declaration `ValueError` (an unparseable offset string
@@ -270,41 +282,18 @@ spacing. The declaration was not violated; it was never *tested*.
 | `warn` (default) | emits `FreqWarning`, returns the array unchanged |
 | `ignore`         | silently returns the array unchanged             |
 
-Environment variable: `XARRAY_ANNOTATED_TEMPORAL_ON_UNINFERABLE`. The default is `warn`,
-not `error`, because a short axis is legitimate — a two-timestep test fixture — but
-silently skipping a contract check deserves noise.
+The default is `warn`, not `error`, because a short axis is legitimate — a two-timestep
+test fixture — but silently skipping a contract check deserves noise. In a test suite
+whose fixtures are short on purpose, silence it with a warnings filter rather than a
+setting:
 
-
-## Scoping an override { #scoping }
-
-### For a block
-
-Each domain exports a `policy(...)` context manager, which restores the previous settings
-on exit. This is the right tool for a notebook cell, a test, or a single stage of a
-pipeline:
-
-```python
-from xarray_annotated.units import policy
-
-with policy(on_missing="error", on_inexact="warn"):
-    ...
+```toml
+[tool.pytest.ini_options]
+filterwarnings = ["ignore::xarray_annotated.temporal.FreqWarning"]
 ```
 
-### For a process
 
-`set_policy(...)` applies until changed, and is intended to be called once at startup:
-
-```python
-from xarray_annotated.schema import set_policy
-
-set_policy(on_mismatch="warn")
-```
-
-Each domain has its own `get_policy()` / `set_policy()` / `policy()` trio, importable from
-`xarray_annotated.schema`, `.units` and `.temporal`. Import them under an alias if you
-need more than one in the same module.
-
-### For a module { #for-a-module }
+## Configuring a module { #for-a-module }
 
 A per-function keyword can be bound once with `functools.partial`, giving a module its own
 decorator. This suits a module whose functions share a role, such as wrappers around a
@@ -322,22 +311,41 @@ enforce = functools.partial(xra.enforce, units_on_output="require")
 def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]: ...
 ```
 
-It is a per-function argument, so it beats the environment and `set_policy` but not a
-marker's own override.
+It is a per-function argument, so a marker's own override still beats it.
 
-### From the environment
 
-Useful when the choice belongs to the deployment rather than the code:
+## Auditing what the package does { #auditing }
 
-| Variable                                    | Domain   | Default     |
-|---------------------------------------------|----------|-------------|
-| `XARRAY_ANNOTATED_ENABLED`                  | all      | `true`      |
-| `XARRAY_ANNOTATED_SCHEMA_ON_MISMATCH`       | schema   | `error`     |
-| `XARRAY_ANNOTATED_UNITS_ON_MISSING`         | units    | `warn`      |
-| `XARRAY_ANNOTATED_UNITS_ON_INEXACT`         | units    | `convert`   |
-| `XARRAY_ANNOTATED_UNITS_ON_OUTPUT`          | units    | `stamp`     |
-| `XARRAY_ANNOTATED_TEMPORAL_ON_MISMATCH`     | temporal | `error`     |
-| `XARRAY_ANNOTATED_TEMPORAL_ON_UNINFERABLE`  | temporal | `warn`      |
+Every non-trivial action is logged through the standard `logging` module, to the
+`xarray_annotated` logger and one child per domain (`xarray_annotated.units`,
+`.schema`, `.temporal`). Nothing is logged at `WARNING` or above, so with logging's
+defaults this is silent; turn it up to see everything:
+
+```python
+import logging
+
+logging.basicConfig()
+logging.getLogger("xarray_annotated").setLevel(logging.DEBUG)
+```
+
+The level says whether anyone chose what happened. `INFO` marks what nobody chose, and is
+what an audit is usually looking for; `DEBUG` adds what was chosen or is routine.
+
+| Event                                                              | Level   |
+|--------------------------------------------------------------------|---------|
+| value-changing input conversion under the default `on_inexact`     | `INFO`  |
+| value-changing input conversion chosen by a marker or keyword      | `DEBUG` |
+| input passed unvalidated under `on_missing="ignore"`               | `INFO`  |
+| schema or frequency mismatch passed under `"ignore"`               | `INFO`  |
+| output stamped over a different label                              | `DEBUG` |
+| quantified output converted to its declaration                     | `DEBUG` |
+
+Same-unit respellings (`"pascal"` → `"Pa"`) are not logged, and nothing is logged when the
+package is switched off. Unlike a warning, a log record is emitted on every call rather
+than once per call site, so a conversion inside a loop shows up every time.
+
+Logging reports conversions; it does not refuse them. A conversion that must not happen is
+declared with `on_inexact="error"` on the marker.
 
 
 ## Not a policy: the unit registry

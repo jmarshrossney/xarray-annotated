@@ -89,7 +89,7 @@ class Freq:
 
     @property
     def on_mismatch(self) -> OnMismatch | None:
-        """Per-marker severity override, or `None` to use the policy default."""
+        """Per-marker severity override, or `None` to defer to the call/default."""
         return self._on_mismatch
 
     def __repr__(self) -> str:

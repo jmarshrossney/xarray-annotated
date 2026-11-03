@@ -195,15 +195,9 @@ class TestWiring:
         with pytest.raises(ValueError, match="carries no unit"):
             wrap()
 
-    def test_env_var_accepts_require(self, monkeypatch):
-        monkeypatch.setenv("XARRAY_ANNOTATED_UNITS_ON_OUTPUT", "require")
-        assert units.get_policy().on_output == "require"
+    def test_primitive_accepts_require(self):
         with pytest.raises(ValueError, match="carries no unit"):
-            units.apply_output_units(_da(), "Pa", "r")
-
-    def test_set_policy_accepts_require(self):
-        with units.policy(on_output="require"):
-            assert units.get_policy().on_output == "require"
+            units.apply_output_units(_da(), "Pa", "r", "require")
 
     def test_stamp_and_strict_still_stamp_a_bare_array(self):
         for mode in ("stamp", "strict"):

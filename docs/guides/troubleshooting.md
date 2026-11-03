@@ -145,8 +145,8 @@ DimensionalityError: Cannot convert from 'kilogram' ([mass])
 there is no reading of the call under which mass was meant to be a pressure.
 
 **Fix.** Fix the data or the declaration. If you genuinely need the call to proceed, the
-only switch that will do it is [`enabled=False`](policy.md#enabled), which disables all
-validation — read the warning there before reaching for it.
+only switch that will do it is [`xra.enabled(False)`](policy.md#enabled), which disables
+all validation — read the warning there before reaching for it.
 
 
 ## A forgotten conversion is not caught at the producer { #a-forgotten-conversion-is-not-caught-at-the-producer }
@@ -213,19 +213,13 @@ bare return raises instead of being stamped — see
 **Symptom.** Checks that used to fire don't, across every domain at once, in one
 environment but not another.
 
-**Cause.** The shared [`enabled`](policy.md#enabled) switch is off — most often
-`XARRAY_ANNOTATED_ENABLED` set in a deployment environment or a `.env` file, or a
-`set_policy(enabled=False)` left at import scope.
+**Cause.** The package is [switched off](policy.md#enabled) — most often
+`XARRAY_ANNOTATED_ENABLED` set in a deployment environment or a `.env` file, or a call
+running inside an `xra.enabled(False)` block.
 
-**Fix.** Check the environment variable first, since it takes precedence over
-`set_policy`. Confirm what is actually active with:
+**Fix.** Check the environment variable first. An `xra.enabled(...)` block beats it, so
+code wrapped in `xra.enabled(True)` is checked whatever the environment says.
 
-```python
-from xarray_annotated.units import get_policy
-
-print(get_policy())
-```
-
-If the goal was to reduce noise rather than to disable checking, prefer
-`on_mismatch="warn"` — with `enabled=False` `@xra.enforce` also stops converting inputs
-and stamping outputs, so arrays keep whatever units they arrived with.
+If the goal was to reduce noise rather than to disable checking, set
+`on_mismatch="warn"` on the declaration — when switched off `@xra.enforce` also stops
+converting inputs and stamping outputs, so arrays keep whatever units they arrived with.

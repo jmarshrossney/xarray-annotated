@@ -37,10 +37,6 @@ from ._check import (
 )
 from ._config import (
     OnMismatch,
-    Policy,
-    get_policy,
-    policy,
-    set_policy,
 )
 from ._decorator import declare_schema
 
@@ -49,7 +45,6 @@ __all__ = [
     "Dims",
     "Dtype",
     "OnMismatch",
-    "Policy",
     "SchemaError",
     "SchemaWarning",
     "annotated_schema",
@@ -58,8 +53,5 @@ __all__ = [
     "declare_schema",
     "dims_compatible",
     "dtype_compatible",
-    "get_policy",
-    "policy",
     "schema_from_signature",
-    "set_policy",
 ]

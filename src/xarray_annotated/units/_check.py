@@ -1,11 +1,18 @@
 """Runtime unit validation and conversion.
 
-The "usage side" of the package: given a validation `Policy` and a declared unit
-string (typically read off a signature by `_annotations`), validate an actual
-`DataArray` against it and convert it into the declared unit. Conversion is
-delegated to pint-xarray's `.pint` accessor via the active registry.
+The "usage side" of the package: given a declared unit string (typically read
+off a signature by `_annotations`) and the behaviour for each axis, validate an
+actual `DataArray` against it and convert it into the declared unit. Conversion
+is delegated to pint-xarray's `.pint` accessor via the active registry.
+
+Every non-trivial action is logged to the `xarray_annotated.units` logger: a
+conversion nobody chose (the default `on_inexact`) and an input passed
+unvalidated under `on_missing="ignore"` at INFO; a conversion chosen by a marker
+or keyword, an output stamped over a different label, and a converted quantified
+output at DEBUG.
 """
 
+import logging
 import warnings
 from collections.abc import Callable
 from typing import Any
@@ -14,17 +21,22 @@ import pint
 import xarray as xr
 from pint_xarray.errors import PintExceptionGroup
 
+from .._config import resolve_enabled
 from ._annotations import Unit
 from ._config import (
+    DEFAULT_ON_INEXACT,
+    DEFAULT_ON_MISSING,
+    DEFAULT_ON_OUTPUT,
     OnInexact,
     OnMissing,
     OnOutput,
     _validate_on_inexact,
     _validate_on_missing,
     _validate_on_output,
-    get_policy,
 )
 from ._registry import _cf_hint, get_registry
+
+_log = logging.getLogger("xarray_annotated.units")
 
 #: Upper bound on the length of a unit string we are willing to hand to pint's
 #: parser. Real units are short (``"umol m-2 s-1"`` is 12 chars); anything far
@@ -38,22 +50,30 @@ _MAX_UNIT_LEN = 256
 
 
 def _resolve_axis[T](
-    marker: T | None, kw: T | None, validate: Callable[[T], object], policy: T
+    marker: T | None, kw: T | None, validate: Callable[[T], object], default: T
 ) -> T:
-    """Resolve one policy axis: marker override > call keyword > active policy.
+    """Resolve one axis: marker override > call keyword > built-in default.
 
     The keyword is validated even when the marker overrides it, so a bad
     keyword is never masked by the declaration it happens to be used with.
     """
     if kw is not None:
         validate(kw)
-    return marker or kw or policy
+    return marker or kw or default
 
 
 def resolve_on_output(declared: str | Unit, on_output: OnOutput | None) -> OnOutput:
-    """The on-output axis that applies to `declared` (`None` defers to the policy)."""
+    """The on-output axis that applies to `declared` (`None` defers to the default)."""
     marker = declared.on_output if isinstance(declared, Unit) else None
-    return _resolve_axis(marker, on_output, _validate_on_output, get_policy().on_output)
+    return _resolve_axis(marker, on_output, _validate_on_output, DEFAULT_ON_OUTPUT)
+
+
+def _labels_differ(have: Any, declared: str) -> bool:
+    """Whether a label names a different unit; unparseable labels count as different."""
+    try:
+        return not units_equal(have, declared)
+    except Exception:
+        return True
 
 
 class UnitsWarning(UserWarning):
@@ -222,10 +242,10 @@ def check_units(
     Returns a `DataArray` whose data is expressed in `declared` and whose
     `units` attribute equals `declared`.
 
-    Behaviour follows the active `Policy` (`get_policy`); `on_missing` and
-    `on_inexact` override their axes for this call when given (`None` defers to
-    the policy).  When `declared` is a `Unit` marker, its own overrides win over
-    both.  If the policy is disabled the array is returned unchanged.
+    `on_missing` and `on_inexact` set their axes for this call when given (`None`
+    takes the default).  When `declared` is a `Unit` marker, its own overrides
+    win over both.  When xarray-annotated is switched off (`enabled(False)`)
+    the array is returned unchanged.
 
     Three events are handled, each building on the one before:
 
@@ -241,17 +261,17 @@ def check_units(
       without touching the data.
     * **Dimensional mismatch** — two parseable but incompatible units (e.g. a
       mass where a pressure is declared): always raises
-      `pint.DimensionalityError`, regardless of policy.
+      `pint.DimensionalityError`, whatever `on_missing` / `on_inexact` say.
 
     Args:
         da: The input `DataArray` to validate and convert.
         declared: The expected unit string (e.g. `"Pa"`), or a `Unit` marker,
             whose `on_missing` / `on_inexact` overrides then apply.
         name: A label for the array, used in error/warning messages.
-        on_missing: Override the on-missing axis for this call (`None` defers
-            to the active policy); a marker's own override wins.
-        on_inexact: Override the on-inexact axis for this call (`None` defers
-            to the active policy); a marker's own override wins.
+        on_missing: Set the on-missing axis for this call (`None` takes the
+            default, `"warn"`); a marker's own override wins.
+        on_inexact: Set the on-inexact axis for this call (`None` takes the
+            default, `"convert"`); a marker's own override wins.
         qualname: A qualifier prepended to warning messages as `[qualname]`,
             identifying the calling site.
 
@@ -265,7 +285,7 @@ def check_units(
         ValueError: When `on_missing="error"` and no parseable unit is found,
             or when `on_inexact="error"` and a value-changing conversion would occur.
         pint.DimensionalityError: When the actual unit is dimensionally
-            incompatible with `declared` (always, regardless of policy).
+            incompatible with `declared` (always, whatever the axes say).
 
     Examples:
         >>> import numpy as np, xarray as xr
@@ -277,21 +297,25 @@ def check_units(
         >>> out.values  # 10 * 100 = 1000
         array([101300., 100000.])
     """
-    pol = get_policy()
-    if not pol.enabled:
+    if not resolve_enabled():
         return da
     marker = declared if isinstance(declared, Unit) else None
     on_missing = _resolve_axis(
         marker.on_missing if marker else None,
         on_missing,
         _validate_on_missing,
-        pol.on_missing,
+        DEFAULT_ON_MISSING,
+    )
+    # A conversion nobody chose is what an audit looks for, so remember whether
+    # the axis was set at all before resolving it.
+    inexact_chosen = on_inexact is not None or (
+        marker is not None and marker.on_inexact is not None
     )
     on_inexact = _resolve_axis(
         marker.on_inexact if marker else None,
         on_inexact,
         _validate_on_inexact,
-        pol.on_inexact,
+        DEFAULT_ON_INEXACT,
     )
     declared = str(declared)
 
@@ -322,6 +346,14 @@ def check_units(
                 UnitsWarning,
                 stacklevel=2,
             )
+        else:
+            _log.info(
+                "%sinput %r unvalidated: no 'units' attribute (declared %r, "
+                "on_missing='ignore')",
+                prefix,
+                name,
+                declared,
+            )
         return da
     if isinstance(have, str) and len(have) > _MAX_UNIT_LEN:
         # An over-long units attribute can hang pint's parser (DoS); refuse it
@@ -340,12 +372,20 @@ def check_units(
                 UnitsWarning,
                 stacklevel=2,
             )
+        else:
+            _log.info(
+                "%sinput %r unvalidated: over-long 'units' attribute (declared %r, "
+                "on_missing='ignore')",
+                prefix,
+                name,
+                declared,
+            )
         return da
     try:
         get_registry().Unit(have)
     except Exception as exc:
         # A units attribute that exists but the registry cannot parse can no more be
-        # validated than a missing one; route it through the same on_missing policy
+        # validated than a missing one; route it through the same on_missing axis
         # rather than letting an opaque parse error escape (and break a warn run).
         if on_missing == "error":
             raise ValueError(
@@ -359,6 +399,15 @@ def check_units(
                 f"{have!r} (declared {declared!r}){_cf_hint(have)}",
                 UnitsWarning,
                 stacklevel=2,
+            )
+        else:
+            _log.info(
+                "%sinput %r unvalidated: unparseable 'units' attribute %r "
+                "(declared %r, on_missing='ignore')",
+                prefix,
+                name,
+                have,
+                declared,
             )
         return da
     if quantified is None and units_equal(have, declared):
@@ -388,6 +437,16 @@ def check_units(
                 UnitsWarning,
                 stacklevel=2,
             )
+        _log.log(
+            logging.DEBUG if inexact_chosen else logging.INFO,
+            "%sinput %r: converting %r -> %r (value-changing, on_inexact=%r%s)",
+            prefix,
+            name,
+            have,
+            declared,
+            on_inexact,
+            "" if inexact_chosen else " by default",
+        )
     try:
         # quantify() is not a no-op on already-quantified data -- it raises when
         # a leftover attrs label disagrees with the Quantity -- so skip it there.
@@ -470,6 +529,13 @@ def _apply_output_quantified(
             f"{prefix}output {name!r}: unit {label!r} differs from declared "
             f"{declared!r} and on_output='strict' requires them to match"
         )
+    _log.debug(
+        "%soutput %r: converting quantified %r -> declared %r",
+        prefix,
+        name,
+        label,
+        declared,
+    )
     try:
         return da.pint.to(declared)
     except PintExceptionGroup as group:
@@ -564,8 +630,8 @@ def apply_output_units(
         declared: The declared unit string (e.g. `"Pa"`), or a `Unit` marker,
             whose `on_output` override then applies.
         name: A label for the value, used in error messages.
-        on_output: Override the on-output axis for this call (`None` defers to
-            the active policy); a marker's own override wins.
+        on_output: Set the on-output axis for this call (`None` takes the
+            default, `"stamp"`); a marker's own override wins.
         qualname: A qualifier prepended to messages as `[qualname]`.
 
     Returns:
@@ -593,7 +659,7 @@ def apply_output_units(
         >>> apply_output_units(da, "Pa", "return").attrs["units"]
         'Pa'
     """
-    if not get_policy().enabled:
+    if not resolve_enabled():
         return da
     on_output = resolve_on_output(declared, on_output)
     declared = str(declared)
@@ -612,6 +678,14 @@ def apply_output_units(
         da.attrs["units"] = declared
         return da
     if on_output == "stamp":
+        if _log.isEnabledFor(logging.DEBUG) and _labels_differ(have, declared):
+            _log.debug(
+                "%soutput %r: stamping declared %r over label %r",
+                prefix,
+                name,
+                declared,
+                have,
+            )
         da.attrs["units"] = declared
         return da
     if not isinstance(have, str) or len(have) > _MAX_UNIT_LEN:
@@ -677,9 +751,7 @@ def require_dataarray(
     Raises:
         ValueError: Under `"require"`, always.
     """
-    if not get_policy().enabled or resolve_on_output(declared, on_output) != (
-        "require"
-    ):
+    if not resolve_enabled() or resolve_on_output(declared, on_output) != ("require"):
         return
     prefix = f"[{qualname}] " if qualname else ""
     carries = "no value" if value is None else f"a {type(value).__name__}"

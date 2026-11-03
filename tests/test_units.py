@@ -32,59 +32,27 @@ def _da(values, unit=None):
 
 
 # ---------------------------------------------------------------------------
-# Policy resolution
+# Axis defaults and validation
 # ---------------------------------------------------------------------------
 
 
-class TestPolicy:
+class TestAxes:
     def test_defaults(self):
-        with units.policy(enabled=None, on_missing=None, on_inexact=None):
-            pol = units.get_policy()
-            assert pol.enabled is True
-            assert pol.on_missing == "warn"
-            assert pol.on_inexact == "convert"
-
-    def test_set_single_axis(self):
-        with units.policy(on_missing="error"):
-            assert units.get_policy().on_missing == "error"
-
-    def test_set_all_axes_at_once(self):
-        with units.policy(enabled=False, on_missing="ignore", on_inexact="error"):
-            pol = units.get_policy()
-            assert pol.enabled is False
-            assert pol.on_missing == "ignore"
-            assert pol.on_inexact == "error"
-
-    def test_context_manager_restores_on_exit(self):
-        with units.policy(on_missing="error"):
-            pass
-        assert units.get_policy().on_missing == "warn"
-
-    def test_env_overrides_process(self, monkeypatch):
-        with units.policy(on_missing="ignore"):
-            monkeypatch.setenv(_config.ON_MISSING_ENV_VAR, "error")
-            assert units.get_policy().on_missing == "error"
-
-    def test_enabled_env_parses_bool(self, monkeypatch):
-        monkeypatch.setenv(_config.ENABLED_ENV_VAR, "off")
-        assert units.get_policy().enabled is False
+        assert _config.DEFAULT_ON_MISSING == "warn"
+        assert _config.DEFAULT_ON_INEXACT == "convert"
+        assert _config.DEFAULT_ON_OUTPUT == "stamp"
 
     def test_invalid_on_missing_raises(self):
         with pytest.raises(ValueError, match="Invalid on_missing"):
-            units.set_policy(on_missing="bogus")  # type: ignore[arg-type]
+            units.check_units(_da([[1.0]], "Pa"), "Pa", "x", on_missing="bogus")  # type: ignore[arg-type]
 
     def test_invalid_on_inexact_raises(self):
         with pytest.raises(ValueError, match="Invalid on_inexact"):
-            units.set_policy(on_inexact="bogus")  # type: ignore[arg-type]
+            units.check_units(_da([[1.0]], "Pa"), "Pa", "x", on_inexact="bogus")  # type: ignore[arg-type]
 
-    def test_invalid_enabled_env_raises(self, monkeypatch):
-        monkeypatch.setenv(_config.ENABLED_ENV_VAR, "maybe")
-        with pytest.raises(ValueError, match=_config.ENABLED_ENV_VAR):
-            units.get_policy()
-
-    def test_policy_axis_types_are_public(self):
-        # The exact types of set_policy's keyword arguments are importable
-        # from the public surface (no private _config import needed).
+    def test_axis_types_are_public(self):
+        # The axis types are importable from the public surface (no private
+        # _config import needed).
         assert units.OnMissing is _config.OnMissing
         assert units.OnInexact is _config.OnInexact
 
@@ -223,7 +191,7 @@ class TestCheckUnits:
     def test_disabled_policy_is_noop(self):
         # enabled=False short-circuits: the array is returned untouched.
         da = _da([[10.0, 20.0]], unit="hPa")
-        with units.policy(enabled=False), warnings.catch_warnings():
+        with xra.enabled(False), warnings.catch_warnings():
             warnings.simplefilter("error")
             out = units.check_units(da, "Pa", "vpd", on_missing="error")
         assert out.attrs["units"] == "hPa"
@@ -407,7 +375,7 @@ class TestCheckUnitsQuantified:
 
     def test_disabled_policy_leaves_quantified_input_alone(self):
         da = _quantified([[1.0]], "hPa")
-        with units.policy(enabled=False):
+        with xra.enabled(False):
             assert units.check_units(da, "Pa", "p") is da
 
 
