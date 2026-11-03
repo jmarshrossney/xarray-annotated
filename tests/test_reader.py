@@ -8,9 +8,12 @@ inherited ``TypedDict`` / dataclass / single-return handling, and the exact
 round-trip with ``annotate`` that is the reader's whole point.
 """
 
+import sys
+import typing
 from dataclasses import dataclass
 from typing import Annotated, TypedDict
 
+import pint
 import pytest
 import xarray as xr
 
@@ -339,3 +342,67 @@ class TestOneMarkerPerFacet:
         declared = declaration_from_hint(hint)
         assert declared is not None
         assert declared.schema == [Dims("time"), Dtype("f8"), Coords("time")]
+
+
+_PA = Annotated[xr.DataArray, Unit("Pa")]
+
+
+class TestReadsThroughWrappers:
+    @pytest.mark.parametrize(
+        "hint",
+        [_PA | None, typing.Optional[_PA], None | _PA, _PA | int],  # noqa: UP045
+    )
+    def test_union_member_declares(self, hint):
+        declared = declaration_from_hint(hint)
+        assert declared is not None
+        assert declared.unit == Unit("Pa")
+
+    def test_union_without_a_declaration_declares_nothing(self):
+        assert declaration_from_hint(xr.DataArray | None) is None
+        hint = Annotated[int, Unit("Pa")] | None  # pyright: ignore[reportOperatorIssue]
+        assert declaration_from_hint(hint) is None
+
+    def test_two_declared_union_members_are_malformed(self):
+        hint = _PA | Annotated[xr.DataArray, Unit("kg")]
+        with pytest.raises(ValueError, match="union declares 2"):
+            declaration_from_hint(hint)
+
+    def test_typeddict_qualifiers_either_way_round(self):
+        class Out(typing.TypedDict):
+            outside: typing.NotRequired[_PA]
+            inside: Annotated[typing.NotRequired[xr.DataArray], Unit("Pa")]
+            required: typing.Required[_PA]
+
+        def f() -> Out: ...
+
+        _, output = declarations_from_signature(f)
+        assert isinstance(output, dict)
+        assert set(output) == {"outside", "inside", "required"}
+        assert all(decl.unit == Unit("Pa") for decl in output.values())
+
+    @pytest.mark.skipif(sys.version_info < (3, 13), reason="ReadOnly is 3.13+")
+    def test_readonly(self):
+        hint = typing.ReadOnly[_PA]  # pyright: ignore[reportAttributeAccessIssue]
+        assert declaration_from_hint(hint) == declaration_from_hint(_PA)
+
+    def test_optional_parameter_is_enforced(self):
+        @xra.enforce
+        def f(x: _PA | None = None) -> None: ...
+
+        f()
+        f(xr.DataArray([1.0], attrs={"units": "Pa"}))
+        with pytest.raises(pint.DimensionalityError):
+            f(xr.DataArray([1.0], attrs={"units": "kg"}))
+
+    def test_not_required_field_is_enforced(self):
+        class Out(typing.TypedDict):
+            a: typing.NotRequired[
+                Annotated[xr.DataArray, Unit("Pa", on_output="require")]
+            ]
+
+        @xra.enforce
+        def f() -> Out:
+            return {"a": xr.DataArray([1.0])}
+
+        with pytest.raises(ValueError, match="on_output='require'"):
+            f()

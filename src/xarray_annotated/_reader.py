@@ -18,8 +18,18 @@ Like `annotate`, this is cross-domain — it assembles every domain's markers in
 value — so it lives at the package root rather than in any one domain.
 """
 
+import types
+import typing
 from dataclasses import dataclass
-from typing import Annotated, Any, get_args, get_origin
+from typing import (
+    Annotated,
+    Any,
+    NotRequired,
+    Required,
+    Union,
+    get_args,
+    get_origin,
+)
 
 from ._annotations import _is_dataarray_type, _single_marker, walk_signature
 from .schema import Coords, Dims, Dtype
@@ -28,6 +38,11 @@ from .temporal import Freq
 from .units import Unit
 
 __all__ = ["Declared", "declaration_from_hint", "declarations_from_signature"]
+
+#: TypedDict qualifiers, which `get_type_hints(..., include_extras=True)` keeps.
+_QUALIFIERS = tuple(
+    q for q in (Required, NotRequired, getattr(typing, "ReadOnly", None)) if q
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +82,10 @@ def declaration_from_hint(hint: Any) -> Declared | None:
     `walk_signature` can drive.  A non-`Annotated` hint, a base type that is not a
     `DataArray`, and a hint with no marker all declare nothing.
 
+    Reads through a union (`Annotated[DataArray, ...] | None`) and the `TypedDict`
+    qualifiers (`NotRequired[Annotated[DataArray, ...]]`, or the other way round), so
+    every way of spelling an optional value declares the same thing.
+
     Args:
         hint: A type hint, typically from `get_type_hints(..., include_extras=True)`.
 
@@ -74,7 +93,8 @@ def declaration_from_hint(hint: Any) -> Declared | None:
         The declared facets, or `None` when the hint declares none.
 
     Raises:
-        ValueError: If the hint carries two markers of the same type.
+        ValueError: If the hint carries two markers of the same type, or is a union
+            of two declared members, since a value could not say which one applies.
 
     Examples:
         >>> from typing import Annotated
@@ -88,9 +108,23 @@ def declaration_from_hint(hint: Any) -> Declared | None:
         >>> declaration_from_hint(Annotated[xr.DataArray, "surface pressure"]) is None
         True
     """
-    if get_origin(hint) is not Annotated:
+    origin = get_origin(hint)
+    if origin in _QUALIFIERS:
+        return declaration_from_hint(get_args(hint)[0])
+    if origin in (Union, types.UnionType):
+        members = [declaration_from_hint(arg) for arg in get_args(hint)]
+        declared = [member for member in members if member is not None]
+        if len(declared) > 1:
+            raise ValueError(
+                f"one union declares {len(declared)} DataArray hints "
+                f"({', '.join(map(repr, declared))}); declare at most one"
+            )
+        return declared[0] if declared else None
+    if origin is not Annotated:
         return None
     base, *metadata = get_args(hint)
+    if get_origin(base) in _QUALIFIERS:
+        base = get_args(base)[0]
     if not _is_dataarray_type(base):
         return None
     declared = Declared(
