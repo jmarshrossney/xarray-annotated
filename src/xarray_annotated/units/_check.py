@@ -3,8 +3,8 @@
 The "usage side" of the package: given a declared unit string (typically read
 off a signature by `_annotations`), validate an actual `DataArray` against it
 and, where the declaration opts in, convert it into the declared unit.
-Conversion is delegated to pint-xarray's `.pint` accessor via the active
-registry.
+Conversion goes through the active registry: pint directly for an `attrs`-labelled
+array, pint-xarray's `.pint` accessor for a quantified one.
 
 Every non-trivial action is logged at DEBUG to the `xarray_annotated.units`
 logger: an opted-in input conversion, an output stamped over a different label,
@@ -314,9 +314,8 @@ def check_units(
         ) from exc
     if quantified is None and units_equal(have, declared):
         # Same unit, differently spelled ("pascal" for "Pa", "1" for
-        # "dimensionless"): nothing to convert, so the quantify/convert/dequantify
-        # round-trip below would copy the entire buffer purely to rewrite a string
-        # -- and would rewrite the *coordinates'* unit spellings on the way past.
+        # "dimensionless"): nothing to convert, so the conversion below would copy
+        # the entire buffer purely to rewrite a string.
         # A shallow copy shares the data and takes its own attrs dict, so the
         # caller's array is left exactly as it was.
         #
@@ -344,10 +343,16 @@ def check_units(
             declared,
         )
     try:
-        # quantify() is not a no-op on already-quantified data -- it raises when
-        # a leftover attrs label disagrees with the Quantity -- so skip it there.
-        source = da if quantified is not None else da.pint.quantify()
-        converted = source.pint.to(declared).pint.dequantify()
+        if quantified is not None:
+            converted = da.pint.to(declared).pint.dequantify()
+        else:
+            # Only the data has a declared unit. quantify() would also parse the
+            # coords' labels, so "degrees_north" could abort this conversion.
+            data = get_registry().Quantity(da.data, have).to(declared).magnitude
+            converted = da.copy(deep=False, data=data)
+    except pint.DimensionalityError as err:
+        err.add_note(f"while validating input {name!r}")
+        raise
     except PintExceptionGroup as group:
         # pint-xarray wraps conversion failures in an ExceptionGroup; surface the
         # underlying DimensionalityError directly for a clean, catchable error.
@@ -359,8 +364,8 @@ def check_units(
             err.add_note(f"while validating input {name!r}")
             raise err from None
         raise
-    # dequantify writes pint's canonical unit name (e.g. 'pascal'); restore the
-    # declared unit string so downstream re-parsing uses our spelling.
+    # dequantify writes pint's canonical unit name (e.g. 'pascal'), and the plain
+    # path still holds the old label; stamp the declared spelling over either.
     converted.attrs["units"] = declared
     return converted
 
