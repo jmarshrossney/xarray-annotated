@@ -66,15 +66,15 @@ from xarray_annotated.units import apply_output_units
 apply_output_units(da, declared, name, on_output=None, qualname=None)
 ```
 
-Sets `attrs["units"] = declared` on `da` and returns it. Under
-[`on_output="strict"`](policy.md#units-on_output) a label that is present, parseable, and
+Returns a shallow copy of `da` with `attrs["units"] = declared`, leaving `da` as it was.
+Under [`on_output="strict"`](policy.md#units-on_output) a label that is present, parseable, and
 different from `declared` raises instead. An absent, over-long, or unparseable label is
 always stamped — absence is not evidence of a mismatch.
 
 Reach for this when you are applying a declaration you read off a signature yourself.
-**Always use the return value.** For an `attrs`-labelled array it stamps in place and hands
-back the same object, but a [pint-quantified](troubleshooting.md#quantified-arrays) one is
-converted rather than stamped, so what comes back may be a new array.
+**Always use the return value.** The label is only on what comes back, and a
+[pint-quantified](troubleshooting.md#quantified-arrays) array is converted rather than
+stamped.
 
 ### `check_freq`
 

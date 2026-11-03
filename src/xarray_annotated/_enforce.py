@@ -55,30 +55,22 @@ def _assert_valid(declared: Declared, context: str) -> None:
         assert_valid_freq(declared.freq, context)
 
 
-def _set_field(result: Any, name: str, value: xr.DataArray, qualname: str) -> None:
-    """Write a converted output back onto a dataclass return value.
+def _with_fields(result: Any, changes: dict[str, xr.DataArray]) -> Any:
+    """Write applied outputs back onto a dataclass return value.
 
-    Only reached when applying the declared unit produced a *new* array, which
-    for a dataclass means a pint-quantified field that needed converting — a
-    plain field is stamped in place and never comes through here.
+    Written only once every field has passed, so a failed check leaves `result` as
+    it was.  A frozen dataclass cannot take the write, so it is rebuilt instead,
+    which runs its `__post_init__` again.
 
-    A frozen dataclass cannot take the write. `setattr` raises
-    `FrozenInstanceError` (an `AttributeError`, despite reading like a type
-    error), which on its own says nothing about units; re-raise it with the
-    cause and the way out.
-
-    Raises:
-        dataclasses.FrozenInstanceError: If `result` is frozen.
+    Returns:
+        `result`, or its frozen replacement.
     """
     try:
-        setattr(result, name, value)
-    except dataclasses.FrozenInstanceError as exc:
-        raise dataclasses.FrozenInstanceError(
-            f"[{qualname}] output {name!r} is pint-quantified and needs converting "
-            f"to its declared unit, but the returned dataclass is frozen so the "
-            f"converted array cannot be written back. Dequantify the field in the "
-            f"function body (`.pint.dequantify()`), or drop `frozen=True`."
-        ) from exc
+        for name, value in changes.items():
+            setattr(result, name, value)
+    except dataclasses.FrozenInstanceError:
+        return dataclasses.replace(result, **changes)
+    return result
 
 
 def enforce(
@@ -210,11 +202,13 @@ def enforce(
                         if name in result:
                             result[name] = applied
                 elif dataclasses.is_dataclass(result):
+                    changes = {}
                     for name, decl in output.items():
                         value = getattr(result, name, None)
                         applied = _apply_output(value, decl, name)
                         if applied is not value:
-                            _set_field(result, name, applied, qualname)
+                            changes[name] = applied
+                    return _with_fields(result, changes)
                 else:
                     # Not the declared container, so every declared field is missing.
                     for name, decl in output.items():

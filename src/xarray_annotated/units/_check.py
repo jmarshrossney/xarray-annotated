@@ -73,6 +73,13 @@ def _labels_differ(have: Any, declared: str) -> bool:
         return True
 
 
+def _stamped(da: xr.DataArray, declared: str) -> xr.DataArray:
+    """A copy of `da` labelled `declared`, sharing its data but not its attrs."""
+    stamped = da.copy(deep=False)
+    stamped.attrs["units"] = declared
+    return stamped
+
+
 def _quantified_label(unit: pint.Unit) -> str:
     """Render a quantified array's own pint unit as a unit string.
 
@@ -344,9 +351,7 @@ def check_units(
         #
         # Quantified inputs still go the long way round: they are contracted to
         # come back dequantified, and only dequantify can do that.
-        relabelled = da.copy(deep=False)
-        relabelled.attrs["units"] = declared
-        return relabelled
+        return _stamped(da, declared)
     if units_compatible(have, declared) and not units_equal(have, declared):
         # Dimensionally compatible but value-changing (e.g. hPa -> Pa).  Whether
         # that is correct depends on the quantity (an annual total is not a daily
@@ -568,8 +573,9 @@ def apply_output_units(
         qualname: A qualifier prepended to messages as `[qualname]`.
 
     Returns:
-        For an `attrs`-labelled or unlabelled array, `da` itself with
-        `attrs["units"]` set to `declared` (mutated in place).  For a quantified
+        For an `attrs`-labelled or unlabelled array, a shallow copy of `da` with
+        `attrs["units"]` set to `declared`; `da` itself is left as it was, since a
+        body may have returned the caller's own array.  For a quantified
         array, an array in `declared` with `attrs` untouched — the same object
         when it was already in `declared`, otherwise a converted new one.  Always
         use the return value rather than relying on mutation.
@@ -608,8 +614,7 @@ def apply_output_units(
     if have is None:
         if on_output == "require":
             raise ValueError(_require_message(prefix, name, declared, "no unit"))
-        da.attrs["units"] = declared
-        return da
+        return _stamped(da, declared)
     if on_output == "stamp":
         if _log.isEnabledFor(logging.DEBUG):
             if _is_unverifiable(have):
@@ -627,8 +632,7 @@ def apply_output_units(
                     declared,
                     have,
                 )
-        da.attrs["units"] = declared
-        return da
+        return _stamped(da, declared)
     if _is_unverifiable(have):
         # Unverifiable for the same reasons as on the input path.
         if on_output == "require":
@@ -644,8 +648,7 @@ def apply_output_units(
             declared,
             on_output,
         )
-        da.attrs["units"] = declared
-        return da
+        return _stamped(da, declared)
     try:
         get_registry().Unit(have)
     except Exception:
@@ -664,8 +667,7 @@ def apply_output_units(
             declared,
             on_output,
         )
-        da.attrs["units"] = declared
-        return da
+        return _stamped(da, declared)
 
     # "strict" and "require" compare a parseable label alike.
     if not units_equal(have, declared):
@@ -690,8 +692,7 @@ def apply_output_units(
                 f"{prefix}output {name!r}: unit {have!r} differs from declared "
                 f"{declared!r} and on_output={on_output!r} requires them to match"
             )
-    da.attrs["units"] = declared
-    return da
+    return _stamped(da, declared)
 
 
 def require_dataarray(

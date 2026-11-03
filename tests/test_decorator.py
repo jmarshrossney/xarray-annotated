@@ -1,6 +1,5 @@
 """Tests for ``enforce`` over unit declarations (plain-pint registry)."""
 
-import dataclasses
 import typing
 from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
@@ -432,11 +431,12 @@ class TestOnOutput:
 class TestApplyOutputUnitsPrimitive:
     """``apply_output_units`` is public; it must behave standalone."""
 
-    def test_stamps_and_returns_same_object(self):
+    def test_stamps_a_copy(self):
         da = _da([[1.0]])
         out = units.apply_output_units(da, "Pa", "return")
-        assert out is da
+        assert out is not da
         assert out.attrs["units"] == "Pa"
+        assert "units" not in da.attrs
 
     def test_none_takes_default_stamp(self):
         da = _da([[1.0]], unit="kg")
@@ -593,14 +593,7 @@ class TestQuantifiedThroughDecorator:
 
         assert f().gpp.pint.units is not None
 
-    def test_frozen_dataclass_with_a_conversion_explains_itself(self):
-        """``FrozenInstanceError`` -- an ``AttributeError``, not a ``TypeError``.
-
-        Unsupported by design; the point of the test is that the failure names
-        units as the cause and gives the way out, rather than surfacing a bare
-        "cannot assign to field".
-        """
-
+    def test_frozen_dataclass_with_a_conversion_is_rebuilt(self):
         @dataclass(frozen=True)
         class Out:
             gpp: Annotated[xr.DataArray, Unit("Pa")]
@@ -609,5 +602,4 @@ class TestQuantifiedThroughDecorator:
         def f() -> Out:
             return Out(gpp=_quantified([[1.0]], "hPa"))
 
-        with pytest.raises(dataclasses.FrozenInstanceError, match="dequantify"):
-            f()
+        np.testing.assert_allclose(f().gpp.pint.dequantify().values, [[100.0]])
