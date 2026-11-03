@@ -98,124 +98,73 @@ decorators run at import — useful if you are building markers dynamically and 
 typo caught where it was made.
 
 
-## Reading declarations off a signature
+## Reading declarations
 
 These extract a function's declared properties without calling it — the single source
 that both the decorators and any static checker consume, so a declaration is never
 written twice.
 
-### `units_from_signature`
+### `declarations_from_signature`
+
+Reads *all* declared facets — unit, dims, dtype, coords, and freq — into a single uniform
+`Declared` value per parameter. This is the read-side counterpart to `annotate` (below),
+and their round-trip is exact:
 
 ```python
 from typing import Annotated, TypedDict
 import xarray as xr
-from xarray_annotated.units import units_from_signature
+from xarray_annotated import Dims, Dtype, Unit, declarations_from_signature
 
 
 class Output(TypedDict):
-    gpp: Annotated[xr.DataArray, "g m-2 d-1"]
-    lue: Annotated[xr.DataArray, "g MJ-1"]
-
-
-def node(
-    temp: Annotated[xr.DataArray, "degC"],
-    plain: xr.DataArray,
-) -> Output: ...
-
-
-inputs, outputs = units_from_signature(node)
-# inputs  == {"temp": "degC"}
-# outputs == {"gpp": "g m-2 d-1", "lue": "g MJ-1"}
-```
-
-Only parameters — or fields of a `TypedDict`/`dataclass` return type — with a
-unit-annotated `DataArray` contribute; a plain `xr.DataArray` hint with no unit is
-ignored. A bare `Annotated[DataArray, unit]` return annotation yields a single unit
-string rather than a dict.
-
-### `schema_from_signature`
-
-Mirrors it, returning the *list* of markers on each parameter/field (since a hint may
-declare several):
-
-```python
-from typing import Annotated
-import xarray as xr
-from xarray_annotated import Dims, Dtype
-from xarray_annotated.schema import schema_from_signature
-
-
-def node(
-    x: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64")],
-    plain: xr.DataArray,
-) -> Annotated[xr.DataArray, Dims("time", "x")]: ...
-
-
-inputs, output = schema_from_signature(node)
-# inputs == {"x": [Dims("time", "x"), Dtype("float64")]}
-# output == [Dims("time", "x")]
-```
-
-`TypedDict`/`dataclass` returns are read per-field, exactly as for units.
-`freq_from_signature` does the same for the `Freq` marker (one marker, or `None`, per
-parameter).
-
-### Reading a single hint
-
-Each domain also exposes the per-annotation reader underneath its signature reader, for
-when you already hold one hint and don't want to reach into a private module:
-
-```python
-from typing import Annotated
-import xarray as xr
-from xarray_annotated import Dims, Freq, Unit
-from xarray_annotated.units import annotated_unit
-from xarray_annotated.schema import annotated_schema
-from xarray_annotated.temporal import annotated_freq
-
-hint = Annotated[xr.DataArray, Unit("Pa"), Dims("time"), Freq("D")]
-
-annotated_unit(hint)  # "Pa"        (normalises the bare-string shorthand too)
-annotated_schema(hint)  # [Dims("time")]
-annotated_freq(hint)  # Freq("D")
-```
-
-Each returns `None` when the hint declares nothing for that domain, isn't `Annotated`, or
-annotates a non-`DataArray` base type. A wrapper exposing the wrapped class as
-`array_type` — such as a jaxtyping array type — counts as a `DataArray` base type; see
-[Using with jaxtyping](jaxtyping.md). These are the building blocks the `*_from_signature`
-readers are driven from, alongside `walk_signature` and `unwrap_annotated` at the package
-root — the combination a third-party facet author needs to write their own reader.
-
-### Cross-domain reader: `declarations_from_signature` { #cross-domain-reader-declarations_from_signature }
-
-`declarations_from_signature` (from the package root) reads *all* declared facets — unit, dims,
-dtype, coords, and freq — into a single uniform `Declared` value per parameter. This is the
-read-side counterpart to `annotate` (below), and their round-trip is exact:
-
-```python
-from typing import Annotated
-import xarray as xr
-from xarray_annotated import declarations_from_signature
-from xarray_annotated import Dims, Dtype, Unit
+    gpp: Annotated[xr.DataArray, Unit("g m-2 d-1")]
+    diagnostic: xr.DataArray
 
 
 def node(
     x: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64"), Unit("degC")],
-) -> Annotated[xr.DataArray, Dims("time", "x")]: ...
+    plain: xr.DataArray,
+) -> Output: ...
 
 
 inputs, output = declarations_from_signature(node)
-# inputs == {"x": Declared(dims=Dims("time", "x"), dtype=Dtype("float64"), unit=Unit("degC"))}
-# output == Declared(dims=Dims("time", "x"))
+# inputs == {"x": Declared(unit=Unit("degC"), dims=Dims("time", "x"), dtype=Dtype("float64"))}
+# output == {"gpp": Declared(unit=Unit("g m-2 d-1"))}
 ```
 
-A bare-string unit shorthand is normalised to a `Unit` marker on read, so `.unit.unit` always
-recovers the string. Parameters with no declared facet are omitted entirely.
+Parameters and fields with no declared facet are omitted. A `TypedDict`/`dataclass` return
+is read per-field; a single `Annotated[DataArray, ...]` return yields one `Declared` rather
+than a dict; any other return yields `None`.
 
-This is the reader to use when checking a *graph* rather than a call: read each node's
-declared inputs and outputs, compare them pairwise, and fail at assembly time rather than
-at run time. `freq_compatible` (see
+Each slot of a `Declared` holds that facet's marker or `None`, so `.unit.unit` recovers the
+unit string and `.unit.convert` what the declaration says about conversion. `.schema` lists
+the `dims`, `dtype` and `coords` markers that are set, which is what `check_schema` takes.
+
+### `declaration_from_hint`
+
+The same read for when you already hold one hint. It returns `None` when the hint declares
+nothing, isn't `Annotated`, or annotates a non-`DataArray` base type:
+
+```python
+from typing import Annotated
+import xarray as xr
+from xarray_annotated import Dims, Freq, Unit, declaration_from_hint
+
+declaration_from_hint(Annotated[xr.DataArray, Unit("Pa"), Dims("time"), Freq("D")])
+# Declared(unit=Unit("Pa"), dims=Dims("time"), freq=Freq("D"))
+```
+
+A wrapper exposing the wrapped class as `array_type` — such as a jaxtyping array type —
+counts as a `DataArray` base type; see [Using with jaxtyping](jaxtyping.md).
+
+To read a facet of your own, pass your own single-hint extractor to `walk_signature`, using
+`unwrap_annotated` to see through the metadata. Both are at the package root.
+
+### Checking a graph
+
+To check a *graph* rather than a call, read each node's declared inputs and outputs with
+`declarations_from_signature`, compare them pairwise, and fail at assembly time rather
+than at run time. `freq_compatible` (see
 [What "the same frequency" means](declaring.md#what-the-same-frequency-means)) performs
 the frequency half of that comparison with no array in hand.
 

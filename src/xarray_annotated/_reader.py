@@ -1,23 +1,17 @@
-"""Reading *all* declared facets off a signature — the unified reader.
+"""Reading *all* declared facets off a hint or a signature — the one reader.
 
-Every domain ships its own reader (`units_from_signature`, `schema_from_signature`,
-`freq_from_signature`) returning a domain-shaped payload; this is the one
-cross-domain reader that collapses them into a single uniform value.  Where the
-writer `annotate` turns facet values into an `Annotated` hint,
-`declarations_from_signature` turns a whole signature back into a facet value per
-declared DataArray — it is the read-side counterpart to `annotate`, and their
-round-trip is exact.
+Where the writer `annotate` turns facet values into an `Annotated` hint,
+`declaration_from_hint` and `declarations_from_signature` turn a hint, or a whole
+signature, back into a facet value per declared DataArray.  They are the read-side
+counterpart to `annotate`, and their round-trip is exact.
 
 The unified value `Declared` is deliberately *homogeneous*: every slot holds a
 marker (`Unit` / `Dims` / `Dtype` / `Coords` / `Freq`) or `None`.  Markers are the
-package's public currency — the schema and temporal markers are load-bearing (they
-carry strictness that has no bare-string form) — so a facet-generic consumer wants
-one marker per slot rather than a mix of strings and objects.  A bare-string unit
-shorthand is normalised to a `Unit`, so the shape does not depend on how the unit
-was spelled.
+package's public currency, since they carry per-declaration settings a plain string
+could not, so a facet-generic consumer gets one marker per slot.
 
 One slot per marker type is lossless because a hint may declare each facet at most
-once: the domain extractors reject a second `Unit` / `Dims` / `Dtype` / `Coords` /
+once: `declaration_from_hint` rejects a second `Unit` / `Dims` / `Dtype` / `Coords` /
 `Freq` on one hint as a malformed declaration (`ValueError`).
 
 Like `annotate`, this is cross-domain — it assembles every domain's markers into one
@@ -25,28 +19,26 @@ value — so it lives at the package root rather than in any one domain.
 """
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Annotated, Any, get_args, get_origin
 
-from ._annotations import walk_signature
+from ._annotations import _is_dataarray_type, _single_marker, walk_signature
 from .schema import Coords, Dims, Dtype
-from .schema._annotations import annotated_schema
+from .schema._annotations import SchemaMarker
 from .temporal import Freq
-from .temporal._annotations import annotated_freq
 from .units import Unit
-from .units._annotations import _unit_marker
 
-__all__ = ["Declared", "declarations_from_signature"]
+__all__ = ["Declared", "declaration_from_hint", "declarations_from_signature"]
 
 
 @dataclass(frozen=True, slots=True)
 class Declared:
     """Every facet declared on one DataArray hint, one marker (or `None`) per slot.
 
-    The uniform value produced by `declarations_from_signature`: a homogeneous
-    bag of markers, so facet-generic code can treat each slot identically.  Each
-    slot holds the corresponding marker or `None` when that facet was not
-    declared; the unit is always a `Unit` (its bare-string shorthand is
-    normalised on read), so `.unit.unit` recovers the string.
+    The uniform value produced by `declaration_from_hint` and
+    `declarations_from_signature`: a homogeneous bag of markers, so facet-generic
+    code can treat each slot identically.  Each slot holds the corresponding marker
+    or `None` when that facet was not declared; `.unit.unit` recovers the unit
+    string.
 
     A hint carrying two markers of one type never reaches here: reading it raises
     `ValueError`, so no declaration is dropped.
@@ -62,31 +54,53 @@ class Declared:
     coords: Coords | None = None
     freq: Freq | None = None
 
+    @property
+    def schema(self) -> list[SchemaMarker]:
+        """The declared schema markers, as `check_schema` takes them."""
+        return [m for m in (self.dims, self.dtype, self.coords) if m is not None]
 
-def _annotated_declaration(hint: Any) -> Declared | None:
-    """Combine the per-domain extractors into one `Declared`, or `None`.
 
-    Delegates to the existing `_unit_marker`, `annotated_schema` and
-    `annotated_freq` so the "is this an `Annotated[DataArray, ...]` hint?" logic is
-    not duplicated, then folds their payloads into a single homogeneous value.
-    Returns `None` when the hint declares no facet, which is `walk_signature`'s "no
-    declaration" signal.
+def declaration_from_hint(hint: Any) -> Declared | None:
+    """Read every facet declared on one type hint into a `Declared`.
+
+    The single-hint counterpart to `declarations_from_signature`, and an extractor
+    `walk_signature` can drive.  A non-`Annotated` hint, a base type that is not a
+    `DataArray`, and a hint with no marker all declare nothing.
+
+    Args:
+        hint: A type hint, typically from `get_type_hints(..., include_extras=True)`.
+
+    Returns:
+        The declared facets, or `None` when the hint declares none.
+
+    Raises:
+        ValueError: If the hint carries two markers of the same type.
+
+    Examples:
+        >>> from typing import Annotated
+        >>> import xarray as xr
+        >>> from xarray_annotated import Dims, Unit, declaration_from_hint
+        >>> declared = declaration_from_hint(
+        ...     Annotated[xr.DataArray, Unit("Pa"), Dims("time"), "surface pressure"]
+        ... )
+        >>> declared.unit, declared.schema
+        (Unit('Pa'), [Dims('time')])
+        >>> declaration_from_hint(Annotated[xr.DataArray, "surface pressure"]) is None
+        True
     """
-    unit = _unit_marker(hint)
-    markers = annotated_schema(hint) or ()
-    dims = next((m for m in markers if isinstance(m, Dims)), None)
-    dtype = next((m for m in markers if isinstance(m, Dtype)), None)
-    coords = next((m for m in markers if isinstance(m, Coords)), None)
-    freq = annotated_freq(hint)
-    if all(facet is None for facet in (unit, dims, dtype, coords, freq)):
+    if get_origin(hint) is not Annotated:
         return None
-    return Declared(
-        unit=unit,
-        dims=dims,
-        dtype=dtype,
-        coords=coords,
-        freq=freq,
+    base, *metadata = get_args(hint)
+    if not _is_dataarray_type(base):
+        return None
+    declared = Declared(
+        unit=_single_marker(metadata, Unit),
+        dims=_single_marker(metadata, Dims),
+        dtype=_single_marker(metadata, Dtype),
+        coords=_single_marker(metadata, Coords),
+        freq=_single_marker(metadata, Freq),
     )
+    return None if declared == Declared() else declared
 
 
 def declarations_from_signature(
@@ -94,11 +108,8 @@ def declarations_from_signature(
 ) -> tuple[dict[str, Declared], dict[str, Declared] | Declared | None]:
     """Read every declared facet off a function's signature in one uniform shape.
 
-    The all-facets counterpart to `units_from_signature` / `schema_from_signature`:
-    a single reader whose payload is a `Declared` carrying the unit, dims, dtype,
-    and coords declared on a DataArray hint at once.  A consumer that would
-    otherwise call both per-domain readers and merge their differently-shaped
-    results can call this once and route a uniform value instead.
+    Each payload is a `Declared` carrying the unit, dims, dtype, coords and freq
+    declared on one DataArray hint.
 
     Args:
         func: A callable whose parameters/return may carry
@@ -114,4 +125,4 @@ def declarations_from_signature(
             dataclass return, a single `Declared` for one declared DataArray
             return, or `None` when the return carries no declaration.
     """
-    return walk_signature(func, _annotated_declaration)
+    return walk_signature(func, declaration_from_hint)

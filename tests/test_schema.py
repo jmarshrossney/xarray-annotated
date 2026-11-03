@@ -15,7 +15,7 @@ import xarray as xr
 
 import xarray_annotated as xra
 from xarray_annotated import schema
-from xarray_annotated.schema import Coords, Dims, Dtype, _annotations, _check, _config
+from xarray_annotated.schema import Coords, Dims, Dtype, _check, _config
 
 
 def _da(dims=("time", "x"), dtype="float64", coords=()):
@@ -78,72 +78,6 @@ class TestMarkers:
     def test_invalid_on_mismatch_rejected_at_construction(self):
         with pytest.raises(ValueError, match="Invalid on_mismatch"):
             Dims("time", on_mismatch="bogus")  # type: ignore[arg-type]
-
-
-# ---------------------------------------------------------------------------
-# Reading declarations off annotations
-# ---------------------------------------------------------------------------
-
-
-class TestAnnotatedSchema:
-    def test_collects_multiple_markers(self):
-        hint = Annotated[xr.DataArray, Dims("time"), Dtype("f8")]
-        assert _annotations.annotated_schema(hint) == [Dims("time"), Dtype("f8")]
-
-    def test_ignores_bare_strings(self):
-        hint = Annotated[xr.DataArray, "a description", Dims("time")]
-        assert _annotations.annotated_schema(hint) == [Dims("time")]
-
-    def test_non_dataarray_yields_none(self):
-        assert _annotations.annotated_schema(Annotated[bool, Dims("x")]) is None
-
-    def test_no_markers_yields_none(self):
-        assert _annotations.annotated_schema(Annotated[xr.DataArray, "note"]) is None
-        assert _annotations.annotated_schema(xr.DataArray) is None
-
-    def test_optional_dataarray_read(self):
-        hint = Annotated[xr.DataArray | None, Dims("time")]
-        assert _annotations.annotated_schema(hint) == [Dims("time")]
-
-    def test_from_signature_inputs_and_single_output(self):
-        def node(
-            a: Annotated[xr.DataArray, Dims("time")],
-            b: int,
-        ) -> Annotated[xr.DataArray, Dtype("f8")]:
-            return a
-
-        inputs, output = _annotations.schema_from_signature(node)
-        assert inputs == {"a": [Dims("time")]}
-        assert output == [Dtype("f8")]
-
-    def test_from_signature_typeddict_output(self):
-        class Out(TypedDict):
-            hi: Annotated[xr.DataArray, Dims("time")]
-            lo: Annotated[xr.DataArray, Dtype("f8")]
-
-        def node() -> Out: ...
-
-        _, output = _annotations.schema_from_signature(node)
-        assert output == {"hi": [Dims("time")], "lo": [Dtype("f8")]}
-
-    def test_from_signature_dataclass_output(self):
-        @dataclass
-        class Out:
-            hi: Annotated[xr.DataArray, Dims("time")]
-            plain: int
-
-        def node() -> Out: ...
-
-        _, output = _annotations.schema_from_signature(node)
-        assert output == {"hi": [Dims("time")]}
-
-    def test_from_signature_no_output(self):
-        def node(a: int) -> int:
-            return a
-
-        inputs, output = _annotations.schema_from_signature(node)
-        assert inputs == {}
-        assert output is None
 
 
 # ---------------------------------------------------------------------------

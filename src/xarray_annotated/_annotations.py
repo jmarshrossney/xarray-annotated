@@ -1,11 +1,10 @@
 """Shared `typing.Annotated` introspection for xarray-annotated.
 
 Pure `typing` machinery with no dependency on any domain's registry or config —
-the "declaration side" common to every domain. A domain supplies an *extractor*
-that turns one `Annotated[...]` hint into its own declaration payload (a unit
-string, a list of schema markers, …); `walk_signature` drives that extractor over
-a whole function signature, handling the `TypedDict` / dataclass / single-value
-return shapes once, for everyone.
+the "declaration side" common to every domain. An *extractor* turns one
+`Annotated[...]` hint into a declaration payload;
+`walk_signature` drives that extractor over a whole function signature, handling
+the `TypedDict` / dataclass / single-value return shapes once, for everyone.
 """
 
 import dataclasses
@@ -97,15 +96,14 @@ def walk_signature[T](
     """Extract per-parameter and return declarations from a function's hints.
 
     Reads `get_type_hints(func, include_extras=True)` and maps each hint through
-    `extract`, which returns a domain's declaration payload for that hint or
-    `None` when the hint carries no declaration.  The `is not None` filter is the
-    single "no declaration" rule shared by every domain.
+    `extract`, which returns a declaration payload for that hint or `None` when
+    the hint carries no declaration.
 
     Args:
         func: A callable whose parameters/return may carry `Annotated` metadata.
-        extract: Turns one hint into a declaration payload, or `None`.  For units
-            this is `annotated_unit` (payload `str`); for schema `annotated_schema`
-            (payload `list[marker]`).
+        extract: Turns one hint into a declaration payload, or `None`.  For every
+            built-in facet at once this is `declaration_from_hint` (payload
+            `Declared`); a third-party facet supplies its own.
 
     Returns:
         An `(inputs, output)` pair:

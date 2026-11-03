@@ -1,4 +1,4 @@
-"""Typed markers declaring a DataArray's structural properties, and the reader.
+"""Typed markers declaring a DataArray's structural properties.
 
 The structural counterpart to ``units._annotations``: the properties every
 ``DataArray`` possesses regardless of physical units — its dimensions
@@ -14,19 +14,8 @@ properties have different natural defaults and a wrong dtype is often less sever
 than a wrong set of dims.  The markers are immutable (``__slots__``) and hashable
 so an annotation carrying them stays hashable/cacheable; ``eq``/``repr`` cover all
 fields, so ``eval(repr(m)) == m``.
-
-There is deliberately **no bare-string shorthand** (a string in the metadata is a
-description, never a declaration): only these typed markers are read.
 """
 
-from typing import (
-    Annotated,
-    Any,
-    get_args,
-    get_origin,
-)
-
-from .._annotations import _is_dataarray_type, _single_marker, walk_signature
 from ._config import OnMismatch, _validate_on_mismatch
 
 
@@ -205,57 +194,5 @@ class Dtype:
         return hash((self._dtype, self._exact, self._on_mismatch))
 
 
-#: The marker types the reader recognises in `Annotated` metadata.
+#: Any one schema marker.
 SchemaMarker = Dims | Coords | Dtype
-_SCHEMA_MARKERS = (Dims, Coords, Dtype)
-
-
-def annotated_schema(hint: Any) -> list[SchemaMarker] | None:
-    """Return every schema marker carried by an `Annotated` hint, or `None`.
-
-    Collects *all* `Dims` / `Coords` / `Dtype` markers in the metadata (a hint may
-    declare several structural properties at once), but only when the annotated
-    base type is a `DataArray` (incl. `DataArray | None`).  Non-`Annotated` hints,
-    hints on non-DataArray types, and hints with no schema marker return `None`
-    (so `walk_signature`'s "no declaration" filter drops them).
-
-    Args:
-        hint: A type hint, typically from `get_type_hints(..., include_extras=True)`.
-
-    Returns:
-        A non-empty list of markers in annotation order (at most one of each
-        type), or `None`.
-
-    Raises:
-        ValueError: If the hint carries two markers of the same type.
-    """
-    if get_origin(hint) is not Annotated:
-        return None
-    args = get_args(hint)
-    if not _is_dataarray_type(args[0]):
-        return None
-    metadata = args[1:]
-    for marker_type in _SCHEMA_MARKERS:
-        _single_marker(metadata, marker_type)
-    markers = [m for m in metadata if isinstance(m, _SCHEMA_MARKERS)]
-    return markers or None
-
-
-def schema_from_signature(
-    func: object,
-) -> tuple[
-    dict[str, list[SchemaMarker]],
-    dict[str, list[SchemaMarker]] | list[SchemaMarker] | None,
-]:
-    """Extract declared schema markers from a function's type annotations.
-
-    Args:
-        func: A callable whose hints carry `Annotated[DataArray, <markers>]`.
-
-    Returns:
-        An `(inputs, output)` pair, where each declaration is the list of markers
-        on that parameter/field; `output` is a per-field dict for a `TypedDict` or
-        dataclass return, a single list for one declared `DataArray` return, or
-        `None`.
-    """
-    return walk_signature(func, annotated_schema)

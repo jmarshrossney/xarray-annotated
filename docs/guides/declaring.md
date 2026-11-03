@@ -80,9 +80,6 @@ unchanged; a mismatch raises, warns, or is ignored per policy. A `TypedDict` or
 `dataclass` return is validated per-field; a bare `Annotated[DataArray, ...]` return is
 validated directly. Non-`DataArray` arguments and returns pass through untouched.
 
-Unlike units there is **no bare-string shorthand** — a plain string in the metadata is
-treated as a description and ignored; only the typed markers are read.
-
 ### Strictness
 
 **`Dims(*names, ordered=False)`** — by default the *set* of dims must match (extra or
@@ -193,7 +190,7 @@ arguments and returns pass through untouched.
 An input in a compatible but different unit (`"hPa"` where `"Pa"` is declared) raises
 unless the declaration opts into conversion — `Unit("Pa", convert=True)`. Whether a
 conversion is correct depends on the quantity, so the choice sits on the parameter — see
-[Units policy](policy.md#units). The bare-string shorthand cannot opt in.
+[Units policy](policy.md#units).
 
 Inputs and outputs are treated differently, and the difference matters: an input is
 **checked**, an output is **stamped**. The decorator trusts a function to return what it
@@ -204,39 +201,13 @@ label — so the useful place to declare a quantity is on whoever consumes it. T
 [`on_output`](policy.md#units-on_output) axis can tighten this for bodies that maintain
 their own units.
 
-`Unit` is the **recommended** form: it owns its own slot in the metadata, so it stays
-unambiguous and order-independent even when other `Annotated`-based tooling — or a schema
-marker (see [Combining multiple checks](#combining-multiple-checks)) — shares the
-annotation.
+`Unit` owns its own slot in the metadata, so it stays unambiguous and order-independent
+even when other `Annotated`-based tooling — or a schema marker (see
+[Combining multiple checks](#combining-multiple-checks)) — shares the annotation.
 
 Out of the box, unit strings are parsed by plain pint. CF-convention strings such as
 `"umol m-2 s-1"` need cf-xarray's UDUNITS-aware registry — a one-time startup choice,
 covered under [Choosing a unit registry](registry.md).
-
-#### Bare-string shorthand
-
-When you're checking **only** units — no schema markers, no other `Annotated` metadata to
-collide with — a bare string is accepted as a convenient shorthand:
-
-```python
-Annotated[xr.DataArray, "Pa"]
-Annotated[
-    xr.DataArray, "m s-1", "z component of velocity"
-]  # unit first; later string ignored
-```
-
-The unit must come **first**; any later string is treated as a human description and
-ignored. A `Unit` marker always wins over a bare string when both are present:
-
-```python
-Annotated[xr.DataArray, "note", Unit("Pa")]  # resolves to "Pa"
-```
-
-Reach for `Unit(...)` as soon as the annotation is shared — its self-identifying slot
-removes both the order dependence and any clash with a description string. This is also
-why the schema markers have **no** bare-string form: a unit has a canonical string
-spelling like `"Pa"`, whereas a structural property does not, so there a string can only
-ever be prose (see [Dims](#dims)).
 
 ### What counts as a match
 
@@ -284,9 +255,6 @@ lives in its own domain rather than as a fourth schema marker.
 
 The time axis is auto-detected as the array's sole datetime-like coordinate. If an array
 carries two, name the one you mean: `Freq("7D", dim="time")`.
-
-Unlike units there is **no bare-string shorthand** — a plain string in the metadata is a
-unit or a description, never a frequency.
 
 ### What "the same frequency" means
 
@@ -359,9 +327,7 @@ def detrend(
 ```
 
 Structure and units go on the same hint. The schema markers and the `Unit` marker
-coexist in one `Annotated`, each domain reading only its own. Prefer the `Unit` marker
-over the bare-string shorthand here, precisely because the annotation is shared (see
-[Declaring units](#declaring-units)).
+coexist in one `Annotated`, each domain reading only its own.
 
 ```python
 from typing import Annotated

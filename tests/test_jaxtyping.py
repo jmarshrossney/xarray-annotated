@@ -23,14 +23,10 @@ import pytest
 import xarray as xr
 
 import xarray_annotated as xra
-from xarray_annotated import annotate
+from xarray_annotated import Declared, annotate, declarations_from_signature
 from xarray_annotated._annotations import _is_dataarray_type
-from xarray_annotated.schema import (
-    Dims,
-    SchemaError,
-    schema_from_signature,
-)
-from xarray_annotated.units import Unit, units_from_signature
+from xarray_annotated.schema import Dims, SchemaError
+from xarray_annotated.units import Unit
 
 jaxtyping = pytest.importorskip("jaxtyping")
 
@@ -78,22 +74,19 @@ class TestIsDataArrayType:
 
 
 class TestReaders:
-    """Every domain's reader is gated on the same helper, so all three unblock."""
+    """Every facet is gated on the same helper, so all of them unblock."""
 
-    def test_units_reader_sees_declaration(self):
-        def f(x: Annotated[FloatDA, Unit("Pa")]): ...
+    def test_reader_sees_declaration(self):
+        def f(x: Annotated[FloatDA, Unit("Pa"), Dims("time", "x")]): ...
 
-        assert units_from_signature(f)[0] == {"x": "Pa"}
-
-    def test_schema_reader_sees_declaration(self):
-        def f(x: Annotated[FloatDA, Dims("time", "x")]): ...
-
-        assert schema_from_signature(f)[0] == {"x": [Dims("time", "x")]}
+        assert declarations_from_signature(f)[0] == {
+            "x": Declared(unit=Unit("Pa"), dims=Dims("time", "x"))
+        }
 
     def test_return_declaration_is_read(self):
         def f() -> Annotated[FloatDA, Unit("Pa")]: ...
 
-        assert units_from_signature(f)[1] == "Pa"
+        assert declarations_from_signature(f)[1] == Declared(unit=Unit("Pa"))
 
 
 class TestDecorators:
@@ -176,8 +169,9 @@ class TestWriterRoundTrip:
 
         fn.__annotations__["return"] = hint
 
-        assert units_from_signature(fn)[1] == "Pa"
-        assert schema_from_signature(fn)[1] == [Dims("time", "x")]
+        assert declarations_from_signature(fn)[1] == Declared(
+            unit=Unit("Pa"), dims=Dims("time", "x")
+        )
 
     def test_default_base_is_unchanged(self):
         """The writer never invents a jaxtyping base; the caller passes one."""

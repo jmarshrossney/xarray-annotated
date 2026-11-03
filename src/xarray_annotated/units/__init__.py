@@ -4,7 +4,7 @@ Run-time validation of pint/CF units declared via ``typing.Annotated`` on xarray
 DataArrays.
 """
 
-from ._annotations import Unit, annotated_unit, units_from_signature
+from ._annotations import Unit
 from ._check import (
     apply_output_units,
     assert_valid_unit,
@@ -24,7 +24,6 @@ from ._registry import (
 __all__ = [
     "OnOutput",
     "Unit",
-    "annotated_unit",
     "apply_output_units",
     "assert_valid_unit",
     "check_units",
@@ -32,6 +31,5 @@ __all__ = [
     "set_registry",
     "units_compatible",
     "units_equal",
-    "units_from_signature",
     "use_cf_units",
 ]

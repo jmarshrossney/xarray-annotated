@@ -18,7 +18,7 @@ import xarray as xr
 import xarray_annotated as xra
 from xarray_annotated import temporal
 from xarray_annotated.schema import Dims
-from xarray_annotated.temporal import Freq, _annotations, _config
+from xarray_annotated.temporal import Freq, _config
 
 
 def _da(times, dim="time", extra_coords=None):
@@ -79,75 +79,6 @@ class TestFreqMarker:
     def test_invalid_on_mismatch_rejected_at_construction(self):
         with pytest.raises(ValueError, match="Invalid on_mismatch"):
             Freq("7D", on_mismatch="bogus")  # type: ignore[arg-type]
-
-
-# ---------------------------------------------------------------------------
-# Reading declarations off annotations
-# ---------------------------------------------------------------------------
-
-
-class TestAnnotatedFreq:
-    def test_reads_the_marker(self):
-        hint = Annotated[xr.DataArray, Freq("7D")]
-        assert _annotations.annotated_freq(hint) == Freq("7D")
-
-    def test_coexists_with_other_domains_metadata(self):
-        hint = Annotated[xr.DataArray, "degC", Dims("time"), Freq("W-SUN")]
-        assert _annotations.annotated_freq(hint) == Freq("W-SUN")
-
-    def test_non_dataarray_yields_none(self):
-        assert _annotations.annotated_freq(Annotated[bool, Freq("7D")]) is None
-
-    def test_non_annotated_yields_none(self):
-        assert _annotations.annotated_freq(xr.DataArray) is None
-
-    def test_no_bare_string_shorthand(self):
-        # A string in the metadata is a unit or a description, never a frequency.
-        assert _annotations.annotated_freq(Annotated[xr.DataArray, "7D"]) is None
-
-    def test_optional_dataarray_read(self):
-        hint = Annotated[xr.DataArray | None, Freq("D")]
-        assert _annotations.annotated_freq(hint) == Freq("D")
-
-    def test_from_signature_inputs_and_single_output(self):
-        def node(
-            a: Annotated[xr.DataArray, Freq("D")],
-            b: int,
-        ) -> Annotated[xr.DataArray, Freq("W-SUN")]:
-            return a
-
-        inputs, output = _annotations.freq_from_signature(node)
-        assert inputs == {"a": Freq("D")}
-        assert output == Freq("W-SUN")
-
-    def test_from_signature_typeddict_output(self):
-        class Out(TypedDict):
-            hi: Annotated[xr.DataArray, Freq("D")]
-            lo: Annotated[xr.DataArray, Freq("ME")]
-
-        def node() -> Out: ...
-
-        _, output = _annotations.freq_from_signature(node)
-        assert output == {"hi": Freq("D"), "lo": Freq("ME")}
-
-    def test_from_signature_dataclass_output(self):
-        @dataclass
-        class Out:
-            hi: Annotated[xr.DataArray, Freq("D")]
-            plain: int
-
-        def node() -> Out: ...
-
-        _, output = _annotations.freq_from_signature(node)
-        assert output == {"hi": Freq("D")}
-
-    def test_from_signature_no_output(self):
-        def node(a: int) -> int:
-            return a
-
-        inputs, output = _annotations.freq_from_signature(node)
-        assert inputs == {}
-        assert output is None
 
 
 # ---------------------------------------------------------------------------
