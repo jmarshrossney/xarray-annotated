@@ -59,6 +59,11 @@ def resolve_on_output(declared: str | Unit, on_output: OnOutput | None) -> OnOut
     return marker or on_output or DEFAULT_ON_OUTPUT
 
 
+def _is_unverifiable(have: Any) -> bool:
+    """Whether a label must stay out of pint's parser and messages: `_MAX_UNIT_LEN`."""
+    return not isinstance(have, str) or len(have) > _MAX_UNIT_LEN
+
+
 def _labels_differ(have: Any, declared: str) -> bool:
     """Whether a label names a different unit; unparseable labels count as different."""
     try:
@@ -578,17 +583,25 @@ def apply_output_units(
         da.attrs["units"] = declared
         return da
     if on_output == "stamp":
-        if _log.isEnabledFor(logging.DEBUG) and _labels_differ(have, declared):
-            _log.debug(
-                "%soutput %r: stamping declared %r over label %r",
-                prefix,
-                name,
-                declared,
-                have,
-            )
+        if _log.isEnabledFor(logging.DEBUG):
+            if _is_unverifiable(have):
+                _log.debug(
+                    "%soutput %r: stamping declared %r over an unverifiable label",
+                    prefix,
+                    name,
+                    declared,
+                )
+            elif _labels_differ(have, declared):
+                _log.debug(
+                    "%soutput %r: stamping declared %r over label %r",
+                    prefix,
+                    name,
+                    declared,
+                    have,
+                )
         da.attrs["units"] = declared
         return da
-    if not isinstance(have, str) or len(have) > _MAX_UNIT_LEN:
+    if _is_unverifiable(have):
         # Unverifiable for the same reasons as on the input path.
         if on_output == "require":
             raise ValueError(
