@@ -1,6 +1,6 @@
 """The package-wide master switch, the only global setting.
 
-Behaviour (`on_missing`, `on_mismatch`, ...) is declared on markers or passed to
+Behaviour (`convert`, `on_mismatch`, ...) is declared on markers or passed to
 `enforce` / the `check_*` primitives, never configured globally, so that how a
 function validates can be read off its signature.  What remains global is
 whether xarray-annotated does anything at all.

@@ -38,12 +38,11 @@ def _da(values, unit=None):
 
 class TestAxes:
     def test_defaults(self):
-        assert _config.DEFAULT_ON_MISSING == "warn"
         assert _config.DEFAULT_ON_OUTPUT == "stamp"
 
-    def test_invalid_on_missing_raises(self):
-        with pytest.raises(ValueError, match="Invalid on_missing"):
-            units.check_units(_da([[1.0]], "Pa"), "Pa", "x", on_missing="bogus")  # type: ignore[arg-type]
+    def test_on_missing_is_gone(self):
+        with pytest.raises(TypeError, match="on_missing"):
+            units.check_units(_da([[1.0]], "Pa"), "Pa", "x", on_missing="warn")  # type: ignore[call-arg]
 
     def test_convert_must_be_a_bool(self):
         with pytest.raises(TypeError, match="convert must be a bool"):
@@ -52,7 +51,7 @@ class TestAxes:
     def test_axis_types_are_public(self):
         # The axis types are importable from the public surface (no private
         # _config import needed).
-        assert units.OnMissing is _config.OnMissing
+        assert units.OnOutput is _config.OnOutput
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +85,7 @@ class TestAssertValidUnit:
 class TestCheckUnits:
     def test_round_trip_preserves_coords_and_stamps_declared(self):
         da = _da([[1.0, 2.0], [3.0, 4.0]], unit="Pa")
-        out = units.check_units(da, "Pa", "vpd", on_missing="error")
+        out = units.check_units(da, "Pa", "vpd")
         assert out.attrs["units"] == "Pa"
         xr.testing.assert_equal(out["time"], da["time"])
         xr.testing.assert_equal(out["pixel"], da["pixel"])
@@ -94,66 +93,32 @@ class TestCheckUnits:
 
     def test_conversion_hpa_to_pa(self):
         da = _da([[10.0, 20.0]], unit="hPa")
-        out = units.check_units(da, "Pa", "vpd", on_missing="error", convert=True)
+        out = units.check_units(da, "Pa", "vpd", convert=True)
         assert out.attrs["units"] == "Pa"
         np.testing.assert_allclose(out.values, [[1000.0, 2000.0]])
 
     def test_incompatible_raises_dimensionality_error(self):
         da = _da([[1.0, 2.0]], unit="degC")
         with pytest.raises(pint.DimensionalityError):
-            units.check_units(da, "kg", "x", on_missing="error")
+            units.check_units(da, "kg", "x")
 
     def test_affine_kelvin_to_celsius(self):
         da = _da([[300.0, 273.15]], unit="K")
-        out = units.check_units(
-            da, "degC", "temperature", on_missing="error", convert=True
-        )
+        out = units.check_units(da, "degC", "temperature", convert=True)
         np.testing.assert_allclose(out.values, [[26.85, 0.0]])
 
-    def test_missing_units_error_raises(self):
+    def test_missing_units_always_raise(self):
         da = _da([[1.0, 2.0]])
         with pytest.raises(ValueError, match="no 'units' attribute"):
-            units.check_units(da, "Pa", "vpd", on_missing="error")
-
-    def test_missing_units_warn_warns_and_passes_through(self):
-        da = _da([[1.0, 2.0]])
-        with pytest.warns(UserWarning, match="unvalidated"):
-            out = units.check_units(da, "Pa", "vpd", on_missing="warn")
-        assert "units" not in out.attrs
-        np.testing.assert_array_equal(out.values, da.values)
+            units.check_units(da, "Pa", "vpd")
 
     def test_unparseable_units_error_raises(self):
         # A present-but-unparseable units string (a non-pint spelling) cannot be
-        # validated; on_missing="error" reports it clearly rather than letting an
-        # opaque pint parse error escape.
+        # validated; it is reported clearly rather than letting an opaque pint
+        # parse error escape.
         da = _da([[1.0, 2.0]], unit="fraction")
         with pytest.raises(ValueError, match="unparseable 'units' attribute"):
-            units.check_units(da, "1", "clay", on_missing="error")
-
-    def test_unparseable_units_warn_warns_and_passes_through(self):
-        da = _da([[1.0, 2.0]], unit="fraction")
-        with pytest.warns(UserWarning, match="unparseable"):
-            out = units.check_units(da, "1", "clay", on_missing="warn")
-        # Left untouched (its original, un-validatable unit is preserved).
-        assert out.attrs["units"] == "fraction"
-        np.testing.assert_array_equal(out.values, da.values)
-
-    def test_unparseable_units_ignore_passes_through_silently(self):
-        da = _da([[1.0, 2.0]], unit="fraction")
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            out = units.check_units(da, "1", "clay", on_missing="ignore")
-        assert out.attrs["units"] == "fraction"
-        np.testing.assert_array_equal(out.values, da.values)
-
-    def test_missing_units_ignore_passes_through_silently(self):
-        # ignore neither raises (unlike error) nor warns (unlike warn).
-        da = _da([[1.0, 2.0]])
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            out = units.check_units(da, "Pa", "vpd", on_missing="ignore")
-        assert "units" not in out.attrs
-        np.testing.assert_array_equal(out.values, da.values)
+            units.check_units(da, "1", "clay")
 
     def test_conversion_refused_without_opt_in(self):
         # hPa where Pa is declared would scale the values, so it needs convert=True.
@@ -185,39 +150,24 @@ class TestCheckUnits:
         da = _da([[10.0, 20.0]], unit="hPa")
         with xra.enabled(False), warnings.catch_warnings():
             warnings.simplefilter("error")
-            out = units.check_units(da, "Pa", "vpd", on_missing="error")
+            out = units.check_units(da, "Pa", "vpd")
         assert out.attrs["units"] == "hPa"
         np.testing.assert_allclose(out.values, [[10.0, 20.0]])
 
     def test_over_long_units_attribute_error_raises_without_parsing(self):
         # A units attribute from an untrusted file can be crafted to hang pint's
         # parser (DoS). An over-long one is refused on length, before parsing,
-        # and routed through on_missing (here: error). This must return quickly.
+        # which must return quickly.
         da = _da([[1.0, 2.0]], unit="e" * (_check._MAX_UNIT_LEN + 1))
         with pytest.raises(ValueError, match="over-long 'units' attribute"):
-            units.check_units(da, "Pa", "vpd", on_missing="error")
-
-    def test_over_long_units_attribute_warn_passes_through(self):
-        da = _da([[1.0, 2.0]], unit="e" * (_check._MAX_UNIT_LEN + 1))
-        with pytest.warns(units.UnitsWarning, match="over-long"):
-            out = units.check_units(da, "Pa", "vpd", on_missing="warn")
-        # Left untouched: its (un-validatable) unit is preserved, values unchanged.
-        assert len(out.attrs["units"]) == _check._MAX_UNIT_LEN + 1
-        np.testing.assert_array_equal(out.values, da.values)
-
-    def test_over_long_units_attribute_ignore_passes_through_silently(self):
-        da = _da([[1.0, 2.0]], unit="e" * (_check._MAX_UNIT_LEN + 1))
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            out = units.check_units(da, "Pa", "vpd", on_missing="ignore")
-        np.testing.assert_array_equal(out.values, da.values)
+            units.check_units(da, "Pa", "vpd")
 
     def test_over_long_error_message_does_not_echo_the_unit(self):
         # The message must report the length, not the (potentially huge) string.
         over_long = "e" * (_check._MAX_UNIT_LEN + 1)
         da = _da([[1.0, 2.0]], unit=over_long)
         with pytest.raises(ValueError, match="over-long") as excinfo:
-            units.check_units(da, "Pa", "vpd", on_missing="error")
+            units.check_units(da, "Pa", "vpd")
         assert over_long not in str(excinfo.value)
 
     def test_max_length_unit_still_parses(self):
@@ -226,7 +176,7 @@ class TestCheckUnits:
         unit = "Pa" + " * 1" * 60  # dimensionally Pa, well under the cap
         assert len(unit) <= _check._MAX_UNIT_LEN
         da = _da([[10.0, 20.0]], unit=unit)
-        out = units.check_units(da, "Pa", "vpd", on_missing="error")
+        out = units.check_units(da, "Pa", "vpd")
         assert out.attrs["units"] == "Pa"
         np.testing.assert_allclose(out.values, [[10.0, 20.0]])
 
@@ -320,11 +270,9 @@ class TestCheckUnitsQuantified:
             warnings.simplefilter("error")
             units.check_units(_quantified([[1.0]], "Pa"), "Pa", "p")
 
-    def test_quantified_input_honours_on_missing_error(self):
-        # on_missing="error" is about *unreadable* units; a Quantity is readable.
-        out = units.check_units(
-            _quantified([[1.0]], "hPa"), "Pa", "p", on_missing="error", convert=True
-        )
+    def test_quantified_input_is_never_missing(self):
+        # A missing unit is an *unreadable* one; a Quantity is readable.
+        out = units.check_units(_quantified([[1.0]], "hPa"), "Pa", "p", convert=True)
         np.testing.assert_allclose(out.values, [[100.0]])
 
     def test_quantified_input_needs_opt_in(self):
@@ -349,19 +297,19 @@ class TestCheckUnitsQuantified:
         assert out.attrs["units"] == "Pa"
         np.testing.assert_allclose(out.values, [[100.0]])
 
-    def test_unit_from_a_foreign_registry_routes_through_on_missing(self):
+    def test_unit_from_a_foreign_registry_is_unparseable(self):
         """Units are compared as *strings* re-parsed in the active registry.
 
         That keeps every comparison in one registry (quantities from two
         registries cannot be mixed), at the price that a unit defined only in
         some other registry reads as unparseable -- which is the correct
-        outcome: unverifiable, so ``on_missing`` decides.
+        outcome: unverifiable, so it is refused.
         """
         foreign = pint.UnitRegistry(force_ndarray_like=True)
         foreign.define("widget = [thing]")
         da = _da([[1.0]]).pint.quantify("widget", unit_registry=foreign)
         with pytest.raises(ValueError, match="unparseable 'units'"):
-            units.check_units(da, "Pa", "p", on_missing="error")
+            units.check_units(da, "Pa", "p")
 
     def test_disabled_policy_leaves_quantified_input_alone(self):
         da = _quantified([[1.0]], "hPa")

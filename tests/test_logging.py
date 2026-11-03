@@ -1,8 +1,8 @@
 """The audit trail: every non-trivial action is logged.
 
-INFO marks a failed or untestable check let through (anything under
-``ignore``); DEBUG marks chosen or routine actions, including every conversion,
-since conversion is always opted into.
+INFO marks a failed or untestable check let through (a schema or frequency
+check under ``ignore``); DEBUG marks chosen or routine actions, including every
+conversion, since conversion is always opted into.
 """
 
 import logging
@@ -76,24 +76,11 @@ class TestInputConversion:
         assert msg.startswith("[mod.f] input 'p'")
 
 
-class TestIgnoredInputs:
-    @pytest.mark.parametrize(
-        ("unit", "fragment"),
-        [
-            (None, "no 'units' attribute"),
-            ("x" * 300, "over-long"),
-            ("not_a_unit", "unparseable"),
-        ],
-    )
-    def test_ignore_is_info(self, audit, unit, fragment):
-        units.check_units(_da(unit), "Pa", "p", on_missing="ignore")
-        [(level, msg)] = _records(audit, UNITS)
-        assert level == logging.INFO
-        assert fragment in msg
-
-    def test_warn_is_not_also_logged(self, audit):
-        with pytest.warns(units.UnitsWarning):
-            units.check_units(_da(None), "Pa", "p")
+class TestUnreadableInputs:
+    @pytest.mark.parametrize("unit", [None, "x" * 300, "not_a_unit"])
+    def test_refused_not_logged(self, audit, unit):
+        with pytest.raises(ValueError, match="'units' attribute"):
+            units.check_units(_da(unit), "Pa", "p")
         assert _records(audit, UNITS) == []
 
 

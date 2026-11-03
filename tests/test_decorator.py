@@ -2,7 +2,6 @@
 
 import dataclasses
 import typing
-import warnings
 from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
@@ -151,33 +150,18 @@ class TestFailFast:
             f(_da([[1.0]], unit="degC"))
 
 
-class TestAxisResolution:
-    def test_on_missing_kwarg_overrides_default(self):
-        @xra.enforce(units_on_missing="error")
-        def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
-            return p
-
-        # The default on_missing is warn, but the per-decorator "error" must raise.
-        with pytest.raises(ValueError, match="no 'units'"):
-            f(_da([[1.0]]))
-
-    def test_on_missing_defaults_to_warn(self):
+class TestMissingUnits:
+    def test_missing_unit_always_raises(self):
         @xra.enforce
         def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
             return p
 
-        with pytest.warns(units.UnitsWarning):
+        with pytest.raises(ValueError, match=r"no 'units'.*assign_attrs"):
             f(_da([[1.0]]))
 
-    def test_on_missing_ignore_skips_input_validation(self):
-        @xra.enforce(units_on_missing="ignore")
-        def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
-            return p
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            out = f(_da([[1.0]]))  # missing units, but ignore neither raises nor warns
-        assert "units" not in out.attrs
+    def test_no_enforce_keyword(self):
+        with pytest.raises(TypeError, match="units_on_missing"):
+            xra.enforce(units_on_missing="ignore")  # type: ignore[call-arg]
 
     def test_disabled_policy_is_total_noop(self):
         # enabled=False: input is not converted AND output is not stamped.
@@ -191,13 +175,6 @@ class TestAxisResolution:
             out = f(_da([[10.0]], unit="hPa"))
         assert out.attrs["units"] == "hPa"  # not converted, not re-stamped
         np.testing.assert_allclose(out.values, [[10.0]])
-
-    def test_invalid_on_missing_kwarg_raises_at_decoration(self):
-        with pytest.raises(ValueError, match="Invalid units_on_missing"):
-
-            @xra.enforce(units_on_missing="bogus")  # type: ignore[arg-type]
-            def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
-                return p
 
 
 class TestConversionIsOptIn:

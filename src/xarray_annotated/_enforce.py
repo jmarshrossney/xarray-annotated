@@ -91,7 +91,6 @@ def _set_field(result: Any, name: str, value: xr.DataArray, qualname: str) -> No
 def enforce(
     func: Callable[..., Any] | None = None,
     *,
-    units_on_missing: _units.OnMissing | None = None,
     units_on_output: _units.OnOutput | None = None,
     temporal_on_uninferable: _temporal.OnUninferable | None = None,
 ) -> Callable[..., Any]:
@@ -129,12 +128,11 @@ def enforce(
     conversion, on the marker it applies to (`Dims(..., on_mismatch="warn")`,
     `Unit("Pa", convert=True)`).
 
-    Usable bare (`@xra.enforce`) or called (`@xra.enforce(units_on_missing=...)`).
+    Usable bare (`@xra.enforce`) or called (`@xra.enforce(units_on_output=...)`).
 
     Args:
         func: The function to decorate (when used bare); `None` when called with
             keyword arguments, in which case a parametrised decorator is returned.
-        units_on_missing: Overrides `units` `on_missing`.
         units_on_output: Overrides `units` `on_output`.
         temporal_on_uninferable: Overrides `temporal` `on_uninferable`.
 
@@ -158,12 +156,11 @@ def enforce(
         array([100.])
     """
     for keyword, value, allowed in (
-        ("units_on_missing", units_on_missing, _units.OnMissing),
         ("units_on_output", units_on_output, _units.OnOutput),
         ("temporal_on_uninferable", temporal_on_uninferable, _temporal.OnUninferable),
     ):
         # Checked here rather than by the domain validators, which name the
-        # unprefixed axis (`on_missing`) instead of the keyword the caller passed.
+        # unprefixed axis (`on_output`) instead of the keyword the caller passed.
         if value is not None and value not in get_args(allowed):
             raise ValueError(
                 f"Invalid {keyword} {value!r}. "
@@ -240,13 +237,7 @@ def enforce(
                     if decl is None or not isinstance(val, xr.DataArray):
                         continue
                     if decl.unit is not None:
-                        val = check_units(
-                            val,
-                            decl.unit,
-                            name,
-                            units_on_missing,
-                            qualname=qualname,
-                        )
+                        val = check_units(val, decl.unit, name, qualname=qualname)
                         bound.arguments[name] = val
                     if markers := _schema_markers(decl):
                         check_schema(val, markers, name, qualname=qualname)

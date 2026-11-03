@@ -35,7 +35,6 @@ The defaults are chosen to be right for most code:
 | Domain   | Axis             | Default   |
 |----------|------------------|-----------|
 | schema   | `on_mismatch`    | `error`   |
-| units    | `on_missing`     | `warn`    |
 | units    | `convert`        | `False`   |
 | units    | `on_output`      | `stamp`   |
 | temporal | `on_mismatch`    | `error`   |
@@ -108,9 +107,14 @@ Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64", on_mismatch="warn")]
 
 ## Units policy { #units }
 
-Inputs have one axis, `on_missing`, plus an opt-in to conversion; outputs have one axis,
-`on_output`. **Dimensional** mismatches (e.g. `"kg"` where `"Pa"` is declared) are not
-governed by any of them — they always raise `pint.DimensionalityError`.
+Inputs have an opt-in to conversion and no axis; outputs have one axis, `on_output`. Two
+input failures are not configurable at all, and always raise:
+
+- a **dimensional** mismatch (e.g. `"kg"` where `"Pa"` is declared) raises
+  `pint.DimensionalityError`, because the values cannot be converted;
+- a **missing**, unparseable or over-long `units` attribute raises `ValueError`, because
+  the declaration cannot be checked. Attach the unit where the data enters the pipeline,
+  or [switch checking off](#enabled) while prototyping.
 
 ### `convert` — value-changing conversion is opt-in { #units-convert }
 
@@ -135,19 +139,6 @@ so it is refused.
 Equivalent spellings of the same unit (`"pascal"` for `"Pa"`) imply no value change and
 are always accepted. `convert` has no per-function keyword, and the bare-string shorthand
 cannot opt in. Every conversion is [logged](#auditing) at `DEBUG`.
-
-### `on_missing` — no parseable unit to check against { #units-on_missing }
-
-Governs only the "can't validate" cases: a missing or unparseable `units` attribute.
-
-| `on_missing` | missing/unparseable units                     | dimensional mismatch |
-|--------------|-----------------------------------------------|----------------------|
-| `error`      | raises `ValueError`                           | always raises        |
-| `warn`       | emits `UnitsWarning`, returns input unchanged | always raises        |
-| `ignore`     | silently returns input unchanged              | always raises        |
-
-The default is `warn`. Set it on the marker, `Unit("Pa", on_missing="error")`, or for a
-whole function with `@xra.enforce(units_on_missing="error")`.
 
 ### `on_output` — trusting a declared return value { #units-on_output }
 
@@ -308,14 +299,13 @@ logging.basicConfig()
 logging.getLogger("xarray_annotated").setLevel(logging.DEBUG)
 ```
 
-`INFO` is what an audit is usually looking for: a check that failed or could not run
-being let through. An `"ignore"` is always chosen, but a contract that went unchecked is
-still worth seeing. `DEBUG` adds chosen or routine actions, including every conversion,
+`INFO` is what an audit is usually looking for: a schema or frequency check that failed or
+could not run being let through. An `"ignore"` is always chosen, but a contract that went
+unchecked is still worth seeing. `DEBUG` adds chosen or routine actions, including every conversion,
 since conversion is always opted into.
 
 | Event                                                              | Level   |
 |--------------------------------------------------------------------|---------|
-| input passed unvalidated under `on_missing="ignore"`               | `INFO`  |
 | schema or frequency mismatch passed under `"ignore"`               | `INFO`  |
 | input converted under `convert=True`                               | `DEBUG` |
 | output stamped over a different label                              | `DEBUG` |

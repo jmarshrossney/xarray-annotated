@@ -104,7 +104,6 @@ class TestKeywords:
     @pytest.mark.parametrize(
         "kwarg",
         [
-            "units_on_missing",
             "units_on_output",
             "temporal_on_uninferable",
         ],
@@ -113,8 +112,8 @@ class TestKeywords:
         with pytest.raises(ValueError, match=f"^Invalid {kwarg} 'bogus'"):
             xra.enforce(**{kwarg: "bogus"})  # type: ignore[arg-type]
 
-    def test_units_on_missing_overrides_default(self):
-        @xra.enforce(units_on_missing="error")
+    def test_missing_unit_raises(self):
+        @xra.enforce
         def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
 
         with pytest.raises(ValueError, match="no 'units' attribute"):
@@ -196,7 +195,7 @@ class TestWrapper:
         assert f(_int_da(), n=5) == 5
 
     def test_dimensional_mismatch_always_raises(self):
-        @xra.enforce(units_on_missing="ignore")
+        @xra.enforce
         def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)]): ...
 
         with pytest.raises(pint.DimensionalityError):

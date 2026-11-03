@@ -74,35 +74,40 @@ applies to an invalid dtype (`ValueError: invalid dtype 'flaot64'`) or an unpars
 offset string.
 
 
-## `UnitsWarning: ... unvalidated: no 'units' attribute` { #no-units-attribute }
+## `ValueError: ... has no 'units' attribute` { #no-units-attribute }
 
 **Symptom.**
 
 ```
-UnitsWarning: [f] input 'x' unvalidated: no 'units' attribute (declared 'Pa')
+ValueError: [f] input 'x' has no 'units' attribute (declared 'Pa'). Attach the unit
+where the data enters the pipeline (`.assign_attrs(units=...)`), or switch checking off
+with `xra.enabled(False)`.
 ```
 
-The array passed through unconverted.
+The same error, with a different reason, is raised for a `units` attribute the registry
+cannot parse, or one too long to hand to the parser.
 
-**Cause.** `@xra.enforce` validates units by reading `da.attrs["units"]`. With nothing to read,
-it cannot confirm or convert anything. Note that xarray drops `attrs` through most
-arithmetic by default, so an array that had units upstream may well not have them here.
+**Cause.** `@xra.enforce` validates units by reading `da.attrs["units"]`. With nothing to
+read, the declaration cannot be checked, so it is refused rather than trusted. Note that
+xarray drops `attrs` through most arithmetic by default, so an array that had units
+upstream may well not have them here.
 
 A pint-quantified array does **not** trigger this: its unit lives in the data rather than
 in `attrs`, and is read from `da.pint.units` instead. See
 [Quantified arrays](#quantified-arrays).
 
-**Fix.** Depends on what you want the warning to mean:
+**Fix.**
 
-- stamp the unit at the point the array enters your code, so downstream checks have
-  something to work with;
+- attach the unit at the point the array enters your code (`.assign_attrs(units=...)`),
+  so downstream checks have something to work with;
 - set `xr.set_options(keep_attrs=True)` if the units are being lost to arithmetic;
-- if unlabelled input is legitimate and you're happy to trust it, quieten the axis with
-  [`on_missing="ignore"`](policy.md#units-on_missing);
-- if it should never happen, promote it with `on_missing="error"`.
+- for an unparseable CF string such as `"umol m-2 s-1"`, call `use_cf_units()` — see
+  [Choosing a unit registry](registry.md);
+- while prototyping with unlabelled data, switch checking off with
+  [`xra.enabled(False)`](policy.md#enabled), which also skips the structural checks.
 
-**Not** the same thing as a dimensional mismatch, which always raises regardless of this
-setting.
+There is deliberately no setting that lets an unlabelled input through: a declared unit
+that was never checked is indistinguishable, downstream, from one that was.
 
 
 ## Pint-quantified arrays { #quantified-arrays }
@@ -138,7 +143,7 @@ DimensionalityError: Cannot convert from 'kilogram' ([mass])
   to 'pascal' ([mass] / [length] / [time] ** 2)
 ```
 
-…and setting `on_missing` to `"ignore"` or `convert=True` doesn't help.
+…and `convert=True` doesn't help.
 
 **Cause.** Working as intended. The units policy governs cases where validation is
 *uncertain* — an absent unit, a lossy conversion. A dimensional mismatch is not uncertain:

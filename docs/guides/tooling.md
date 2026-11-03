@@ -41,7 +41,7 @@ Validates, and where allowed converts, a single array:
 ```python
 from xarray_annotated.units import check_units
 
-check_units(da, declared, name, on_missing=None, convert=False, qualname=None)
+check_units(da, declared, name, convert=False, qualname=None)
 ```
 
 Given an input `da`, `check_units`:
@@ -51,13 +51,10 @@ Given an input `da`, `check_units`:
    names the same unit, converts `da` to `declared` when it is compatible and conversion
    is opted into (`convert=True` here, or on a `Unit` marker passed as `declared`), and
    raises `ValueError` otherwise;
-3. if missing or unparseable, follows the [`on_missing`](policy.md#units-on_missing) axis;
+3. if missing, unparseable or over-long, raises `ValueError`;
 4. if present but **dimensionally incompatible** with `declared` (e.g. `"kg"` where
    `"Pa"` is declared), raises `pint.DimensionalityError` naming the offending
    variable — always, regardless of policy.
-
-`on_missing` may be passed per call, and takes its [default](policy.md#resolution) when
-`None`.
 
 ### `apply_output_units`
 

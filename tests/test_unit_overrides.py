@@ -26,10 +26,13 @@ def _da(value=1.0, unit: str | None = "hPa") -> xr.DataArray:
 
 
 class TestMarker:
-    @pytest.mark.parametrize("axis", ["on_missing", "on_output"])
-    def test_invalid_override_rejected_at_construction(self, axis):
-        with pytest.raises(ValueError, match=f"Invalid {axis} 'bogus'"):
-            Unit("Pa", **{axis: "bogus"})  # type: ignore[arg-type]
+    def test_invalid_override_rejected_at_construction(self):
+        with pytest.raises(ValueError, match="Invalid on_output 'bogus'"):
+            Unit("Pa", on_output="bogus")  # type: ignore[arg-type]
+
+    def test_on_missing_is_gone(self):
+        with pytest.raises(TypeError, match="on_missing"):
+            Unit("Pa", on_missing="warn")  # type: ignore[call-arg]
 
     @pytest.mark.parametrize("value", ["yes", 1, None])
     def test_convert_must_be_a_bool(self, value):
@@ -37,13 +40,8 @@ class TestMarker:
             Unit("Pa", convert=value)  # type: ignore[arg-type]
 
     def test_overrides_exposed(self):
-        u = Unit("Pa", convert=True, on_missing="error", on_output="strict")
-        assert (u.unit, u.convert, u.on_missing, u.on_output) == (
-            "Pa",
-            True,
-            "error",
-            "strict",
-        )
+        u = Unit("Pa", convert=True, on_output="strict")
+        assert (u.unit, u.convert, u.on_output) == ("Pa", True, "strict")
         assert Unit("Pa").convert is False
 
     def test_repr_shows_only_set_overrides(self):
@@ -94,9 +92,9 @@ class TestThroughEnforce:
         with pytest.raises(ValueError, match="'q'"):
             f(_da(), _da())
 
-    def test_on_missing_override(self):
+    def test_missing_unit_always_raises(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa", on_missing="error")]): ...
+        def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
 
         with pytest.raises(ValueError, match="no 'units' attribute"):
             f(_da(unit=None))
@@ -122,16 +120,16 @@ class TestThroughEnforce:
         assert out["q"].attrs["units"] == "Pa"
 
     def test_input_axes_ignored_on_an_output(self):
-        # on_missing has no meaning on an output; it must not leak into on_output.
+        # convert has no meaning on an output; it must not leak into on_output.
         @xra.enforce
-        def f() -> Annotated[xr.DataArray, Unit("Pa", on_missing="error")]:
+        def f() -> Annotated[xr.DataArray, Unit("Pa", convert=True)]:
             return _da(unit="hPa")
 
         assert f().attrs["units"] == "Pa"  # stamped, as on_output="stamp"
 
     def test_master_switch_beats_marker(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa", on_missing="error")]):
+        def f(p: Annotated[xr.DataArray, Unit("Pa", on_output="require")]):
             return p
 
         with xra.enabled(False):
@@ -151,7 +149,7 @@ class TestPrimitivesAcceptTheMarker:
 
     def test_check_units_message_uses_the_unit_string(self):
         with pytest.raises(ValueError, match="declared 'Pa'"):
-            units.check_units(_da(unit=None), Unit("Pa", on_missing="error"), "p")
+            units.check_units(_da(unit=None), Unit("Pa"), "p")
 
     def test_apply_output_units(self):
         with pytest.raises(ValueError, match="on_output='strict'"):
@@ -164,8 +162,8 @@ class TestPrimitivesAcceptTheMarker:
         assert out.attrs["units"] == "Pa"
 
     def test_invalid_argument_still_rejected_with_a_marker(self):
-        with pytest.raises(ValueError, match="Invalid on_missing"):
-            units.check_units(_da(), Unit("Pa"), "p", on_missing="bogus")  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="convert must be a bool"):
+            units.check_units(_da(), Unit("Pa"), "p", convert="bogus")  # type: ignore[arg-type]
 
 
 class TestReaders:
@@ -182,7 +180,7 @@ class TestReaders:
         assert output.unit == marker
 
     def test_annotate_round_trip_keeps_overrides(self):
-        marker = Unit("Pa", on_missing="error")
+        marker = Unit("Pa", convert=True)
 
         def f(p: annotate(unit=marker)) -> None: ...  # type: ignore[valid-type]
 

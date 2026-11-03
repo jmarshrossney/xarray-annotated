@@ -6,7 +6,6 @@ DataArrays.
 
 from ._annotations import Unit, annotated_unit, units_from_signature
 from ._check import (
-    UnitsWarning,
     apply_output_units,
     assert_valid_unit,
     check_units,
@@ -14,7 +13,6 @@ from ._check import (
     units_equal,
 )
 from ._config import (
-    OnMissing,
     OnOutput,
 )
 from ._registry import (
@@ -24,10 +22,8 @@ from ._registry import (
 )
 
 __all__ = [
-    "OnMissing",
     "OnOutput",
     "Unit",
-    "UnitsWarning",
     "annotated_unit",
     "apply_output_units",
     "assert_valid_unit",

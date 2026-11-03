@@ -245,7 +245,8 @@ which the caller meant what they wrote.
 
 Everything else is governed by the [units policy](policy.md#units): a
 compatible-but-different unit (`"hPa"` where `"Pa"` is declared) raises unless the
-declaration says `convert=True`, and a missing or unparseable `units` attribute warns.
+declaration says `convert=True`, and a missing or unparseable `units` attribute raises,
+since the declaration cannot be checked.
 
 ## Frequency
 
