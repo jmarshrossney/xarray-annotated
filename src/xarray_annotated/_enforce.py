@@ -46,7 +46,7 @@ __all__ = ["enforce"]
 
 
 def _assert_valid(declared: Declared, context: str) -> None:
-    """Fail fast on a malformed declaration (independent of policy)."""
+    """Fail fast on a malformed declaration."""
     if declared.unit is not None:
         assert_valid_unit(declared.unit, context)
     for marker in declared.schema:

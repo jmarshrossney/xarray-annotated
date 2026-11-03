@@ -25,7 +25,7 @@ class Unit:
 
     Inside ``Annotated`` it is self-identifying and independent of metadata
     ordering, so it composes cleanly with schema markers, descriptions and other
-    ``Annotated``-based tooling::
+    ``Annotated``-based tooling:
 
         Annotated[xr.DataArray, Unit("degC"), SomeOtherMarker(...)]
 
@@ -37,7 +37,7 @@ class Unit:
     declaration says `convert=True`.  Whether a conversion is *correct* is a
     property of the quantity, not of the function or the process: kelvin input
     to a Celsius parameter should convert, but an annual total converted into a
-    daily mean is silently scaled by 365.25::
+    daily mean is silently scaled by 365.25:
 
         tair: Annotated[xr.DataArray, Unit("degC", convert=True)]
         total: Annotated[xr.DataArray, Unit("g m-2 yr-1")]  # refuses g m-2 d-1

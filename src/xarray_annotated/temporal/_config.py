@@ -9,8 +9,9 @@ genuinely different ways:
   timestamps, or irregular spacing (the declaration could not be **tested**).
 
 `on_mismatch` resolves per call as: the `Freq` marker's override, then the
-`enforce` keyword or `check_freq` argument, then the default here.
-`on_uninferable` has no marker override, since a short axis is a property of the
+`check_freq` argument, then the default here; `enforce` has no keyword for it.
+`on_uninferable` resolves as: the `enforce` keyword or `check_freq` argument, then
+the default.  It has no marker override, since a short axis is a property of the
 data rather than the declaration.  Nothing is configured globally.
 """
 

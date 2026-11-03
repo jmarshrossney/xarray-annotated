@@ -45,6 +45,7 @@ daily_mean_pressure = xra.enforce(daily_mean_pressure)
 
 or decorate its definition (recommended):
 
+<!-- docs-test: skip -->
 ```python
 @xra.enforce
 def daily_mean_pressure(...): ...
@@ -54,9 +55,9 @@ On each call, `enforce` checks inputs against their declared units with [pint](h
 Where the declaration opts in with `convert=True`, a compatible unit is converted, so the function body sees `Pa` whether the caller passed `Pa` or `hPa`; otherwise a different unit raises.
 Structure and frequency are then checked on the converted arrays, and again on the return value.
 
-Whether a violation raises, warns or is ignored is set by a configurable policy.
+Whether a structure or frequency violation raises, warns or is ignored is configurable; a unit that cannot be checked or converted always raises.
 
-See [Getting started](getting_started.md) for a worked walkthrough, [Declaring properties](guides/declaring.md) for each marker in detail, and [Configuring validation](guides/policy.md) for the policy.
+See [Getting started](getting_started.md) for a worked walkthrough, [Declaring properties](guides/declaring.md) for each marker in detail, and [Configuring validation](guides/policy.md) for the settings.
 
 ## Motivations
 

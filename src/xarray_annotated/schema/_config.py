@@ -6,8 +6,8 @@ Structural validation never converts, so there is one axis:
   (`"error"` / `"warn"` / `"ignore"`).
 
 It resolves per call as: the marker's override (so a wrong dtype can warn while
-wrong dims still raise), then the `enforce` keyword or `check_schema` argument,
-then the default here.  Nothing is configured globally.
+wrong dims still raise), then the `check_schema` argument, then the default here.
+`enforce` has no keyword for it.  Nothing is configured globally.
 """
 
 from typing import Literal

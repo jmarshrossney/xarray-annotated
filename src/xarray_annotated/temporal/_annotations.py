@@ -3,7 +3,7 @@
 The temporal counterpart to ``schema._annotations``: where the schema markers
 declare properties an array *carries* (its dims, coords, dtype), ``Freq`` declares
 a property derived from the *values* of its datetime coordinate — the spacing (and
-phase) of its time axis::
+phase) of its time axis:
 
     Annotated[xr.DataArray, Unit("degC"), Freq("W-SUN")]
 

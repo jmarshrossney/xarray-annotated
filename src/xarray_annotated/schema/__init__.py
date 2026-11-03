@@ -7,12 +7,12 @@ coordinates (``Coords``), and dtype (``Dtype``).  The structural counterpart to
 never converts or mutates).
 
 Declare several at once inside ``Annotated`` and apply them with
-``xarray_annotated.enforce``::
+``xarray_annotated.enforce``:
 
     from typing import Annotated
     import xarray as xr
     import xarray_annotated as xra
-    from xarray_annotated.schema import Dims, Dtype
+    from xarray_annotated import Dims, Dtype
 
     @xra.enforce
     def f(

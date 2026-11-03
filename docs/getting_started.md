@@ -94,15 +94,14 @@ Attributes:
     units:    m
 ```
 
-Now the outputs are physical and carry the correct units attribute.
 The `hPa` input was converted to `Pa` before the body ran, and the result was stamped with the unit the signature promised.
-Conversion is opt-in: without `convert=True` the `hPa` input would have raised, because whether a conversion is correct depends on the quantity, and a compatible unit is not always the right one.
-The docstring no longer needs to say "assumes Pa", because the signature does --- and unlike the docstring, it is actually enforced.
+Conversion is opt-in: without `convert=True` the `hPa` input would have raised, because a compatible unit is not always the right one.
 
-### The catch
+### When a check fails
 
 This would have failed gracefully had we passed an array whose units were _dimensionally_ wrong,
 
+<!-- docs-test: raises DimensionalityError -->
 ```python
 altitude(xr.DataArray([1.0, 2.0], dims=["time"], attrs={"units": "kg"}))
 ```
@@ -113,6 +112,7 @@ DimensionalityError: Cannot convert from 'kilogram' ([mass])
 
 or with an extra dimension,
 
+<!-- docs-test: raises SchemaError -->
 ```python
 altitude(xr.DataArray([[1013.0, 1000.0]], dims=["run", "time"], attrs={"units": "hPa"}))
 ```
@@ -120,15 +120,6 @@ altitude(xr.DataArray([[1013.0, 1000.0]], dims=["run", "time"], attrs={"units": 
 SchemaError: [altitude] 'p' dims mismatch: expected ('time',) in any order, got ('run', 'time')
 ```
 
-Whether a schema violation raises, warns or is ignored is set by a [policy](guides/policy.md).
+Whether a schema violation raises, warns or is ignored is [configurable](guides/policy.md).
 
-## Where to go next
-
-- How-to guides:
-    - **[Declaring properties](guides/declaring.md)** --- the full set of markers (dims, coords, dtype, units, frequency), what each one considers a match, and how to combine them.
-    - **[Configuring validation](guides/policy.md)** --- raise, warn or ignore, per marker or per function; auditing conversions with logging; turning validation off.
-    - **[Choosing a unit registry](guides/registry.md)** --- needed only if you use CF-convention unit strings such as `"umol m-2 s-1"`.
-    - **[Reading and writing declarations](guides/tooling.md)** --- inspecting declarations programmatically, and generating documentation from them.
-    - **[Troubleshooting](guides/troubleshooting.md)** --- common errors and what they mean.
-- **[A worked pipeline](example.md)** --- the same ideas applied end-to-end, as a runnable notebook.
-- **[API reference](api/package.md)** --- every marker, decorator and exception, generated from the source.
+Next, see [Declaring properties](guides/declaring.md) for every marker, or the [worked example](example.md) for an end-to-end pipeline.

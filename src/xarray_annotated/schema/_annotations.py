@@ -3,7 +3,7 @@
 The structural counterpart to ``units._annotations``: the properties every
 ``DataArray`` possesses regardless of physical units — its dimensions
 (``Dims``), coordinates (``Coords``), and dtype (``Dtype``).  Used inside
-``Annotated`` exactly as ``Unit`` is, and — unlike units — **several at once**::
+``Annotated`` exactly as ``Unit`` is, and — unlike units — **several at once**:
 
     Annotated[xr.DataArray, Dims("time", "lat", "lon")]
     Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64")]
@@ -136,9 +136,10 @@ class Coords:
 class Dtype:
     """Declare the expected dtype of a DataArray, e.g. ``Dtype("float64")``.
 
-    By default the check is by *kind*: any float satisfies ``Dtype("float64")``,
-    any integer satisfies ``Dtype("int32")`` — enough to catch an int/float or
-    bool/float mix-up without firing on ``f8`` vs ``f4``.  Pass ``exact=True`` to
+    By default the check is by numpy *kind*: any float satisfies
+    ``Dtype("float64")`` and any signed integer ``Dtype("int32")`` — enough to catch
+    an int/float or bool/float mix-up without firing on ``f8`` vs ``f4``.  Pass
+    ``exact=True`` to
     require the precise dtype (e.g. to pin memory footprint or a typed sink).
     """
 

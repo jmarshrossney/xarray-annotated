@@ -68,7 +68,9 @@ def enabled(value: bool) -> Generator[None]:
     Declarations are still validated when a function is decorated.
 
     The block beats `XARRAY_ANNOTATED_ENABLED` in both directions, and is
-    scoped to the current thread or async task.
+    scoped to the current thread or async task.  The variable accepts `1`,
+    `true`, `yes` or `on` and `0`, `false`, `no` or `off`, in any case; anything
+    else raises `ValueError` when a checked function is called.
 
     Args:
         value: `False` to switch off, `True` to switch on.

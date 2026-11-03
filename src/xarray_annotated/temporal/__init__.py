@@ -9,12 +9,12 @@ it never converts, resamples, or stamps anything.
 A declaration compares on two things: **spacing** (always) and **phase** (the
 ``End``/``Begin`` convention, and the anchor where both sides spell one).  So
 ``Freq("7D")`` accepts a weekly axis on any weekday, while ``Freq("W-SUN")`` catches
-the classic resample footgun of a series landing on Wednesdays::
+the classic resample footgun of a series landing on Wednesdays:
 
     from typing import Annotated
     import xarray as xr
     import xarray_annotated as xra
-    from xarray_annotated.temporal import Freq
+    from xarray_annotated import Freq
 
     @xra.enforce
     def weekly_mean(

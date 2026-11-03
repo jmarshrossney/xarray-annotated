@@ -6,7 +6,7 @@
 #     "numpy==2.5.1",
 #     "pint==0.25.3",
 #     "xarray==2026.7.0",
-#     "xarray-annotated==0.5.0",
+#     "xarray-annotated==0.6.0",
 # ]
 #
 # [tool.uv.sources]
@@ -93,10 +93,6 @@ def _():
         # Flux data is spelled the CF/UDUNITS way ("umol m-2 s-1"), which plain pint
         # cannot parse. This is a one-time, process-wide choice.
         use_cf_units()
-
-    # xarray drops `attrs` through arithmetic by default, which would throw away the
-    # unit metadata this pipeline depends on. Keep it.
-    xr.set_options(keep_attrs=True)
 
     # Molar mass of carbon, g mol-1.
     M_C = 12.011
@@ -383,7 +379,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     compare_with_satellite,
     daily_mean,
@@ -533,7 +529,7 @@ def _(Annotated, Coords, Dims, Dtype, Freq, TypedDict, Unit, xr, xra):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md("""
-    1. `Dims` is about shape; `Coords` is about labels. An export can have a `time`
+    1. `Dims` is about names; `Coords` is about labels. An export can have a `time`
        dimension and no `time` coordinate — common when a file is read with the index
        column mislabelled, and otherwise survives until something calls `.resample`,
        several stages away.
@@ -547,8 +543,8 @@ def _(mo):
        validated field by field.
     6. The docstring's *"assumes tair in degC"*, made real. Kelvin is now converted at the
        boundary instead of blowing up the Q10 exponent inside the body. Conversion is
-       opt-in (`convert=True`): it is right for a temperature, but the same declaration
-       would refuse to turn an annual total into a daily rate.
+       opt-in (`convert=True`): it is right for a temperature, but a declaration without
+       it refuses to turn an annual total into a daily rate.
     7. Aggregation changes the frequency and nothing else, so this stage declares a
        frequency and says nothing at all about units — it means whatever it is handed, and
        the silence is the statement.
@@ -567,7 +563,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md("""
-    Two of the three bugs from the bug hunt cannot recur:
+    The bugs from the bug hunt cannot recur:
 
     - `tair` can be in either Kelvin or degrees C --- either way it is converted at the
       boundary (by `pint`) thanks to the `Unit("degC", convert=True)` annotation.
@@ -732,13 +728,6 @@ def _(mo):
 
     The fourth is the one that matters most since a 3.6% error in a flux budget does not
     obviously look like an error.
-
-    Although this is quite powerful, there are a few gaps and sharp edges that are worth
-    understanding before you lean on them. See the guides for more info.
-
-    - [Declaring properties](guides/declaring.md)
-    - [Configuring validation](guides/policy.md)
-    - [Troubleshooting](guides/troubleshooting.md)
     """)
     return
 

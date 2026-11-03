@@ -4,7 +4,7 @@ Annotation is the unifying technology: a declared property is read off an
 ``Annotated[DataArray, ...]`` hint and enforced at runtime.  Each kind of
 property is a domain subpackage, imported explicitly:
 
-* ``xarray_annotated.units`` — physical units (pint / CF), the mature domain.
+* ``xarray_annotated.units`` — physical units (pint / CF).
 * ``xarray_annotated.schema`` — structural properties (dims, coords, dtype);
   validate-only (never mutates).
 * ``xarray_annotated.temporal`` — the frequency (and phase) of a time axis;
@@ -12,7 +12,7 @@ property is a domain subpackage, imported explicitly:
 
 One decorator, ``enforce``, applies every facet declared on a signature, in the
 one correct order (units are converted before structure and frequency are
-checked)::
+checked):
 
     import xarray_annotated as xra
     from xarray_annotated import Dims, Freq, Unit

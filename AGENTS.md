@@ -6,7 +6,7 @@
 
 ## Gotchas
 
-- **No `from __future__ import annotations`** — stringizes annotations; `get_type_hints` loses markers silently.
+- **No `from __future__ import annotations`** — stringizes annotations, so `get_type_hints` re-evaluates them at decoration; markers survive at module scope, but a function-local alias or `TYPE_CHECKING`-only name raises `NameError`. Not silent, and Python 3.14's deferred annotations do not lift the `TYPE_CHECKING` case.
 - **No `type Foo = Annotated[...]`** — PEP 695 lazy alias; `get_type_hints` returns alias object, not wrapped `Annotated`.
 - **pint registry is process-global** — `use_cf_units()`/`set_registry()` is one-time startup; two registries can't mix. Tests isolate per test via `conftest.py:_isolate_registry`.
 - **No global behaviour config; `enabled` is the only global** — axes resolve marker > `enforce` keyword / `check_*` argument > `DEFAULT_*` in the domain's `_config.py`. Don't add a `set_policy`, a per-axis env var, or anything else that changes behaviour away from the signature: a process-wide setting can loosen checks with nothing at the definition site to show it (guarded by `test_public_api.py:TestNoGlobalBehaviourConfig`). The switch is root `_config.py`: an `xra.enabled(...)` block (a `ContextVar`, so no test isolation needed) beats `XARRAY_ANNOTATED_ENABLED` in both directions. Off is total: no conversion, no stamping.
@@ -42,6 +42,7 @@
 
 - **Docs**: zensical (`zensical.toml`) with mkdocstrings, Google-style docstrings. API pages use `::: xarray_annotated.units` directive.
 - **Doctests**: embedded in docstrings; `just doctest`.
+- **Docs snippets are tested** (`tests/test_docs.py`): every `python` fence in `docs/` runs, per page, top to bottom. Mark a fragment with `<!-- docs-test: skip -->` and a deliberate failure with `<!-- docs-test: raises SomeError -->` on the line before the fence.
 - **Examples**: `examples/notebook.py` is a marimo notebook; `just docs` exports to `docs/example.md` via `marimo-md-export`.
 - **Formatting**: ruff (line-length 88), pyright, Python ≥3.12.
 - **`notes/` is gitignored on purpose** — a local working area (`plans/`, `logs/`, `upstream_issues/`), not part of the package. Write there freely, but never `git add -f` it, and don't mistake its absence from a clone for something missing. Committed files may still reference it: the pointer is for whoever has the tree, not for the repo.

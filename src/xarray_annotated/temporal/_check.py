@@ -70,7 +70,7 @@ class UninferableFreqWarning(FreqWarning):
     """Warning issued when a time axis is too short or irregular to check.
 
     A subclass so a warnings filter can silence short test fixtures without
-    also hiding genuine mismatches::
+    also hiding genuine mismatches:
 
         filterwarnings = ["ignore::xarray_annotated.temporal.UninferableFreqWarning"]
     """

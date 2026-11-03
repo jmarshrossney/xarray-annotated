@@ -50,7 +50,8 @@ def _da(dims=("time", "x"), dtype="float64", coords=(), unit=None, fill=0.0):
 Weekly = Annotated[xr.DataArray, Unit("degC"), Dims("time"), Freq("7D")]
 WeeklySun = Annotated[xr.DataArray, Unit("degC"), Dims("time"), Freq("W-SUN")]
 
-#: The lazy counterpart, kept only to pin the caveat documented in docs/usage.md.
+#: The lazy counterpart, kept only to pin the caveat documented in
+#: docs/guides/troubleshooting.md.
 type LazyWeekly = Annotated[xr.DataArray, Unit("degC"), Dims("time"), Freq("7D")]
 
 

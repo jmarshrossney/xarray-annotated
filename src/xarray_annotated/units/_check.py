@@ -6,9 +6,9 @@ and, where the declaration opts in, convert it into the declared unit.
 Conversion goes through the active registry: pint directly for an `attrs`-labelled
 array, pint-xarray's `.pint` accessor for a quantified one.
 
-Every non-trivial action is logged at DEBUG to the `xarray_annotated.units`
-logger: an opted-in input conversion, an output stamped over a different label,
-a converted quantified output.
+Every non-trivial action is logged to the `xarray_annotated.units` logger: at
+DEBUG an opted-in input conversion, an output stamped over a different label and a
+converted quantified output; at INFO an output unit left unchecked.
 """
 
 import logging
@@ -298,7 +298,7 @@ def check_units(
         >>> out = check_units(da, Unit("Pa", convert=True), "pressure")
         >>> out.attrs["units"]
         'Pa'
-        >>> out.values  # 10 * 100 = 1000
+        >>> out.values
         array([101300., 100000.])
     """
     if not resolve_enabled():
@@ -500,68 +500,22 @@ def apply_output_units(
     """Apply a declared unit to a *returned* `DataArray`, per the on-output axis.
 
     The output counterpart to `check_units`, and deliberately **not** symmetric
-    with it: a declared output carrying an `attrs` label is *stamped*, never
-    converted.
+    with it: `attrs` are inert under arithmetic, so a returned label may be stale,
+    and converting on it could rescale correct values.  A label is therefore
+    *stamped*, never converted.  A pint-quantified array's unit cannot go stale, so
+    it is converted instead, and stays quantified.
 
-    The reason is that xarray's `attrs` are inert under arithmetic.  A body that
-    converts by scalar multiplication — `return p * 100.0`, or `flux * F` for a
-    molar-mass factor — produces an array still labelled with its *input's* unit,
-    because multiplying by a float cannot update a string.  So for the dominant
-    idiom the returned label describes neither the values nor the declaration,
-    and converting on the strength of it would rescale correct values a second
-    time.
+    - `"stamp"` (default) — overwrite the label, with no checks.
+    - `"strict"` — a parseable label, or a quantified unit, that differs from
+      `declared` raises.  Only for bodies that keep their units truthful: scalar
+      arithmetic fails it whether or not it is correct.
+    - `"require"` — as `"strict"`, except that a compatible quantified unit is
+      converted, and an output with no parseable unit of its own raises.  For
+      wrappers of libraries that return bare arrays.
 
-    Three modes follow from that:
-
-    - `"stamp"` (default) — overwrite `attrs["units"]` with `declared`, no checks.
-      The only sound default, because a stale label is the norm rather than a
-      symptom.
-    - `"strict"` — a label that is present, parseable, and not equal to
-      `declared` raises.
-    - `"require"` — as `"strict"`, and additionally an output with **no unit of
-      its own** (no label, or one that cannot be parsed) raises instead of being
-      stamped.  For wrappers around libraries that return bare arrays, where the
-      declaration is a claim about someone else's convention: attach the unit the
-      library actually returns (`.assign_attrs(units=...).pint.quantify()`) and
-      the declared unit is checked and converted to.
-
-    **`"strict"` is only meaningful for bodies that maintain their own units** —
-    pass-through and subsetting functions, or computations on pint-quantified
-    arrays.  A body doing manual scalar arithmetic will fail it *whether or not
-    it is correct*, so this is an opt-in for unit-aware code, not a general
-    verification mode.  (If a body must do manual arithmetic and you still want
-    `"strict"` elsewhere, have it drop the stale label — `attrs` cleared, or
-    `keep_attrs=False` — since an absent label is always stamped.)
-
-    **Pint-quantified returns are the exception, and are converted rather than
-    stamped.**  A `Quantity`'s unit lives in the data, so — unlike `attrs` — it
-    cannot be left behind by arithmetic; it is always a true description of the
-    values.  Converting on the strength of it is therefore sound, and stamping
-    on the strength of it would be actively wrong: writing `attrs["units"]`
-    onto a `Quantity` that disagrees produces an array labelled two ways at
-    once.  So for a quantified return:
-
-    - `"stamp"` — converts to `declared` if it is not already there, and raises
-      `pint.DimensionalityError` if it cannot.  This is the one case where
-      `"stamp"` can raise, because here a mismatch is a real error rather than
-      the expected consequence of an inert label.
-    - `"strict"` — a unit other than `declared` raises, as for `attrs`.
-    - `"require"` — as `"stamp"`: a quantified array carries its own unit, which
-      is all `"require"` asks for.
-
-    Either way the array is **returned still quantified**, with `attrs`
-    untouched: it already describes itself, and dequantifying it purely to
-    write a string would copy the whole buffer.
-
-    Note what no mode can do: distinguish `flux * F` from `flux` when both are
-    labelled the same.  Output *values* are never inspected, so a forgotten
-    conversion factor is not detectable here.  Nor is it detectable downstream
-    once the output is stamped: a consumer then compares one declaration against
-    another, never against the values.  Only `"require"` keeps an output's unit
-    tied to something other than its own declaration.
-
-    Under `"stamp"` and `"strict"`, an absent, over-long, or unparseable label is
-    stamped: absence is not evidence of a mismatch.
+    Output *values* are never inspected, so no mode detects a forgotten conversion
+    factor on a labelled array.  See [`on_output`](../guides/policy.md#units-on_output)
+    for what each mode does with each kind of return value.
 
     Args:
         da: The returned `DataArray`.
