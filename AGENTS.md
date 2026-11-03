@@ -42,7 +42,7 @@
 
 - **Docs**: zensical (`zensical.toml`) with mkdocstrings, Google-style docstrings. API pages use `::: xarray_annotated.units` directive.
 - **Doctests**: embedded in docstrings; `just doctest`.
-- **Docs snippets are tested** (`tests/test_docs.py`): every `python` fence in `docs/` runs, per page, top to bottom. Mark a fragment with `<!-- docs-test: skip -->` and a deliberate failure with `<!-- docs-test: raises SomeError -->` on the line before the fence.
+- **Docs snippets are tested** (`tests/test_docs.py`): every `python` fence in `docs/` runs, per page, top to bottom. Fences inside a top-level `=== "Label"` tab run in a separate namespace per label, as linked tabs are alternative versions of the page. Mark a fragment with `<!-- docs-test: skip -->` and a deliberate failure with `<!-- docs-test: raises SomeError -->` on the line before the fence.
 - **Examples**: `examples/notebook.py` is a marimo notebook; `just docs` exports to `docs/example.md` via `marimo-md-export`.
 - **Formatting**: ruff (line-length 88), pyright, Python ≥3.12.
 - **`notes/` is gitignored on purpose** — a local working area (`plans/`, `logs/`, `upstream_issues/`), not part of the package. Write there freely, but never `git add -f` it, and don't mistake its absence from a clone for something missing. Committed files may still reference it: the pointer is for whoever has the tree, not for the repo.

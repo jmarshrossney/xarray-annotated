@@ -5,6 +5,11 @@ pages share, so a snippet about one marker need not repeat them.  It activates t
 registry too, since pages use CF unit strings freely; `conftest._isolate_registry`
 restores the registry afterwards.
 
+A fence inside a top-level `=== "Label"` tab runs in a namespace of its own, shared by
+every tab with that label on the page, because linked tabs are alternative versions of
+the page.  It sees the page's untabbed names, unless its own tabs have redefined them;
+nothing it defines reaches another label or untabbed fences.
+
 A comment on the line before a fence changes how it runs:
 
 * `<!-- docs-test: skip -->` for a fragment that is not meant to run;
@@ -38,6 +43,10 @@ _FENCE = re.compile(
     r"(?:^[ ]*<!-- docs-test: (?P<directive>.+?) -->\n)?"
     r"^[ ]*```python\n(?P<code>.*?)^[ ]*```",
     re.MULTILINE | re.DOTALL,
+)
+_TAB = re.compile(
+    r'^===[+!]? "(?P<label>[^"]+)"[ ]*\n(?:(?:[ ]{4}.*)?\n)*',
+    re.MULTILINE,
 )
 
 
@@ -78,9 +87,16 @@ def test_snippets_run(page: Path):
     if "from jaxtyping import" in text:
         pytest.importorskip("jaxtyping")
         pytest.importorskip("beartype")
-    namespace: dict = {}
-    exec(PREAMBLE, namespace)
+    shared: dict = {}
+    exec(PREAMBLE, shared)
+    tabs = list(_TAB.finditer(text))
+    by_label: dict[str, dict] = {}
     for match in _FENCE.finditer(text):
         line = text.count("\n", 0, match.start("code")) + 1
         code = textwrap.dedent(match["code"])
+        label = next(
+            (t["label"] for t in tabs if t.start() <= match.start() < t.end()), None
+        )
+        namespace = shared if label is None else by_label.setdefault(label, {})
+        namespace.update({**shared, **namespace})
         _run(code, namespace, match["directive"], f"{page.name}:{line}")

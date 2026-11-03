@@ -15,41 +15,52 @@ Making signatures the single source of truth has several advantages: the same de
 
 ## How it works
 
+Here is the same function twice: with its expectations in the docstring, where nothing checks them, and with them in the signature.
+The tabs switch together across these docs.
+
+=== "Plain xarray"
+
+    ```python
+    import xarray as xr
+
+
+    def daily_mean_pressure(p: xr.DataArray) -> xr.DataArray:
+        """Daily mean pressure.
+
+        Args:
+            p: Pressure in Pa, with dims (time, x).
+
+        Returns:
+            Daily mean pressure in Pa, with dims (time, x).
+        """
+        return p.resample(time="D").mean()
+    ```
+
+===+ "With xarray-annotated"
+
+    ```python
+    from typing import Annotated
+
+    import xarray as xr
+    import xarray_annotated as xra
+    from xarray_annotated import Dims, Freq, Unit
+
+
+    @xra.enforce
+    def daily_mean_pressure(
+        p: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa", convert=True)],
+    ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa"), Freq("D")]:
+        """Daily mean pressure."""
+        return p.resample(time="D").mean()
+    ```
+
 ### 1. Declare
 
-Add markers to the `Annotated` hint of each `DataArray` parameter or return value:
-
-```python
-from typing import Annotated
-
-import xarray as xr
-import xarray_annotated as xra
-from xarray_annotated import Dims, Dtype, Freq, Unit
-
-
-def daily_mean_pressure(
-    p: Annotated[
-        xr.DataArray, Dims("time", "x"), Dtype("float64"), Unit("Pa", convert=True)
-    ],
-) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa"), Freq("D")]:
-    return p.resample(time="D").mean()
-```
+Add markers to the `Annotated` hint of each `DataArray` parameter or return value.
 
 ### 2. Enforce
 
-Wrap the function with `enforce`:
-
-```python
-daily_mean_pressure = xra.enforce(daily_mean_pressure)
-```
-
-or decorate its definition (recommended):
-
-<!-- docs-test: skip -->
-```python
-@xra.enforce
-def daily_mean_pressure(...): ...
-```
+Decorate the function with `enforce`, or wrap an existing one: `xra.enforce(daily_mean_pressure)`.
 
 On each call, `enforce` checks inputs against their declared units with [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io).
 Where the declaration opts in with `convert=True`, a compatible unit is converted, so the function body sees `Pa` whether the caller passed `Pa` or `hPa`; otherwise a different unit raises.

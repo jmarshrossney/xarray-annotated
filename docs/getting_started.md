@@ -35,91 +35,196 @@ The package requires Python `>=3.12`.
 Python 3.12, 3.13 and 3.14 are tested in CI.
 
 
-## A short example
+## Before and after
 
-### The problem
+Vapour pressure deficit (VPD) measures how dry the air is, and is computed from air temperature and relative humidity.
+Here is a function that averages it to daily values, written twice: once with its expectations in the docstring, and once with them declared in the signature.
+The tabs on this page switch together, so you can compare the code and each result below.
 
-Here is a function that converts barometric pressure to altitude.
-It assumes a unit (pascals) and says so in the docstring but doesn't check or enforce it.
+=== "Plain xarray"
+
+    ```python
+    import numpy as np
+    import xarray as xr
+
+
+    def daily_vpd(tair: xr.DataArray, rh: xr.DataArray) -> xr.DataArray:
+        """Daily mean vapour pressure deficit.
+
+        Args:
+            tair: Hourly air temperature in degC, with dims (time, site).
+            rh: Hourly relative humidity in percent, with dims (time, site).
+
+        Returns:
+            Daily mean VPD in kPa, with dims (time, site).
+        """
+        es = 0.6108 * np.exp(17.27 * tair / (tair + 237.3))
+        return (es * (1 - rh / 100)).resample(time="D").mean()
+    ```
+
+=== "With xarray-annotated"
+
+    ```python
+    from typing import Annotated
+
+    import numpy as np
+    import xarray as xr
+    import xarray_annotated as xra
+    from xarray_annotated import Dims, Freq, Unit
+
+
+    @xra.enforce  # (1)!
+    def daily_vpd(
+        tair: Annotated[
+            xr.DataArray,
+            Dims("time", "site"),  # (2)!
+            Unit("degC", convert=True),  # (3)!
+            Freq("h"),  # (4)!
+        ],
+        rh: Annotated[
+            xr.DataArray, Dims("time", "site"), Unit("percent", convert=True), Freq("h")
+        ],
+    ) -> Annotated[xr.DataArray, Dims("time", "site"), Unit("kPa"), Freq("D")]:  # (5)!
+        """Daily mean vapour pressure deficit."""
+        es = 0.6108 * np.exp(17.27 * tair / (tair + 237.3))
+        return (es * (1 - rh / 100)).resample(time="D").mean()
+    ```
+
+    1.  `enforce` reads the declarations from the signature and checks them on every call.
+    2.  These dimensions must be present, in any order, and no others.
+    3.  The body always sees `degC`. `convert=True` lets a compatible unit such as `K` be converted first; without it, a different unit raises.
+    4.  The `time` coordinate must be hourly.
+    5.  The return value is checked too. `kPa` is stamped on the result, which takes the body's word for it: see [`on_output`](guides/policy.md#units-on_output) for stricter options.
+
+To try it, we need some data.
+The values are constant at 20 °C and 60% humidity, so every correct result is the same: 0.935 kPa.
 
 ```python
+import numpy as np
+import pandas as pd
 import xarray as xr
 
 
-def altitude(p: xr.DataArray) -> xr.DataArray:
-    """Barometric altitude. Assumes p is in Pa."""
-    return 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
+def hourly(value, units=None, freq="h"):
+    time = pd.date_range("2024-07-01", "2024-07-03T23:00", freq=freq)
+    return xr.DataArray(
+        np.full((time.size, 2), value),
+        dims=("time", "site"),
+        coords={"time": time, "site": ["north", "south"]},
+        attrs={"units": units} if units else {},
+    )
 
 
-p = xr.DataArray([1013.0, 1000.0], dims=["time"], attrs={"units": "hPa"})
-altitude(p)
-```
-```
-<xarray.DataArray (time: 2)> Size: 16B
-array([25876.55998663, 25921.86206292])
-Dimensions without coordinates: time
-Attributes:
-    units:    hPa
+tair = hourly(20.0, "degC")
+rh = hourly(60.0, "percent")
 ```
 
-The input units are wrong (hPa vs Pa) but the onus is on the user to check, and in reality we all know that such bugs can go unnoticed for a terrifyingly long time.
-The returned altitude is numerically wrong --- sea-level pressure has come back as 26 km --- and carries a completely bogus hPa units in `attrs`.
+### Temperature in kelvin
 
-### The fix
+The plain function treats 293.15 as a Celsius temperature and returns a VPD of 3411 kPa, with no error.
+The annotated function converts the input before the body runs, and returns the right answer.
 
-Here we use `xarray-annotated` to declare expected properties in the signature and enforce them at run-time with minimal boilerplate (one decorator).
+=== "Plain xarray"
 
-```python
-from typing import Annotated
-import xarray as xr
-import xarray_annotated as xra
-from xarray_annotated import Dims, Unit
+    ```python
+    daily_vpd(hourly(293.15, "K"), rh).round(3)
+    ```
+    ```
+    <xarray.DataArray (time: 3, site: 2)> Size: 48B
+    array([[3411.424, 3411.424],
+           [3411.424, 3411.424],
+           [3411.424, 3411.424]])
+    Coordinates:
+      * time     (time) datetime64[us] 24B 2024-07-01 2024-07-02 2024-07-03
+      * site     (site) <U5 40B 'north' 'south'
+    ```
 
+=== "With xarray-annotated"
 
-@xra.enforce
-def altitude(
-    p: Annotated[xr.DataArray, Dims("time"), Unit("Pa", convert=True)],
-) -> Annotated[xr.DataArray, Dims("time"), Unit("m")]:
-    """Barometric altitude."""
-    return 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
+    ```python
+    daily_vpd(hourly(293.15, "K"), rh).round(3)
+    ```
+    ```
+    <xarray.DataArray (time: 3, site: 2)> Size: 48B
+    array([[0.935, 0.935],
+           [0.935, 0.935],
+           [0.935, 0.935]])
+    Coordinates:
+      * time     (time) datetime64[us] 24B 2024-07-01 2024-07-02 2024-07-03
+      * site     (site) <U5 40B 'north' 'south'
+    Attributes:
+        units:    kPa
+    ```
 
+Conversion is opt-in: without `convert=True` the `K` input would have raised, because a compatible unit is not always the right one.
 
-altitude(p)
-```
-```
-<xarray.DataArray (time: 2)> Size: 16B
-array([  2.08162886, 110.90398059])
-Dimensions without coordinates: time
-Attributes:
-    units:    m
-```
+### Humidity with no units
 
-The `hPa` input was converted to `Pa` before the body ran, and the result was stamped with the unit the signature promised.
-Conversion is opt-in: without `convert=True` the `hPa` input would have raised, because a compatible unit is not always the right one.
+Here `rh` is a fraction rather than a percentage, and nothing says so.
+The plain function returns 2.324 instead of 0.935, and the VPD comes back labelled `degC`, because xarray kept the only `units` attribute it could find.
+The annotated function refuses to guess.
 
-### When a check fails
+=== "Plain xarray"
 
-This would have failed gracefully had we passed an array whose units were _dimensionally_ wrong,
+    ```python
+    daily_vpd(tair, hourly(0.6)).round(3)
+    ```
+    ```
+    <xarray.DataArray (time: 3, site: 2)> Size: 48B
+    array([[2.324, 2.324],
+           [2.324, 2.324],
+           [2.324, 2.324]])
+    Coordinates:
+      * time     (time) datetime64[us] 24B 2024-07-01 2024-07-02 2024-07-03
+      * site     (site) <U5 40B 'north' 'south'
+    Attributes:
+        units:    degC
+    ```
 
-<!-- docs-test: raises DimensionalityError -->
-```python
-altitude(xr.DataArray([1.0, 2.0], dims=["time"], attrs={"units": "kg"}))
-```
-```
-DimensionalityError: Cannot convert from 'kilogram' ([mass])
-  to 'pascal' ([mass] / [length] / [time] ** 2)
-```
+=== "With xarray-annotated"
 
-or with an extra dimension,
+    <!-- docs-test: raises ValueError -->
+    ```python
+    daily_vpd(tair, hourly(0.6)).round(3)
+    ```
+    ```
+    ValueError: [daily_vpd] input 'rh' has no 'units' attribute (declared 'percent').
+      Attach the unit where the data enters the pipeline (`.assign_attrs(units=...)`),
+      or switch checking off with `xra.enabled(False)`.
+    ```
 
-<!-- docs-test: raises SchemaError -->
-```python
-altitude(xr.DataArray([[1013.0, 1000.0]], dims=["run", "time"], attrs={"units": "hPa"}))
-```
-```
-SchemaError: [altitude] 'p' dims mismatch: expected ('time',) in any order, got ('run', 'time')
-```
+A unit that is dimensionally wrong, such as `tair` labelled `m`, raises `DimensionalityError` whatever the declaration says.
 
-Whether a schema violation raises, warns or is ignored is [configurable](guides/policy.md).
+### Data at the wrong frequency
+
+This 3-hourly data gives a plausible answer, and with constant values even the right one, but the function was written for hourly data.
+Whether that matters depends on the analysis, and the annotated function makes it a decision rather than an accident.
+
+=== "Plain xarray"
+
+    ```python
+    daily_vpd(hourly(20.0, "degC", freq="3h"), hourly(60.0, "percent", freq="3h")).round(3)
+    ```
+    ```
+    <xarray.DataArray (time: 3, site: 2)> Size: 48B
+    array([[0.935, 0.935],
+           [0.935, 0.935],
+           [0.935, 0.935]])
+    Coordinates:
+      * time     (time) datetime64[us] 24B 2024-07-01 2024-07-02 2024-07-03
+      * site     (site) <U5 40B 'north' 'south'
+    ```
+
+=== "With xarray-annotated"
+
+    <!-- docs-test: raises FreqError -->
+    ```python
+    daily_vpd(hourly(20.0, "degC", freq="3h"), hourly(60.0, "percent", freq="3h")).round(3)
+    ```
+    ```
+    FreqError: [daily_vpd] 'tair' frequency mismatch on 'time': expected 'h', got '3h'
+    ```
+
+Whether a schema or frequency violation raises, warns or is ignored is [configurable](guides/policy.md).
 
 Next, see [Declaring properties](guides/declaring.md) for every marker, or the [worked example](example.md) for an end-to-end pipeline.
