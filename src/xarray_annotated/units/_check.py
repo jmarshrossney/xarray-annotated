@@ -410,6 +410,15 @@ def _apply_output_quantified(
                     prefix, name, declared, f"an unparseable unit {str(have)!r}"
                 )
             ) from None
+        _log.info(
+            "%soutput %r: quantified unit %r is unparseable in the active "
+            "registry; returned unchecked (declared %r, on_output=%r)",
+            prefix,
+            name,
+            str(have),
+            declared,
+            on_output,
+        )
         return da
     if equal:
         return da
@@ -585,6 +594,15 @@ def apply_output_units(
             raise ValueError(
                 _require_message(prefix, name, declared, "an unverifiable unit label")
             )
+        # Never echo `have`: it may be huge.
+        _log.info(
+            "%soutput %r: unverifiable unit label; stamped unchecked "
+            "(declared %r, on_output=%r)",
+            prefix,
+            name,
+            declared,
+            on_output,
+        )
         da.attrs["units"] = declared
         return da
     try:
@@ -596,6 +614,15 @@ def apply_output_units(
                     prefix, name, declared, f"an unparseable unit label {have!r}"
                 )
             ) from None
+        _log.info(
+            "%soutput %r: unparseable unit label %r; stamped unchecked "
+            "(declared %r, on_output=%r)",
+            prefix,
+            name,
+            have,
+            declared,
+            on_output,
+        )
         da.attrs["units"] = declared
         return da
 

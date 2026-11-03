@@ -299,17 +299,19 @@ logging.basicConfig()
 logging.getLogger("xarray_annotated").setLevel(logging.DEBUG)
 ```
 
-`INFO` is what an audit is usually looking for: a schema or frequency check that failed or
-could not run being let through. An `"ignore"` is always chosen, but a contract that went
-unchecked is still worth seeing. `DEBUG` adds chosen or routine actions, including every conversion,
-since conversion is always opted into.
+`INFO` is what an audit is usually looking for: a check that failed or could not run
+being let through, whether a schema or frequency check, or an output unit that could not
+be read. An `"ignore"` is always chosen, but a contract that went unchecked is still
+worth seeing. `DEBUG` adds chosen or routine actions, including every
+conversion, since conversion is always opted into.
 
-| Event                                                              | Level   |
-|--------------------------------------------------------------------|---------|
-| schema or frequency mismatch passed under `"ignore"`               | `INFO`  |
-| input converted under `Unit(..., convert=True)`                    | `DEBUG` |
-| output stamped over a different label                              | `DEBUG` |
-| quantified output converted to its declaration                     | `DEBUG` |
+| Event                                                                | Level   |
+|----------------------------------------------------------------------|---------|
+| schema or frequency mismatch passed under `"ignore"`                 | `INFO`  |
+| output unit unreadable, so not checked (or converted, if quantified) | `INFO`  |
+| input converted under `Unit(..., convert=True)`                      | `DEBUG` |
+| output stamped over a different label                                | `DEBUG` |
+| quantified output converted to its declaration                       | `DEBUG` |
 
 Same-unit respellings (`"pascal"` → `"Pa"`) are not logged, and nothing is logged when the
 package is switched off. Unlike a warning, a log record is emitted on every call rather

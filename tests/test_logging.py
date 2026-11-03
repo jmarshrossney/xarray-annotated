@@ -1,7 +1,7 @@
 """The audit trail: every non-trivial action is logged.
 
 INFO marks a failed or untestable check let through (a schema or frequency
-check under ``ignore``); DEBUG marks chosen or routine actions, including every
+check under ``ignore``, or an output unit that could not be checked); DEBUG marks chosen or routine actions, including every
 conversion, since conversion is always opted into.
 """
 
@@ -9,6 +9,7 @@ import logging
 from typing import Annotated
 
 import numpy as np
+import pint
 import pint_xarray  # noqa: F401  (registers the .pint accessor)
 import pytest
 import xarray as xr
@@ -102,6 +103,30 @@ class TestOutputs:
         [(level, msg)] = _records(audit, UNITS)
         assert level == logging.DEBUG
         assert "quantified 'hPa' -> declared 'Pa'" in msg
+
+    @pytest.mark.parametrize("on_output", ["stamp", "strict"])
+    def test_quantified_output_in_a_foreign_unit_is_info(self, audit, on_output):
+        foreign = pint.UnitRegistry(force_ndarray_like=True)
+        foreign.define("widget = [thing]")
+        da = _da(None).pint.quantify("widget", unit_registry=foreign)
+        assert units.apply_output_units(da, "Pa", "return", on_output) is da
+        [(level, msg)] = _records(audit, UNITS)
+        assert level == logging.INFO
+        assert "'widget'" in msg
+        assert "unchecked" in msg
+
+    @pytest.mark.parametrize("label", ["not_a_unit", "e" * 300])
+    def test_strict_over_unverifiable_label_is_info(self, audit, label):
+        out = units.apply_output_units(_da(label), "Pa", "return", "strict")
+        assert out.attrs["units"] == "Pa"
+        [(level, msg)] = _records(audit, UNITS)
+        assert level == logging.INFO
+        assert "stamped unchecked" in msg
+        assert "e" * 300 not in msg
+
+    def test_strict_over_no_label_is_not_logged(self, audit):
+        units.apply_output_units(_da(None), "Pa", "return", "strict")
+        assert _records(audit, UNITS) == []
 
 
 class TestIgnoredMismatches:
