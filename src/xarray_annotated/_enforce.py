@@ -213,6 +213,10 @@ def enforce(
                         applied = _apply_output(value, decl, name)
                         if applied is not value:
                             _set_field(result, name, applied, qualname)
+                else:
+                    # Not the declared container, so every declared field is missing.
+                    for name, decl in output.items():
+                        _apply_output(None, decl, name)
             return result
 
         @functools.wraps(fn)
