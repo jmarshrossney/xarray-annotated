@@ -35,7 +35,7 @@
 
 ## Conventions
 
-- **Docs**: mkdocs-material, Google-style docstrings. API pages use `::: xarray_annotated.units` directive.
+- **Docs**: zensical (`zensical.toml`) with mkdocstrings, Google-style docstrings. API pages use `::: xarray_annotated.units` directive.
 - **Doctests**: embedded in docstrings; `just doctest`.
 - **Examples**: `examples/notebook.py` is a marimo notebook; `just docs` exports to `docs/example.md` via `marimo-md-export`.
 - **Formatting**: ruff (line-length 88), pyright, Python ≥3.12.

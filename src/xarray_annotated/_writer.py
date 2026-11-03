@@ -75,8 +75,7 @@ def annotate(
     Examples:
         >>> from typing import Annotated, get_args, get_origin
         >>> import xarray as xr
-        >>> from xarray_annotated import annotate
-        >>> from xarray_annotated import Unit
+        >>> from xarray_annotated import Unit, annotate
         >>> hint = annotate(unit="Pa", dims=("time", "x"), dtype="float64")
         >>> get_origin(hint) is Annotated
         True
