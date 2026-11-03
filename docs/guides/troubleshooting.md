@@ -87,8 +87,8 @@ with `xra.enabled(False)`.
 The same error, with a different reason, is raised for a `units` attribute the registry
 cannot parse, or one too long to hand to the parser.
 
-**Cause.** `@xra.enforce` validates units by reading `da.attrs["units"]`. With nothing to
-read, the declaration cannot be checked, so it is refused rather than trusted. Note that
+**Cause.** For a plain (non-quantified) array, `@xra.enforce` validates units by reading
+`da.attrs["units"]`. With nothing to read, the declaration cannot be checked, so it is refused rather than trusted. Note that
 xarray drops `attrs` through most arithmetic by default, so an array that had units
 upstream may well not have them here.
 

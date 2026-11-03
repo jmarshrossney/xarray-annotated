@@ -30,7 +30,8 @@ of truth, read once and never written twice.
 marker off the signature and applies each on every call. The structural properties —
 **dims**, **coords**, and **dtype** — and the time axis's **frequency** are only ever
 *checked* (arrays pass through unchanged); **units** can also be *converted* (e.g.
-`"hPa"` → `"Pa"`) where the declaration opts in with `Unit("Pa", convert=True)`. Any mix of markers can sit on one hint — see
+`"hPa"` → `"Pa"`) where the declaration opts in with `Unit("Pa", convert=True)`. Any
+mix of markers can sit on one hint — see
 [Combining multiple checks](#combining-multiple-checks). The decorator is a thin layer
 over public primitives (`check_schema` / `check_units` / `check_freq`) that you can call
 by hand; see [Reading and writing declarations](tooling.md).

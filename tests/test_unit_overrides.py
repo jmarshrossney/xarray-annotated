@@ -141,11 +141,11 @@ class TestPrimitivesAcceptTheMarker:
         out = units.check_units(_da(), Unit("Pa", convert=True), "p")
         np.testing.assert_allclose(out.values, [100.0])
 
-    def test_check_units_either_marker_or_argument_opts_in(self):
+    def test_check_units_only_the_marker_opts_in(self):
         with pytest.raises(ValueError, match="convert=True"):
             units.check_units(_da(), Unit("Pa"), "p")
-        out = units.check_units(_da(), Unit("Pa"), "p", convert=True)
-        assert out.attrs["units"] == "Pa"
+        with pytest.raises(TypeError, match="convert"):
+            units.check_units(_da(), Unit("Pa"), "p", convert=True)  # type: ignore[call-arg]
 
     def test_check_units_message_uses_the_unit_string(self):
         with pytest.raises(ValueError, match="declared 'Pa'"):
@@ -161,9 +161,14 @@ class TestPrimitivesAcceptTheMarker:
         )
         assert out.attrs["units"] == "Pa"
 
-    def test_invalid_argument_still_rejected_with_a_marker(self):
-        with pytest.raises(TypeError, match="convert must be a bool"):
-            units.check_units(_da(), Unit("Pa"), "p", convert="bogus")  # type: ignore[arg-type]
+    def test_numpy_bool_convert_is_accepted(self):
+        marker = Unit("Pa", convert=np.True_)  # type: ignore[arg-type]
+        assert marker.convert is True
+        assert marker == Unit("Pa", convert=True)
+
+    def test_non_bool_convert_names_its_type(self):
+        with pytest.raises(TypeError, match="convert must be a bool, not str"):
+            Unit("Pa", convert="yes")  # type: ignore[arg-type]
 
 
 class TestReaders:

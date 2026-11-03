@@ -12,7 +12,6 @@ a converted quantified output.
 """
 
 import logging
-from collections.abc import Callable
 from typing import Any
 
 import pint
@@ -24,7 +23,6 @@ from ._annotations import Unit
 from ._config import (
     DEFAULT_ON_OUTPUT,
     OnOutput,
-    _validate_convert,
     _validate_on_output,
 )
 from ._registry import _cf_hint, get_registry
@@ -41,24 +39,24 @@ _log = logging.getLogger("xarray_annotated.units")
 #: nested numeric exponentiation), only the length-driven class.
 _MAX_UNIT_LEN = 256
 
-
-def _resolve_axis[T](
-    marker: T | None, kw: T | None, validate: Callable[[T], object], default: T
-) -> T:
-    """Resolve one axis: marker override > call keyword > built-in default.
-
-    The keyword is validated even when the marker overrides it, so a bad
-    keyword is never masked by the declaration it happens to be used with.
-    """
-    if kw is not None:
-        validate(kw)
-    return marker or kw or default
+_ATTACH_UNIT = (
+    "Attach the unit where the data enters the pipeline "
+    "(`.assign_attrs(units=...)`), or switch checking off with "
+    "`xra.enabled(False)`."
+)
 
 
 def resolve_on_output(declared: str | Unit, on_output: OnOutput | None) -> OnOutput:
-    """The on-output axis that applies to `declared` (`None` defers to the default)."""
+    """The on-output axis that applies to `declared` (`None` defers to the default).
+
+    Resolves marker override > call keyword > built-in default.  The keyword is
+    validated even when the marker overrides it, so a bad keyword is never
+    masked by the declaration it happens to be used with.
+    """
+    if on_output is not None:
+        _validate_on_output(on_output)
     marker = declared.on_output if isinstance(declared, Unit) else None
-    return _resolve_axis(marker, on_output, _validate_on_output, DEFAULT_ON_OUTPUT)
+    return marker or on_output or DEFAULT_ON_OUTPUT
 
 
 def _labels_differ(have: Any, declared: str) -> bool:
@@ -210,7 +208,6 @@ def check_units(
     da: xr.DataArray,
     declared: str | Unit,
     name: str,
-    convert: bool = False,
     qualname: str | None = None,
 ) -> xr.DataArray:
     """Validate and convert an input `DataArray` to its declared unit.
@@ -218,8 +215,9 @@ def check_units(
     Returns a `DataArray` whose data is expressed in `declared` and whose
     `units` attribute equals `declared`.
 
-    A value-changing conversion happens only when opted into, by
-    `convert=True` here or on the marker.  When xarray-annotated is switched off
+    A value-changing conversion happens only when the declaration opts in, by
+    passing `Unit(..., convert=True)` as `declared`; a plain string never
+    converts.  When xarray-annotated is switched off
     (`enabled(False)`) the array is returned unchanged.
 
     Three events are handled, each building on the one before:
@@ -236,15 +234,13 @@ def check_units(
       without touching the data.
     * **Dimensional mismatch** — two parseable but incompatible units (e.g. a
       mass where a pressure is declared): always raises
-      `pint.DimensionalityError`, whatever `convert` says.
+      `pint.DimensionalityError`, whether or not conversion is opted into.
 
     Args:
         da: The input `DataArray` to validate and convert.
         declared: The expected unit string (e.g. `"Pa"`), or a `Unit` marker,
             whose `convert` then applies.
         name: A label for the array, used in error/warning messages.
-        convert: Convert a compatible input into `declared` instead of
-            raising; conversion happens if this or the marker opts in.
         qualname: A qualifier prepended to error messages as `[qualname]`,
             identifying the calling site.
 
@@ -262,9 +258,9 @@ def check_units(
 
     Examples:
         >>> import numpy as np, xarray as xr
-        >>> from xarray_annotated.units import check_units
+        >>> from xarray_annotated.units import Unit, check_units
         >>> da = xr.DataArray([1013.0, 1000.0], attrs={"units": "hPa"})
-        >>> out = check_units(da, "Pa", "pressure", convert=True)
+        >>> out = check_units(da, Unit("Pa", convert=True), "pressure")
         >>> out.attrs["units"]
         'Pa'
         >>> out.values  # 10 * 100 = 1000
@@ -272,8 +268,7 @@ def check_units(
     """
     if not resolve_enabled():
         return da
-    marker = declared if isinstance(declared, Unit) else None
-    convert = _validate_convert(convert) or (marker is not None and marker.convert)
+    convert = isinstance(declared, Unit) and declared.convert
     declared = str(declared)
 
     prefix = f"[{qualname}] " if qualname else ""
@@ -288,15 +283,10 @@ def check_units(
         have = _quantified_label(quantified)
     else:
         have = da.attrs.get("units")
-    fix = (
-        "Attach the unit where the data enters the pipeline "
-        "(`.assign_attrs(units=...)`), or switch checking off with "
-        "`xra.enabled(False)`."
-    )
     if have is None:
         raise ValueError(
             f"{prefix}input {name!r} has no 'units' attribute "
-            f"(declared {declared!r}). {fix}"
+            f"(declared {declared!r}). {_ATTACH_UNIT}"
         )
     if isinstance(have, str) and len(have) > _MAX_UNIT_LEN:
         # An over-long units attribute can hang pint's parser (DoS); refuse it
@@ -304,7 +294,7 @@ def check_units(
         raise ValueError(
             f"{prefix}input {name!r} has an over-long 'units' attribute "
             f"({len(have)} chars > {_MAX_UNIT_LEN}; declared {declared!r}); "
-            f"refusing to parse"
+            f"refusing to parse. {_ATTACH_UNIT}"
         )
     try:
         get_registry().Unit(have)
@@ -315,7 +305,7 @@ def check_units(
         raise ValueError(
             f"{prefix}input {name!r} has unparseable 'units' attribute {have!r} "
             f"(declared {declared!r}): {type(exc).__name__}: {exc}"
-            f"{_cf_hint(have)}"
+            f"{_cf_hint(have)}. {_ATTACH_UNIT}"
         ) from exc
     if quantified is None and units_equal(have, declared):
         # Same unit, differently spelled ("pascal" for "Pa", "1" for

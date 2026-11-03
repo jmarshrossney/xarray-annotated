@@ -41,15 +41,15 @@ Validates, and where allowed converts, a single array:
 ```python
 from xarray_annotated.units import check_units
 
-check_units(da, declared, name, convert=False, qualname=None)
+check_units(da, declared, name, qualname=None)
 ```
 
 Given an input `da`, `check_units`:
 
-1. reads `da.attrs["units"]`;
+1. reads the unit from `da.pint.units` if `da` is quantified, else `da.attrs["units"]`;
 2. if present and parseable, re-stamps `attrs["units"] = declared` on the result when it
    names the same unit, converts `da` to `declared` when it is compatible and conversion
-   is opted into (`convert=True` here, or on a `Unit` marker passed as `declared`), and
+   is opted into (a `Unit(..., convert=True)` marker passed as `declared`), and
    raises `ValueError` otherwise;
 3. if missing, unparseable or over-long, raises `ValueError`;
 4. if present but **dimensionally incompatible** with `declared` (e.g. `"kg"` where

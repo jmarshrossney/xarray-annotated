@@ -4,8 +4,8 @@ Inputs have no axis, only an opt-in, and outputs have one axis:
 
 - `convert` — the declared and actual units are dimensionally compatible but
   *value-changing* (e.g. `"hPa"` where `"Pa"` is declared).  Not an axis but an
-  opt-in on the `Unit` marker (or `check_units` argument): without it this
-  raises, because whether a conversion is correct depends on the quantity.
+  opt-in on the `Unit` marker: without it this raises, because whether a
+  conversion is correct depends on the quantity.
 - `on_output` — whether a declared return value's own `units` attribute is
   verified before being overwritten: `"stamp"` / `"strict"` / `"require"`.  See
   `apply_output_units` for why the default cannot be otherwise.
@@ -17,11 +17,12 @@ always raises too, because the values cannot be converted.
 
 `on_output` resolves per call as: the `Unit` marker's override, then the
 `enforce` keyword or `apply_output_units` argument, then the default here.
-`convert` has no `enforce` keyword.  Nothing is configured
-globally.
+`convert` is set only on the marker.  Nothing is configured globally.
 """
 
 from typing import Literal
+
+import numpy as np
 
 __all__ = [
     "DEFAULT_ON_OUTPUT",
@@ -46,6 +47,6 @@ def _validate_on_output(value: str) -> OnOutput:
 
 
 def _validate_convert(value: object) -> bool:
-    if not isinstance(value, bool):
-        raise TypeError(f"convert must be a bool, not {type(value).__name__}.")
-    return value
+    if not isinstance(value, bool | np.bool_):
+        raise TypeError(f"convert must be a bool, not {type(value).__qualname__}.")
+    return bool(value)

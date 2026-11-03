@@ -43,11 +43,6 @@ class TestInputConversion:
         assert level == logging.DEBUG
         assert "'hPa' -> 'Pa'" in msg
 
-    def test_argument_opted_in_conversion_is_debug(self, audit):
-        units.check_units(_da(), "Pa", "p", convert=True)
-        [(level, _)] = _records(audit, UNITS)
-        assert level == logging.DEBUG
-
     def test_conversion_through_enforce_is_debug(self, audit):
         @xra.enforce
         def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)]): ...
@@ -57,7 +52,7 @@ class TestInputConversion:
         assert level == logging.DEBUG
 
     def test_quantified_input_conversion_is_logged(self, audit):
-        units.check_units(_da().pint.quantify(), "Pa", "p", convert=True)
+        units.check_units(_da().pint.quantify(), Unit("Pa", convert=True), "p")
         [(level, _)] = _records(audit, UNITS)
         assert level == logging.DEBUG
 
@@ -71,7 +66,7 @@ class TestInputConversion:
         assert _records(audit, UNITS) == []
 
     def test_message_carries_qualname(self, audit):
-        units.check_units(_da(), "Pa", "p", convert=True, qualname="mod.f")
+        units.check_units(_da(), Unit("Pa", convert=True), "p", qualname="mod.f")
         [(_, msg)] = _records(audit, UNITS)
         assert msg.startswith("[mod.f] input 'p'")
 
@@ -135,12 +130,12 @@ class TestIgnoredMismatches:
 class TestQuietByDefault:
     def test_nothing_reaches_a_warning_level_handler(self, caplog):
         caplog.set_level(logging.WARNING, logger="xarray_annotated")
-        units.check_units(_da(), "Pa", "p", convert=True)
+        units.check_units(_da(), Unit("Pa", convert=True), "p")
         units.apply_output_units(_da(), "Pa", "return")
         assert caplog.records == []
 
     def test_switched_off_logs_nothing(self, audit):
         with xra.enabled(False):
-            units.check_units(_da(), "Pa", "p", convert=True)
+            units.check_units(_da(), Unit("Pa", convert=True), "p")
             schema.check_schema(_da(), Dims("time"), "p", on_mismatch="ignore")
         assert audit.records == []

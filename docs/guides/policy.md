@@ -22,9 +22,9 @@ Every axis resolves **once per call**, taking the first of:
 
 The more specific statement wins: a marker override is a claim about *this particular
 declaration*, a keyword about the whole function. Only a few axes have a per-function
-keyword; in particular, a mismatch can only be softened on the marker it applies to, so
-every relaxed contract is stated where it is declared. Either way, reading the signature and
-its decorator tells you how a function validates.
+keyword; in particular, a mismatch can only be softened, and a conversion only allowed,
+on the marker it applies to, so every relaxed contract is stated where it is declared.
+Either way, reading the signature and its decorator tells you how a function validates.
 
 Not every axis is available on a marker. Every units axis and every `on_mismatch` can be;
 `temporal`'s `on_uninferable` cannot, since a short or irregular axis is a property of the
@@ -131,14 +131,14 @@ def partition(
 ```
 
 Whether a conversion is *correct* is a property of the quantity, not of the function or
-the process, and one function can want both answers. Here the respiration term is written
-for Celsius, so kelvin input should convert. An annual total is dimensionally compatible
+the process, and one function can want both answers. Here the respiration term is
+written for Celsius, so kelvin input should convert. An annual total is dimensionally compatible
 with a daily mean, but converting one into the other would silently scale it by 365.25,
 so it is refused.
 
 Equivalent spellings of the same unit (`"pascal"` for `"Pa"`) imply no value change and
-are always accepted. `convert` has no per-function keyword, and the bare-string shorthand
-cannot opt in. Every conversion is [logged](#auditing) at `DEBUG`.
+are always accepted. `convert` is set only on the marker: there is no per-function
+keyword or `check_units` argument, and the bare-string shorthand cannot opt in. Every conversion is [logged](#auditing) at `DEBUG`.
 
 ### `on_output` — trusting a declared return value { #units-on_output }
 
@@ -307,7 +307,7 @@ since conversion is always opted into.
 | Event                                                              | Level   |
 |--------------------------------------------------------------------|---------|
 | schema or frequency mismatch passed under `"ignore"`               | `INFO`  |
-| input converted under `convert=True`                               | `DEBUG` |
+| input converted under `Unit(..., convert=True)`                    | `DEBUG` |
 | output stamped over a different label                              | `DEBUG` |
 | quantified output converted to its declaration                     | `DEBUG` |
 

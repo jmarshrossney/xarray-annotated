@@ -13,7 +13,7 @@ import pytest
 import xarray as xr
 
 import xarray_annotated as xra
-from xarray_annotated import units
+from xarray_annotated import Unit, units
 from xarray_annotated.units import _annotations, _check, _config
 
 
@@ -44,9 +44,9 @@ class TestAxes:
         with pytest.raises(TypeError, match="on_missing"):
             units.check_units(_da([[1.0]], "Pa"), "Pa", "x", on_missing="warn")  # type: ignore[call-arg]
 
-    def test_convert_must_be_a_bool(self):
-        with pytest.raises(TypeError, match="convert must be a bool"):
-            units.check_units(_da([[1.0]], "Pa"), "Pa", "x", convert="yes")  # type: ignore[arg-type]
+    def test_convert_is_not_an_argument(self):
+        with pytest.raises(TypeError, match="convert"):
+            units.check_units(_da([[1.0]], "Pa"), "Pa", "x", convert=True)  # type: ignore[call-arg]
 
     def test_axis_types_are_public(self):
         # The axis types are importable from the public surface (no private
@@ -93,7 +93,7 @@ class TestCheckUnits:
 
     def test_conversion_hpa_to_pa(self):
         da = _da([[10.0, 20.0]], unit="hPa")
-        out = units.check_units(da, "Pa", "vpd", convert=True)
+        out = units.check_units(da, Unit("Pa", convert=True), "vpd")
         assert out.attrs["units"] == "Pa"
         np.testing.assert_allclose(out.values, [[1000.0, 2000.0]])
 
@@ -104,13 +104,20 @@ class TestCheckUnits:
 
     def test_affine_kelvin_to_celsius(self):
         da = _da([[300.0, 273.15]], unit="K")
-        out = units.check_units(da, "degC", "temperature", convert=True)
+        out = units.check_units(da, Unit("degC", convert=True), "temperature")
         np.testing.assert_allclose(out.values, [[26.85, 0.0]])
 
     def test_missing_units_always_raise(self):
         da = _da([[1.0, 2.0]])
         with pytest.raises(ValueError, match="no 'units' attribute"):
             units.check_units(da, "Pa", "vpd")
+
+    @pytest.mark.parametrize(
+        "unit", [None, "fraction", "e" * (_check._MAX_UNIT_LEN + 1)]
+    )
+    def test_every_unreadable_unit_error_gives_the_remedy(self, unit):
+        with pytest.raises(ValueError, match=r"xra\.enabled\(False\)"):
+            units.check_units(_da([[1.0]], unit=unit), "Pa", "x")
 
     def test_unparseable_units_error_raises(self):
         # A present-but-unparseable units string (a non-pint spelling) cannot be
@@ -136,7 +143,7 @@ class TestCheckUnits:
     def test_incompatible_raises_dimensionality_error_even_when_opted_in(self):
         da = _da([[1.0, 2.0]], unit="degC")
         with pytest.raises(pint.DimensionalityError):
-            units.check_units(da, "kg", "x", convert=True)
+            units.check_units(da, Unit("kg", convert=True), "x")
 
     def test_affine_conversion_needs_opt_in(self):
         # K -> degC is an *affine* (offset) conversion, not just a scale; it still
@@ -216,7 +223,7 @@ class TestCheckUnitsRelabelOnly:
 
     def test_a_real_conversion_still_copies(self):
         da = _da([[1.0]], unit="hPa")
-        out = units.check_units(da, "Pa", "p", convert=True)
+        out = units.check_units(da, Unit("Pa", convert=True), "p")
         assert not np.shares_memory(da.values, out.values)
         np.testing.assert_allclose(out.values, [[100.0]])
 
@@ -254,14 +261,18 @@ class TestCheckUnitsQuantified:
     def test_quantified_input_is_converted(self):
         # Before the fix this returned 1.0 stamped "Pa" -- 100x wrong, and only
         # a "no 'units' attribute" warning to show for it.
-        out = units.check_units(_quantified([[1.0]], "hPa"), "Pa", "p", convert=True)
+        out = units.check_units(
+            _quantified([[1.0]], "hPa"), Unit("Pa", convert=True), "p"
+        )
         assert out.attrs["units"] == "Pa"
         np.testing.assert_allclose(out.values, [[100.0]])
 
     def test_quantified_input_is_normalised_to_dequantified(self):
         # The declared parameter type is a plain DataArray, so the body gets one:
         # the Quantity is unwrapped and the unit re-stamped onto attrs.
-        out = units.check_units(_quantified([[1.0]], "hPa"), "Pa", "p", convert=True)
+        out = units.check_units(
+            _quantified([[1.0]], "hPa"), Unit("Pa", convert=True), "p"
+        )
         assert out.pint.units is None
 
     def test_quantified_input_does_not_warn_about_missing_attrs(self):
@@ -272,7 +283,9 @@ class TestCheckUnitsQuantified:
 
     def test_quantified_input_is_never_missing(self):
         # A missing unit is an *unreadable* one; a Quantity is readable.
-        out = units.check_units(_quantified([[1.0]], "hPa"), "Pa", "p", convert=True)
+        out = units.check_units(
+            _quantified([[1.0]], "hPa"), Unit("Pa", convert=True), "p"
+        )
         np.testing.assert_allclose(out.values, [[100.0]])
 
     def test_quantified_input_needs_opt_in(self):
@@ -293,7 +306,7 @@ class TestCheckUnitsQuantified:
         """
         da = _quantified([[1.0]], "hPa")
         da.attrs["units"] = "kg"  # nonsense left over from upstream
-        out = units.check_units(da, "Pa", "p", convert=True)
+        out = units.check_units(da, Unit("Pa", convert=True), "p")
         assert out.attrs["units"] == "Pa"
         np.testing.assert_allclose(out.values, [[100.0]])
 
