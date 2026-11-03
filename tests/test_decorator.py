@@ -143,32 +143,23 @@ class TestFailFast:
             f(_da([[1.0]], unit="degC"))
 
 
-class TestPolicyResolution:
-    def test_on_missing_kwarg_overrides_global(self):
+class TestAxisResolution:
+    def test_on_missing_kwarg_overrides_default(self):
         @xra.enforce(units_on_missing="error")
         def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
             return p
 
-        # Global on_missing is warn, but the per-decorator "error" must raise.
-        with (
-            units.policy(on_missing="warn"),
-            pytest.raises(ValueError, match="no 'units'"),
-        ):
+        # The default on_missing is warn, but the per-decorator "error" must raise.
+        with pytest.raises(ValueError, match="no 'units'"):
             f(_da([[1.0]]))
 
-    def test_default_resolves_active_policy_per_call(self):
+    def test_on_missing_defaults_to_warn(self):
         @xra.enforce
         def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
             return p
 
-        da = _da([[1.0]])  # missing units
-        with (
-            units.policy(on_missing="error"),
-            pytest.raises(ValueError, match="no 'units'"),
-        ):
-            f(da)
-        with units.policy(on_missing="warn"), pytest.warns(units.UnitsWarning):
-            f(da)
+        with pytest.warns(units.UnitsWarning):
+            f(_da([[1.0]]))
 
     def test_on_missing_ignore_skips_input_validation(self):
         @xra.enforce(units_on_missing="ignore")
@@ -188,7 +179,7 @@ class TestPolicyResolution:
         ) -> Annotated[xr.DataArray, "Pa"]:
             return p
 
-        with units.policy(enabled=False):
+        with xra.enabled(False):
             out = f(_da([[10.0]], unit="hPa"))
         assert out.attrs["units"] == "hPa"  # not converted, not re-stamped
         np.testing.assert_allclose(out.values, [[10.0]])
@@ -278,7 +269,7 @@ class TestOnOutput:
     # -- default behaviour is unchanged ------------------------------------
 
     def test_default_is_stamp(self):
-        assert units.get_policy().on_output == "stamp"
+        assert units._config.DEFAULT_ON_OUTPUT == "stamp"
 
     def test_stamp_does_not_reconvert(self):
         """The regression this asymmetry exists to prevent: a body that has
@@ -419,36 +410,11 @@ class TestOnOutput:
         with pytest.raises(pint.DimensionalityError, match="output 'bad'"):
             f()
 
-    # -- policy plumbing ----------------------------------------------------
-
-    def test_policy_context_manager_applies(self):
-        f = self._returning("kg")
-        with units.policy(on_output="strict"), pytest.raises(pint.DimensionalityError):
-            f()
-        # Restored on exit: the same call now merely stamps.
-        assert f().attrs["units"] == "Pa"
-
-    def test_set_policy_applies_and_clears(self):
-        f = self._returning("kg")
-        units.set_policy(on_output="strict")
-        with pytest.raises(pint.DimensionalityError):
-            f()
-        units.set_policy(on_output=None)
-        assert f().attrs["units"] == "Pa"
-
-    def test_env_var_wins_over_set_policy(self, monkeypatch):
-        monkeypatch.setenv("XARRAY_ANNOTATED_UNITS_ON_OUTPUT", "stamp")
-        units.set_policy(on_output="strict")
-        assert units.get_policy().on_output == "stamp"
-
-    def test_decorator_argument_wins_over_policy(self):
-        f = self._returning("kg", on_output="stamp")
-        with units.policy(on_output="strict"):
-            assert f().attrs["units"] == "Pa"
+    # -- plumbing ---------------------------------------------------------
 
     def test_disabled_is_a_total_no_op(self):
         f = self._returning("kg", on_output="strict")
-        with units.policy(enabled=False):
+        with xra.enabled(False):
             out = f()
         assert out.attrs["units"] == "kg"  # not even stamped
 
@@ -457,9 +423,9 @@ class TestOnOutput:
         with pytest.raises(ValueError, match="Invalid units_on_output"):
             xra.enforce(units_on_output=bad)
 
-    def test_invalid_value_rejected_by_set_policy(self):
+    def test_invalid_value_rejected_by_primitive(self):
         with pytest.raises(ValueError, match="Invalid on_output"):
-            units.set_policy(on_output="check")  # type: ignore[arg-type]
+            units.apply_output_units(_da([[1.0]]), "Pa", "return", "check")  # type: ignore[arg-type]
 
 
 class TestApplyOutputUnitsPrimitive:
@@ -471,10 +437,14 @@ class TestApplyOutputUnitsPrimitive:
         assert out is da
         assert out.attrs["units"] == "Pa"
 
-    def test_defers_to_policy_when_none(self):
+    def test_none_takes_default_stamp(self):
         da = _da([[1.0]], unit="kg")
-        with units.policy(on_output="strict"), pytest.raises(pint.DimensionalityError):
-            units.apply_output_units(da, "Pa", "return")
+        assert units.apply_output_units(da, "Pa", "return").attrs["units"] == "Pa"
+
+    def test_argument_applies(self):
+        da = _da([[1.0]], unit="kg")
+        with pytest.raises(pint.DimensionalityError):
+            units.apply_output_units(da, "Pa", "return", "strict")
 
     def test_qualname_omitted_when_none(self):
         da = _da([[1.0]], unit="kg")
@@ -566,7 +536,7 @@ class TestQuantifiedOutputs:
 
     def test_disabled_policy_leaves_it_alone(self):
         da = _quantified([[1.0]], "hPa")
-        with units.policy(enabled=False):
+        with xra.enabled(False):
             assert units.apply_output_units(da, "Pa", "return") is da
 
 

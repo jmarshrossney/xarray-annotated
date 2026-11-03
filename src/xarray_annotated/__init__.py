@@ -20,12 +20,12 @@ checked)::
     @xra.enforce
     def f(p: Annotated[xr.DataArray, Unit("Pa"), Dims("time"), Freq("D")]): ...
 
-The top level is deliberately thin — the domains' policy, checker and reader
-names stay in their subpackages, since several of them (``Policy``,
-``set_policy``, ...) share a name across domains.  The exceptions are the
+The top level is deliberately thin — the domains' checker and reader names
+stay in their subpackages, and some (``OnMismatch``) share a name across
+domains.  The exceptions are the
 markers (``Coords``, ``Dims``, ``Dtype``, ``Freq``, ``Unit``), which are unique
 across domains and are combined freely in one hint, and the domain-*agnostic*
-names: ``enforce``; the shared
+names: ``enforce``; the ``enabled`` switch, the only global setting; the shared
 declaration *writer* ``annotate`` and its inverse *reader*
 ``declarations_from_signature`` (which reads every facet declared on a signature
 into one uniform ``Declared`` value); and the ``Annotated`` introspection kernel
@@ -38,6 +38,7 @@ from importlib.metadata import version as _version
 
 from . import schema, temporal, units
 from ._annotations import unwrap_annotated, walk_signature
+from ._config import enabled
 from ._enforce import enforce
 from ._reader import Declared, declarations_from_signature
 from ._writer import annotate
@@ -57,6 +58,7 @@ __all__ = [
     "__version__",
     "annotate",
     "declarations_from_signature",
+    "enabled",
     "enforce",
     "schema",
     "temporal",

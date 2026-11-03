@@ -23,7 +23,7 @@ def declare_schema(
 
     Args:
         func: The function to decorate (when used bare); `None` when parametrised.
-        on_mismatch: Default severity for this function, overriding the policy.
+        on_mismatch: Severity for this function, overriding the built-in default.
 
     Returns:
         The wrapped function, or a decorator when `func` is `None`.

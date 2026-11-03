@@ -8,6 +8,7 @@ internal leaks.
 """
 
 import importlib
+import pathlib
 
 import pytest
 
@@ -102,8 +103,8 @@ class TestInternalHelpersStayInternal:
 
 class TestMarkersAtRoot:
     """Markers are the one domain name re-exported from the root: they are
-    unique across domains and mixed in one hint. Policy names are not, since
-    they collide (``Policy``, ``set_policy``, ...)."""
+    unique across domains and mixed in one hint. Axis types are not, since
+    they collide (``OnMismatch``)."""
 
     @pytest.mark.parametrize(
         ("domain", "name"),
@@ -128,6 +129,31 @@ class TestMarkersAtRoot:
         }
         leaked = domain_names & set(xra.__all__)
         assert leaked == {"Coords", "Dims", "Dtype", "Freq", "Unit"}
+
+
+class TestNoGlobalBehaviourConfig:
+    """Behaviour is declared in the signature; the only global is the switch.
+
+    A per-domain ``set_policy`` or a per-axis environment variable would let a process
+    loosen checks with nothing at the definition site to show it.
+    """
+
+    @pytest.mark.parametrize("domain", DOMAINS)
+    @pytest.mark.parametrize("name", ["Policy", "get_policy", "set_policy", "policy"])
+    def test_no_domain_policy(self, domain, name):
+        assert not hasattr(importlib.import_module(f"xarray_annotated.{domain}"), name)
+
+    def test_enabled_is_the_root_switch(self):
+        assert "enabled" in xra.__all__
+
+    def test_only_one_environment_variable_is_read(self):
+        src = pathlib.Path(xra.__file__).parent
+        hits = {
+            path.relative_to(src).as_posix()
+            for path in src.rglob("*.py")
+            if "os.environ" in path.read_text()
+        }
+        assert hits == {"_config.py"}
 
 
 def test_integrations_are_never_imported():

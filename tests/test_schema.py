@@ -14,7 +14,7 @@ import pytest
 import xarray as xr
 
 import xarray_annotated as xra
-from xarray_annotated import schema, units
+from xarray_annotated import schema
 from xarray_annotated.schema import Coords, Dims, Dtype, _annotations, _check, _config
 
 
@@ -280,7 +280,7 @@ class TestCheckSchema:
             )
 
     def test_disabled_is_noop(self):
-        with schema.policy(enabled=False):
+        with xra.enabled(False):
             schema.check_schema(_da(("time",)), Dims("nope"), "x")  # would raise
 
     def test_list_of_markers(self):
@@ -320,44 +320,15 @@ class TestAssertValidSchema:
 
 
 # ---------------------------------------------------------------------------
-# Policy
+# Axis default
 # ---------------------------------------------------------------------------
 
 
-class TestSchemaPolicy:
-    def test_defaults(self):
-        with schema.policy(enabled=None, on_mismatch=None):
-            pol = schema.get_policy()
-            assert pol.enabled is True
-            assert pol.on_mismatch == "error"
+class TestAxis:
+    def test_default(self):
+        assert _config.DEFAULT_ON_MISMATCH == "error"
 
-    def test_set_and_restore(self):
-        with schema.policy(on_mismatch="warn"):
-            assert schema.get_policy().on_mismatch == "warn"
-        assert schema.get_policy().on_mismatch == "error"
-
-    def test_env_overrides_process(self, monkeypatch):
-        with schema.policy(on_mismatch="ignore"):
-            monkeypatch.setenv(_config.ON_MISMATCH_ENV_VAR, "warn")
-            assert schema.get_policy().on_mismatch == "warn"
-
-    def test_enabled_switch_is_shared_with_units(self):
-        # The master switch is package-wide: toggling it in units is seen by schema.
-        with units.policy(enabled=False):
-            assert schema.get_policy().enabled is False
-
-    def test_invalid_on_mismatch_raises(self):
-        with pytest.raises(ValueError, match="Invalid on_mismatch"):
-            schema.set_policy(on_mismatch="bogus")  # type: ignore[arg-type]
-
-    def test_invalid_enabled_env_raises(self, monkeypatch):
-        monkeypatch.setenv(_config.ENABLED_ENV_VAR, "maybe")
-        with pytest.raises(ValueError, match=_config.ENABLED_ENV_VAR):
-            schema.get_policy()
-
-    def test_policy_axis_type_is_public(self):
-        # OnMismatch (the type of set_policy's on_mismatch arg) is importable
-        # from the public surface (no private _config import needed).
+    def test_axis_type_is_public(self):
         assert schema.OnMismatch is _config.OnMismatch
 
 
@@ -482,7 +453,7 @@ class TestDeclareSchema:
         def f(x: Annotated[xr.DataArray, Dims("nope")]) -> xr.DataArray:
             return x
 
-        with schema.policy(enabled=False):
+        with xra.enabled(False):
             assert f(_da(("time", "x"))).shape
 
     def test_invalid_decorator_kwarg(self):

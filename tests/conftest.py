@@ -15,10 +15,6 @@ follows whatever the application registry currently is.
 import pint
 import pytest
 
-from xarray_annotated import _config as _shared_config
-from xarray_annotated.schema import _config as _schema_config
-from xarray_annotated.temporal import _config as _temporal_config
-from xarray_annotated.units import _config as _units_config
 from xarray_annotated.units import _registry
 
 
@@ -36,35 +32,3 @@ def _isolate_registry():
         _registry._UREG = saved_ureg
         _registry._using_cf = saved_using_cf
         pint.set_application_registry(saved_app)
-
-
-@pytest.fixture(autouse=True)
-def _isolate_policy():
-    """Snapshot and restore the process-global policy overrides around every test.
-
-    The ``enabled`` master switch (shared, package-wide) and each domain's
-    behavioural overrides are module globals; a test that sets one without a
-    ``policy(...)`` context manager would otherwise leak into every later test
-    across both domains. Restoring them here keeps the suite order-independent.
-    """
-    saved = (
-        _shared_config._process_enabled,
-        _units_config._process_on_missing,
-        _units_config._process_on_inexact,
-        _units_config._process_on_output,
-        _schema_config._process_on_mismatch,
-        _temporal_config._process_on_mismatch,
-        _temporal_config._process_on_uninferable,
-    )
-    try:
-        yield
-    finally:
-        (
-            _shared_config._process_enabled,
-            _units_config._process_on_missing,
-            _units_config._process_on_inexact,
-            _units_config._process_on_output,
-            _schema_config._process_on_mismatch,
-            _temporal_config._process_on_mismatch,
-            _temporal_config._process_on_uninferable,
-        ) = saved

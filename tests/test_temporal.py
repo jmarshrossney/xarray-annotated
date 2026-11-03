@@ -16,7 +16,7 @@ import pytest
 import xarray as xr
 
 import xarray_annotated as xra
-from xarray_annotated import temporal, units
+from xarray_annotated import temporal
 from xarray_annotated.schema import Dims
 from xarray_annotated.temporal import Freq, _annotations, _config
 
@@ -257,6 +257,22 @@ class TestCheckFreq:
             warnings.simplefilter("error")
             temporal.check_freq(da, Freq("D"), "x", on_uninferable="ignore")
 
+    def test_uninferable_has_its_own_category(self):
+        da = _da(pd.date_range("2020-01-01", periods=2, freq="D"))
+        with pytest.warns(temporal.UninferableFreqWarning):
+            temporal.check_freq(da, Freq("D"), "x")
+        assert issubclass(temporal.UninferableFreqWarning, temporal.FreqWarning)
+
+    def test_filtering_uninferable_keeps_mismatch_warnings(self):
+        short = _da(pd.date_range("2020-01-01", periods=2, freq="D"))
+        weekly = _da(pd.date_range("2020-01-05", periods=4, freq="W-SUN"))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            warnings.simplefilter("ignore", temporal.UninferableFreqWarning)
+            temporal.check_freq(short, Freq("D"), "x")
+            temporal.check_freq(weekly, Freq("D"), "x", on_mismatch="warn")
+        assert [type(w.message) for w in caught] == [temporal.FreqWarning]
+
     def test_irregular_spacing_is_uninferable(self):
         da = _da(pd.to_datetime(["2020-01-01", "2020-01-02", "2020-01-05"]))
         assert xr.infer_freq(da["time"]) is None
@@ -328,7 +344,7 @@ class TestCheckFreq:
 
     def test_disabled_is_noop(self):
         da = _da(pd.date_range("2020-01-01", periods=5, freq="D"))
-        with temporal.policy(enabled=False):
+        with xra.enabled(False):
             assert temporal.check_freq(da, Freq("ME"), "x") is da  # would raise
 
     def test_invalid_severity_arguments(self):
@@ -340,81 +356,16 @@ class TestCheckFreq:
 
 
 # ---------------------------------------------------------------------------
-# Policy
+# Axis defaults
 # ---------------------------------------------------------------------------
 
 
-class TestPolicy:
+class TestAxes:
     def test_defaults(self):
-        with temporal.policy(enabled=None, on_mismatch=None, on_uninferable=None):
-            pol = temporal.get_policy()
-            assert pol.enabled is True
-            assert pol.on_mismatch == "error"
-            assert pol.on_uninferable == "warn"
+        assert _config.DEFAULT_ON_MISMATCH == "error"
+        assert _config.DEFAULT_ON_UNINFERABLE == "warn"
 
-    def test_set_and_restore(self):
-        with temporal.policy(on_mismatch="warn", on_uninferable="error"):
-            pol = temporal.get_policy()
-            assert pol.on_mismatch == "warn"
-            assert pol.on_uninferable == "error"
-        pol = temporal.get_policy()
-        assert pol.on_mismatch == "error"
-        assert pol.on_uninferable == "warn"
-
-    def test_env_overrides_process(self, monkeypatch):
-        with temporal.policy(on_mismatch="ignore", on_uninferable="ignore"):
-            monkeypatch.setenv(_config.ON_MISMATCH_ENV_VAR, "warn")
-            monkeypatch.setenv(_config.ON_UNINFERABLE_ENV_VAR, "error")
-            pol = temporal.get_policy()
-            assert pol.on_mismatch == "warn"
-            assert pol.on_uninferable == "error"
-
-    def test_invalid_on_mismatch_env_raises(self, monkeypatch):
-        monkeypatch.setenv(_config.ON_MISMATCH_ENV_VAR, "bogus")
-        with pytest.raises(ValueError, match="Invalid on_mismatch"):
-            temporal.get_policy()
-
-    def test_invalid_on_uninferable_env_raises(self, monkeypatch):
-        monkeypatch.setenv(_config.ON_UNINFERABLE_ENV_VAR, "bogus")
-        with pytest.raises(ValueError, match="Invalid on_uninferable"):
-            temporal.get_policy()
-
-    def test_set_policy_partial_update(self):
-        temporal.set_policy(on_mismatch="warn")
-        pol = temporal.get_policy()
-        assert pol.on_mismatch == "warn"
-        assert pol.on_uninferable == "warn"  # untouched axis keeps its default
-
-    def test_none_clears_an_override(self):
-        temporal.set_policy(on_uninferable="error")
-        assert temporal.get_policy().on_uninferable == "error"
-        temporal.set_policy(on_uninferable=None)
-        assert temporal.get_policy().on_uninferable == "warn"
-
-    def test_context_manager_restores_on_exception(self):
-        with pytest.raises(RuntimeError), temporal.policy(on_mismatch="ignore"):
-            raise RuntimeError("boom")
-        assert temporal.get_policy().on_mismatch == "error"
-
-    def test_invalid_on_mismatch_raises(self):
-        with pytest.raises(ValueError, match="Invalid on_mismatch"):
-            temporal.set_policy(on_mismatch="bogus")  # type: ignore[arg-type]
-
-    def test_invalid_on_uninferable_raises(self):
-        with pytest.raises(ValueError, match="Invalid on_uninferable"):
-            temporal.set_policy(on_uninferable="bogus")  # type: ignore[arg-type]
-
-    def test_invalid_enabled_env_raises(self, monkeypatch):
-        monkeypatch.setenv(_config.ENABLED_ENV_VAR, "maybe")
-        with pytest.raises(ValueError, match=_config.ENABLED_ENV_VAR):
-            temporal.get_policy()
-
-    def test_enabled_switch_is_shared_with_units(self):
-        # The master switch is package-wide: toggling it here is seen by units.
-        with temporal.policy(enabled=False):
-            assert units.get_policy().enabled is False
-
-    def test_policy_axis_types_are_public(self):
+    def test_axis_types_are_public(self):
         assert temporal.OnMismatch is _config.OnMismatch
         assert temporal.OnUninferable is _config.OnUninferable
 
@@ -561,7 +512,7 @@ class TestDeclareFreq:
             return x
 
         da = _da(pd.date_range("2020-01-01", periods=5, freq="D"))
-        with temporal.policy(enabled=False):
+        with xra.enabled(False):
             assert f(da) is da
 
     def test_invalid_decorator_kwargs(self):

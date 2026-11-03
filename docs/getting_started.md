@@ -125,7 +125,7 @@ Whether a schema violation raises, warns or is ignored is set by a [policy](guid
 
 - How-to guides:
     - **[Declaring properties](guides/declaring.md)** --- the full set of markers (dims, coords, dtype, units, frequency), what each one considers a match, and how to combine them.
-    - **[Configuring validation](guides/policy.md)** --- raise, warn or ignore; scoping overrides to a block or a function; turning validation off in production.
+    - **[Configuring validation](guides/policy.md)** --- raise, warn or ignore, per marker or per function; auditing conversions with logging; turning validation off.
     - **[Choosing a unit registry](guides/registry.md)** --- needed only if you use CF-convention unit strings such as `"umol m-2 s-1"`.
     - **[Reading and writing declarations](guides/tooling.md)** --- inspecting declarations programmatically, and generating documentation from them.
     - **[Troubleshooting](guides/troubleshooting.md)** --- common errors and what they mean.

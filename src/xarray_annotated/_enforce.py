@@ -174,16 +174,14 @@ def _enforce(
                     value, decl.unit, name, units_on_output, qualname
                 )
             if markers := _schema_markers(decl):
-                on_mismatch = schema_on_mismatch or _schema.get_policy().on_mismatch
-                check_schema(value, markers, name, on_mismatch, qualname)
+                check_schema(value, markers, name, schema_on_mismatch, qualname)
             if decl.freq is not None:
-                pol = _temporal.get_policy()
                 check_freq(
                     value,
                     decl.freq,
                     name,
-                    temporal_on_mismatch or pol.on_mismatch,
-                    temporal_on_uninferable or pol.on_uninferable,
+                    temporal_on_mismatch,
+                    temporal_on_uninferable,
                     qualname,
                 )
             return value
@@ -209,7 +207,7 @@ def _enforce(
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             if not resolve_enabled():
-                # Master switch off: a total no-op.
+                # Switched off: a total no-op, conversion and stamping included.
                 return fn(*args, **kwargs)
             if inputs:
                 bound = sig.bind_partial(*args, **kwargs)
@@ -235,17 +233,16 @@ def _enforce(
                             val,
                             markers,
                             name,
-                            schema_on_mismatch or _schema.get_policy().on_mismatch,
+                            schema_on_mismatch,
                             qualname,
                         )
                     if decl.freq is not None:
-                        pol = _temporal.get_policy()
                         check_freq(
                             val,
                             decl.freq,
                             name,
-                            temporal_on_mismatch or pol.on_mismatch,
-                            temporal_on_uninferable or pol.on_uninferable,
+                            temporal_on_mismatch,
+                            temporal_on_uninferable,
                             qualname,
                         )
                 args, kwargs = bound.args, bound.kwargs
@@ -288,14 +285,15 @@ def enforce(
     Only `DataArray` values are touched; anything else passes through, except
     that under `on_output="require"` a declared output that is not a
     `DataArray` (including `None` or a missing key) raises.  When
-    the package-wide master switch is off (`enabled=False`) the wrapper is a
-    total no-op.  Every declaration is validated **at decoration time**, so a
-    malformed unit, marker or offset string fails at import regardless of
-    policy.
+    xarray-annotated is switched off (`xra.enabled(False)` or
+    `XARRAY_ANNOTATED_ENABLED=false`) the wrapper is a total no-op: inputs are
+    not converted and outputs are not stamped.  Every declaration is validated
+    **at decoration time**, so a malformed unit, marker or offset string fails
+    at import even when switched off.
 
-    Each keyword overrides one policy axis for this function, and is named after
-    its domain's axis (and environment variable).  Per axis, a marker's own
-    override beats the keyword, which beats the domain's `get_policy()`.
+    Each keyword sets one axis for this function, and is named
+    `<domain>_<axis>`.  Per axis, a marker's own override beats the keyword,
+    which beats the built-in default.
 
     Usable bare (`@xra.enforce`) or called (`@xra.enforce(units_on_missing=...)`).
 

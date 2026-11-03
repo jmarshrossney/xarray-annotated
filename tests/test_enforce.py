@@ -116,21 +116,18 @@ class TestKeywords:
         with pytest.raises(ValueError, match=f"^Invalid {kwarg} 'bogus'"):
             xra.enforce(**{kwarg: "bogus"})  # type: ignore[arg-type]
 
-    def test_units_on_missing_overrides_policy(self):
+    def test_units_on_missing_overrides_default(self):
         @xra.enforce(units_on_missing="error")
         def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
 
-        with (
-            units.policy(on_missing="ignore"),
-            pytest.raises(ValueError, match="no 'units' attribute"),
-        ):
+        with pytest.raises(ValueError, match="no 'units' attribute"):
             f(_int_da(unit=None))
 
-    def test_schema_on_mismatch_overrides_policy(self):
+    def test_schema_on_mismatch_overrides_default(self):
         @xra.enforce(schema_on_mismatch="warn")
         def f(p: Annotated[xr.DataArray, Dims("x")]): ...
 
-        with schema.policy(on_mismatch="error"), pytest.warns(schema.SchemaWarning):
+        with pytest.warns(schema.SchemaWarning):
             f(_int_da())
 
     def test_marker_override_beats_keyword(self):
@@ -189,7 +186,7 @@ class TestWrapper:
             return p
 
         da = _int_da()
-        with units.policy(enabled=False):
+        with xra.enabled(False):
             out = f(da)
         assert out is da
         assert out.attrs["units"] == "hPa"

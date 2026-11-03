@@ -17,10 +17,6 @@ from ._config import (
     OnInexact,
     OnMissing,
     OnOutput,
-    Policy,
-    get_policy,
-    policy,
-    set_policy,
 )
 from ._decorator import declare_units
 from ._registry import (
@@ -33,7 +29,6 @@ __all__ = [
     "OnInexact",
     "OnMissing",
     "OnOutput",
-    "Policy",
     "Unit",
     "UnitsWarning",
     "annotated_unit",
@@ -41,10 +36,7 @@ __all__ = [
     "assert_valid_unit",
     "check_units",
     "declare_units",
-    "get_policy",
     "get_registry",
-    "policy",
-    "set_policy",
     "set_registry",
     "units_compatible",
     "units_equal",

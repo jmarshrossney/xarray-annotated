@@ -30,8 +30,9 @@ from xarray_annotated.schema import check_schema
 check_schema(da, Dims("time", "x"), name="da", on_mismatch=None, qualname=None)
 ```
 
-`on_mismatch` defaults to the [active policy](policy.md#schema-on_mismatch) when `None`;
-`name` labels the array in messages; it is a total no-op when the policy is disabled.
+`on_mismatch` takes the [default](policy.md#schema-on_mismatch) when `None`;
+`name` labels the array in messages; it is a total no-op when the package is
+[switched off](policy.md#enabled).
 
 ### `check_units`
 
@@ -53,8 +54,8 @@ Given an input `da`, `check_units`:
    `"Pa"` is declared), raises `pint.DimensionalityError` naming the offending
    variable — always, regardless of policy.
 
-`on_missing` and `on_inexact` may be passed per call; each defaults to the active policy
-when `None`.
+`on_missing` and `on_inexact` may be passed per call; each takes its
+[default](policy.md#resolution) when `None`.
 
 ### `apply_output_units`
 

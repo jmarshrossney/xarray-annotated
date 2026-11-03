@@ -61,18 +61,17 @@ class Unit:
     The unit string is *not* validated here — parsing is deferred to
     `assert_valid_unit` at decoration time, exactly as for the bare-string form.
 
-    Each units policy axis can be overridden **for this declaration**, so the
-    intent sits next to the parameter that depends on it rather than in ambient
-    configuration::
+    Each units axis can be set **for this declaration**, so the intent sits next
+    to the parameter that depends on it::
 
         tair: Annotated[xr.DataArray, Unit("degC", on_inexact="convert")]
         total: Annotated[xr.DataArray, Unit("g m-2 yr-1", on_inexact="error")]
 
-    A marker override beats the decorator keyword, which beats the policy; the
-    package-wide `enabled` switch still disables everything.  `on_missing` and
-    `on_inexact` apply where the marker declares an input, `on_output` where it
-    declares an output; an override that does not apply where the marker sits is
-    ignored, so one marker can be reused on both sides.
+    A marker override beats the decorator keyword, which beats the default;
+    switching the package off (`enabled(False)`) still disables everything.
+    `on_missing` and `on_inexact` apply where the marker declares an input,
+    `on_output` where it declares an output; an override that does not apply
+    where the marker sits is ignored, so one marker can be reused on both sides.
 
     Equality and hashing include the overrides, as for every other marker:
     `Unit("Pa", on_output="strict") != Unit("Pa")`.  To compare only the units,

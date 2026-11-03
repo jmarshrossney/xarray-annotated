@@ -27,6 +27,7 @@ Known limitation: `Day` is DST-aware in pandas while `24h` is not, so treating t
 the same spacing is an approximation for timezone-aware axes.
 """
 
+import logging
 import warnings
 
 import numpy as np
@@ -45,20 +46,34 @@ from pandas.tseries.offsets import (
     YearEnd,
 )
 
+from .._config import resolve_enabled
 from ._annotations import Freq
 from ._config import (
+    DEFAULT_ON_MISMATCH,
+    DEFAULT_ON_UNINFERABLE,
     OnMismatch,
     OnUninferable,
     _validate_on_mismatch,
     _validate_on_uninferable,
-    get_policy,
 )
+
+_log = logging.getLogger("xarray_annotated.temporal")
 
 _NANOS_PER_DAY = 86_400_000_000_000
 
 
 class FreqWarning(UserWarning):
     """Warning issued for a frequency mismatch or an uninferable time axis."""
+
+
+class UninferableFreqWarning(FreqWarning):
+    """Warning issued when a time axis is too short or irregular to check.
+
+    A subclass so a warnings filter can silence short test fixtures without
+    also hiding genuine mismatches::
+
+        filterwarnings = ["ignore::xarray_annotated.temporal.UninferableFreqWarning"]
+    """
 
 
 class FreqError(Exception):
@@ -238,15 +253,23 @@ def _infer(coord: xr.DataArray) -> str | None:
         return None
 
 
-def _report(ok: bool, severity: OnMismatch | OnUninferable, message: str) -> None:
+def _report(
+    ok: bool,
+    severity: OnMismatch | OnUninferable,
+    message: str,
+    category: type[FreqWarning] = FreqWarning,
+) -> None:
     """Act on a check result under the resolved severity."""
-    if ok or severity == "ignore":
+    if ok:
+        return
+    if severity == "ignore":
+        _log.info("%s (ignored)", message)
         return
     if severity == "error":
         raise FreqError(message)
     # stacklevel=3 targets a direct check_freq call (via _report); via enforce it
     # lands on the wrapper line, still identified by the [qualname] prefix.
-    warnings.warn(message, FreqWarning, stacklevel=3)
+    warnings.warn(message, category, stacklevel=3)
 
 
 def check_freq(
@@ -273,17 +296,19 @@ def check_freq(
     tested, and by default that warns rather than raises.
 
     Severity resolves per marker as: the marker's own `on_mismatch` override, else the
-    `on_mismatch` argument, else the policy default.  When the master switch is off
-    (`enabled=False`) this is a total no-op.
+    `on_mismatch` argument, else the default, `"error"`; `on_uninferable` defaults to
+    `"warn"`.  An event passed under `"ignore"` is logged at INFO to
+    `xarray_annotated.temporal`.  When xarray-annotated is switched off
+    (`enabled(False)`) this is a total no-op.
 
     Args:
         da: The DataArray to validate.
         declared: A single `Freq` or a list of them declared for `da`.
         name: The parameter/field name, for error messages.
-        on_mismatch: Per-call default severity for a mismatch, overriding the policy
-            default but overridden by a marker's own `on_mismatch`.
+        on_mismatch: Per-call severity for a mismatch, overriding the default but
+            overridden by a marker's own `on_mismatch`.
         on_uninferable: Per-call severity for an uninferable axis, overriding the
-            policy default.
+            default.
         qualname: Optional qualified function name, prefixed to messages.
 
     Returns:
@@ -292,8 +317,7 @@ def check_freq(
     Raises:
         FreqError: On a mismatch when the effective severity is ``"error"``.
     """
-    pol = get_policy()
-    if not pol.enabled:
+    if not resolve_enabled():
         return da
     if on_mismatch is not None:
         on_mismatch = _validate_on_mismatch(on_mismatch)
@@ -301,10 +325,10 @@ def check_freq(
         on_uninferable = _validate_on_uninferable(on_uninferable)
 
     markers = [declared] if isinstance(declared, Freq) else declared
-    uninferable = on_uninferable or pol.on_uninferable
+    uninferable = on_uninferable or DEFAULT_ON_UNINFERABLE
     prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
     for marker in markers:
-        severity = marker.on_mismatch or on_mismatch or pol.on_mismatch
+        severity = marker.on_mismatch or on_mismatch or DEFAULT_ON_MISMATCH
         dim, detail = _locate_axis(da, marker)
         if dim is None:
             _report(False, severity, f"{prefix} {detail}")
@@ -316,6 +340,7 @@ def check_freq(
                 uninferable,
                 f"{prefix} frequency of {dim!r} is uninferable (fewer than three "
                 f"points, or irregular spacing), so {marker!r} was not checked",
+                UninferableFreqWarning,
             )
             continue
         ok = freq_compatible(marker, Freq(inferred))
