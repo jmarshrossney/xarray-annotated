@@ -280,6 +280,9 @@ Freq("W")  # weekly, any weekday  — accepts a W-WED axis
 Freq("W-SUN")  # weekly, Sundays only — rejects a W-WED axis
 ```
 
+A quarterly anchor names a set of four dates, not one month, so `"QE-MAR"` and `"QE-DEC"`
+are the same declaration, and `"QE-MAR"` and `"QE-NOV"` conflict.
+
 !!! note "A deliberate divergence from pandas"
 
     pandas silently defaults an anchor you did not spell (`to_offset("W").freqstr` is

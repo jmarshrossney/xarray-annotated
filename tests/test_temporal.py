@@ -99,7 +99,9 @@ COMPATIBILITY_TABLE = [
     (Freq("ME"), Freq("MS"), False),  # convention is always compared
     (Freq("ME"), Freq("ME"), True),
     (Freq("QE"), Freq("3ME"), True),  # same spacing and convention, neither anchors
-    (Freq("QE-MAR"), Freq("QE-DEC"), False),  # both anchored, different
+    (Freq("QE-MAR"), Freq("QE-DEC"), True),  # the same four quarter ends
+    (Freq("QS-JAN"), Freq("QS-APR"), True),  # the same four quarter starts
+    (Freq("QE-MAR"), Freq("QE-NOV"), False),  # different quarter ends
     (Freq("QE"), Freq("QE-DEC"), True),  # "QE" unanchored
     (Freq("YE"), Freq("12ME"), True),
     (Freq("ME"), Freq("30D"), False),  # "months" and "fixed" never compare equal
@@ -473,3 +475,24 @@ class TestAnnotationsSurviveWraps:
         wrapped = xra.enforce(fn)
         hints = typing.get_type_hints(wrapped, include_extras=True)
         assert "return" in hints
+
+
+class TestQuarterlyAxisAgainstItsOwnDeclaration:
+    @pytest.mark.parametrize(
+        ("freq", "start"),
+        [
+            ("QE-MAR", "2020-03-31"),
+            ("QE-JUN", "2020-03-31"),
+            ("QE-DEC", "2020-03-31"),
+            ("QS-APR", "2020-04-01"),
+            ("2QE-MAR", "2020-03-31"),
+        ],
+    )
+    def test_passes(self, freq, start):
+        times = pd.date_range(start, periods=8, freq=freq)
+        temporal.check_freq(_da(times), Freq(freq), "x")
+
+    def test_a_different_set_of_quarter_ends_fails(self):
+        times = pd.date_range("2020-03-31", periods=8, freq="QE-MAR")
+        with pytest.raises(temporal.FreqError):
+            temporal.check_freq(_da(times), Freq("QE-NOV"), "x")

@@ -146,7 +146,10 @@ def _anchor(off: BaseOffset) -> int | None:
     if isinstance(off, Week):
         return off.weekday  # type: ignore[attr-defined]
     if isinstance(off, (QuarterEnd, QuarterBegin)):
-        return off.startingMonth  # type: ignore[attr-defined]
+        # `QE-MAR` and `QE-DEC` are the same four dates, and `infer_freq` only ever
+        # names one month of the three, even for `2QE`, which is why `2QE-MAR` and
+        # `2QE-JUN` cannot be told apart here.
+        return off.startingMonth % 3  # type: ignore[attr-defined]
     if isinstance(off, (YearEnd, YearBegin)):
         return off.month
     return None
