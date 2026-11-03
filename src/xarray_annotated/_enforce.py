@@ -25,15 +25,19 @@ import dataclasses
 import functools
 import inspect
 from collections.abc import Callable
-from typing import Any, get_args
+from typing import Any, TypeAliasType, get_args
 
 import xarray as xr
 
+from ._annotations import walk_signature
 from ._config import resolve_enabled
-from ._reader import Declared, declarations_from_signature
+from ._reader import Declared, declaration_from_hint, declarations_from_signature
+from .schema import Coords, Dims, Dtype
 from .schema._check import assert_valid_schema, check_schema
+from .temporal import Freq
 from .temporal import _config as _temporal
 from .temporal._check import assert_valid_freq, check_freq
+from .units import Unit
 from .units import _config as _units
 from .units._check import (
     apply_output_units,
@@ -53,6 +57,35 @@ def _assert_valid(declared: Declared, context: str) -> None:
         assert_valid_schema(marker, context)
     if declared.freq is not None:
         assert_valid_freq(declared.freq, context)
+
+
+def _markers_in(hint: Any) -> list[Any]:
+    """Return every marker anywhere inside a hint, however deeply nested."""
+    if isinstance(hint, TypeAliasType):
+        hint = hint.__value__
+    found = []
+    for arg in get_args(hint):
+        if isinstance(arg, Unit | Dims | Dtype | Coords | Freq):
+            found.append(arg)
+        else:
+            found.extend(_markers_in(arg))
+    return found
+
+
+def _refuse_stray_markers(hint: Any) -> None:
+    """Raise if a hint carries markers that declare nothing, so would go unchecked.
+
+    Raises:
+        ValueError: If `hint` holds a marker but `declaration_from_hint` reads no
+            declaration from it.
+    """
+    if declaration_from_hint(hint) is None and (stray := _markers_in(hint)):
+        raise ValueError(
+            f"{hint!r} carries {stray!r}, which enforce cannot apply: only an "
+            f"Annotated[DataArray, ...] parameter, return, or TypedDict or dataclass "
+            f"field declares anything. For several outputs, return a TypedDict or "
+            f"dataclass."
+        )
 
 
 def _with_fields(result: Any, changes: dict[str, xr.DataArray]) -> Any:
@@ -127,8 +160,9 @@ def enforce(
         The wrapped function, or a decorator when `func` is `None`.
 
     Raises:
-        ValueError: If a keyword or a declaration is malformed, or a `*args` or
-            `**kwargs` parameter carries a declaration (at decoration).
+        ValueError: If a keyword or a declaration is malformed, a `*args` or
+            `**kwargs` parameter carries a declaration, or a hint carries a marker
+            that cannot apply, such as in a tuple or on a `Dataset` (at decoration).
 
     Example:
         >>> from typing import Annotated
@@ -156,6 +190,7 @@ def enforce(
             )
 
     def decorate(fn: Callable[..., Any]) -> Callable[..., Any]:
+        walk_signature(fn, _refuse_stray_markers)
         inputs, output = declarations_from_signature(fn)
         sig = inspect.signature(fn)
         qualname = getattr(fn, "__qualname__", repr(fn))

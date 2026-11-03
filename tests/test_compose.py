@@ -44,14 +44,11 @@ def _da(dims=("time", "x"), dtype="float64", coords=(), unit=None, fill=0.0):
 
 
 #: One hint declaring all three facets at once, aliased so the same declaration can be
-#: reused for a parameter and a return.  (A PEP 695 ``type`` alias would *not* work:
-#: ``get_type_hints`` hands back the alias object, not the ``Annotated`` it wraps, so
-#: no domain's reader would see the markers.)
+#: reused for a parameter and a return.
 Weekly = Annotated[xr.DataArray, Unit("degC"), Dims("time"), Freq("7D")]
 WeeklySun = Annotated[xr.DataArray, Unit("degC"), Dims("time"), Freq("W-SUN")]
 
-#: The lazy counterpart, kept only to pin the caveat documented in
-#: docs/guides/troubleshooting.md.
+#: The lazy counterpart, which `get_type_hints` hands back unresolved.
 type LazyWeekly = Annotated[xr.DataArray, Unit("degC"), Dims("time"), Freq("7D")]
 
 
@@ -220,13 +217,11 @@ class TestComposeAllThreeDomains:
         with pytest.raises(temporal.FreqError, match="expected 'W-SUN', got 'W-WED'"):
             f(_timeseries(unit="degC"))
 
-    def test_pep695_type_alias_hides_every_declaration(self):
-        # Pinned because it is silent: `get_type_hints` returns the lazy alias object
-        # itself, so no reader sees the markers and nothing is validated.  The docs
-        # tell users to alias with `=` instead; this is what happens if they don't.
+    def test_pep695_type_alias_declares_like_an_assignment(self):
         def f(x: LazyWeekly) -> None: ...
+        def g(x: Weekly) -> None: ...
 
-        assert xra.declarations_from_signature(f)[0] == {}
+        assert xra.declarations_from_signature(f) == xra.declarations_from_signature(g)
 
     def test_bare_string_beside_freq_is_a_description(self):
         # A bare string is a description: never a unit, never a frequency.

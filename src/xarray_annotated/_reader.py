@@ -26,6 +26,7 @@ from typing import (
     Any,
     NotRequired,
     Required,
+    TypeAliasType,
     Union,
     get_args,
     get_origin,
@@ -84,7 +85,8 @@ def declaration_from_hint(hint: Any) -> Declared | None:
 
     Reads through a union (`Annotated[DataArray, ...] | None`) and the `TypedDict`
     qualifiers (`NotRequired[Annotated[DataArray, ...]]`, or the other way round), so
-    every way of spelling an optional value declares the same thing.
+    every way of spelling an optional value declares the same thing, and through a
+    `type` alias.
 
     Args:
         hint: A type hint, typically from `get_type_hints(..., include_extras=True)`.
@@ -108,6 +110,8 @@ def declaration_from_hint(hint: Any) -> Declared | None:
         >>> declaration_from_hint(Annotated[xr.DataArray, "surface pressure"]) is None
         True
     """
+    if isinstance(hint, TypeAliasType):
+        return declaration_from_hint(hint.__value__)
     origin = get_origin(hint)
     if origin in _QUALIFIERS:
         return declaration_from_hint(get_args(hint)[0])

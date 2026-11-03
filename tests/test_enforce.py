@@ -9,6 +9,7 @@ surface that is new with it.
 import asyncio
 import inspect
 import typing
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Annotated, TypedDict
 
@@ -352,3 +353,92 @@ class TestVariadics:
             return len(a) + len(k)
 
         assert f(_int_da("Pa"), 1, 2, z="3") == 3
+
+
+_PA = Annotated[xr.DataArray, Unit("Pa")]
+
+type _Alias = _PA
+type _OptionalAlias = _PA | None
+type _StrayAlias = list[_PA]
+
+
+class _Fields(TypedDict):
+    pa: _PA
+
+
+type _FieldsAlias = _Fields
+
+
+class _StrayField(TypedDict):
+    pa: list[_PA]
+
+
+def _annotated(*, param=None, ret=None):
+    def f(x=None):
+        return x
+
+    f.__annotations__ = {"x": param, "return": ret}
+    return f
+
+
+class TestStrayMarkers:
+    """A marker that `enforce` could not apply raises rather than going unchecked."""
+
+    @pytest.mark.parametrize(
+        "hint",
+        [
+            tuple[_PA, _PA],
+            list[_PA],
+            dict[str, _PA],
+            Annotated[xr.Dataset, Unit("Pa")],
+            Annotated[float, Unit("Pa")],
+            Annotated[int, Unit("Pa")] | None,  # pyright: ignore[reportOperatorIssue]
+            Callable[[_PA], _PA],
+            _StrayAlias,
+        ],
+    )
+    @pytest.mark.parametrize("side", ["param", "ret"])
+    def test_raises_at_decoration(self, hint, side):
+        with pytest.raises(ValueError, match="enforce cannot apply"):
+            xra.enforce(_annotated(**{side: hint}))
+
+    def test_raises_on_a_typeddict_field(self):
+        with pytest.raises(ValueError, match="enforce cannot apply") as info:
+            xra.enforce(_annotated(ret=_StrayField))
+        assert "output 'pa'" in info.value.__notes__[-1]
+
+    def test_raises_when_switched_off(self):
+        with (
+            xra.enabled(False),
+            pytest.raises(ValueError, match="enforce cannot apply"),
+        ):
+            xra.enforce(_annotated(ret=list[_PA]))
+
+    @pytest.mark.parametrize(
+        "hint",
+        [xr.DataArray, int, Annotated[xr.DataArray, "Pa"], Annotated[int, "Pa"], _PA],
+    )
+    def test_hints_without_stray_markers_pass(self, hint):
+        xra.enforce(_annotated(param=hint))
+
+    def test_the_readers_still_report_nothing(self):
+        def f(x: tuple[_PA, _PA]): ...
+
+        assert xra.declarations_from_signature(f) == ({}, None)
+
+
+class TestTypeAliases:
+    @pytest.mark.parametrize("hint", [_Alias, _OptionalAlias, _Alias | None])
+    def test_parameter_is_enforced(self, hint):
+        f = xra.enforce(_annotated(param=hint))
+        with pytest.raises(ValueError, match="differs from declared"):
+            f(xr.DataArray([1.0], attrs={"units": "hPa"}))
+
+    def test_return_is_stamped(self):
+        f = xra.enforce(_annotated(ret=_Alias))
+        assert f(xr.DataArray([1.0])).attrs["units"] == "Pa"
+
+    def test_aliased_typeddict_return_is_read_per_field(self):
+        f = xra.enforce(_annotated(ret=_FieldsAlias))
+        out = f({"pa": xr.DataArray([1.0])})
+        assert out["pa"].attrs["units"] == "Pa"

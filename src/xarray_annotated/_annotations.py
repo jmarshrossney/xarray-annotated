@@ -13,6 +13,7 @@ from collections.abc import Callable, Iterable
 from typing import (
     Annotated,
     Any,
+    TypeAliasType,
     Union,
     get_args,
     get_origin,
@@ -124,6 +125,8 @@ def walk_signature[T](
 
     hints = get_type_hints(func, include_extras=True)
     ret = hints.pop("return", None)
+    while isinstance(ret, TypeAliasType):
+        ret = ret.__value__
 
     inputs = {
         name: payload

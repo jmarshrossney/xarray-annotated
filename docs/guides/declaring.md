@@ -40,11 +40,12 @@ def weekly_mean(
 - **Optional values:** `Annotated[xr.DataArray | None, ...]` and `Annotated[xr.DataArray, ...] | None` are equivalent, and a `TypedDict` field may be `NotRequired`.
 - **Other values:** anything that is not a `DataArray` passes through untouched.
 - **One of each:** a second marker of the same kind on one hint raises `ValueError`, so write `Coords("time", "lat")`.
+- **Nowhere else:** a marker `enforce` cannot apply raises `ValueError`, such as inside a `tuple[...]` return or on `Annotated[xr.Dataset, ...]`.
 - **Fail fast:** a malformed declaration (a typo'd unit, an unparseable dtype or frequency) raises `ValueError` when the function is decorated.
 - **Units first:** inputs are converted before their other markers are checked, and output units are applied before theirs, so checks see what the body and the caller see.
 - **Only `Unit` changes an array:** the other markers just check it.
 
-Some hints are silently not declarations; see [Troubleshooting](troubleshooting.md#a-declaration-is-silently-ignored).
+A few hints are silently not declarations; see [Troubleshooting](troubleshooting.md#a-declaration-is-silently-ignored).
 
 ## Units
 
@@ -91,7 +92,7 @@ An axis with fewer than three timestamps or irregular spacing has no inferable f
 
 ## Reusing a declaration
 
-Name a declaration with a plain assignment, never a `type` statement:
+Name a declaration with an assignment or a `type` statement:
 
 ```python
 Pressure = Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x")]
