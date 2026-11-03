@@ -38,7 +38,6 @@ from ._check import (
 from ._config import (
     OnMismatch,
 )
-from ._decorator import declare_schema
 
 __all__ = [
     "Coords",
@@ -50,7 +49,6 @@ __all__ = [
     "annotated_schema",
     "assert_valid_schema",
     "check_schema",
-    "declare_schema",
     "dims_compatible",
     "dtype_compatible",
     "schema_from_signature",

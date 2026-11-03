@@ -16,12 +16,14 @@ Every axis resolves **once per call**, taking the first of:
 
 1. a **per-marker** override — `Dtype("float64", on_mismatch="warn")`,
    `Unit("degC", on_inexact="convert")`;
-2. a **per-function** argument — `@xra.enforce(schema_on_mismatch="warn")`, named
+2. a **per-function** argument — `@xra.enforce(units_on_output="require")`, named
    `<domain>_<axis>`, or the unprefixed keyword passed to a `check_*` primitive;
 3. the built-in default.
 
 The more specific statement wins: a marker override is a claim about *this particular
-declaration*, a keyword about the whole function. Either way, reading the signature and
+declaration*, a keyword about the whole function. Only a few axes have a per-function
+keyword; in particular, a mismatch can only be softened on the marker it applies to, so
+every relaxed contract is stated where it is declared. Either way, reading the signature and
 its decorator tells you how a function validates.
 
 Not every axis is available on a marker. Every units axis and every `on_mismatch` can be;
@@ -96,14 +98,8 @@ tolerance question.
 `SchemaError` is deliberately **not** a `ValueError`, so catching a mismatch never
 accidentally swallows a malformed-declaration `ValueError`.
 
-Per function:
-
-```python
-@xra.enforce(schema_on_mismatch="warn")
-def lenient(x: Annotated[xr.DataArray, Dims("time", "x")]) -> xr.DataArray: ...
-```
-
-Per marker — so a wrong dtype can be a warning while a wrong set of dims stays an error:
+Set it on the marker — so a wrong dtype can be a warning while a wrong set of dims stays
+an error:
 
 ```python
 Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64", on_mismatch="warn")]

@@ -18,7 +18,6 @@ from ._config import (
     OnMissing,
     OnOutput,
 )
-from ._decorator import declare_units
 from ._registry import (
     get_registry,
     set_registry,
@@ -35,7 +34,6 @@ __all__ = [
     "apply_output_units",
     "assert_valid_unit",
     "check_units",
-    "declare_units",
     "get_registry",
     "set_registry",
     "units_compatible",

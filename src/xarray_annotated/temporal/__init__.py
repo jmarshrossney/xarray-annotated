@@ -39,7 +39,6 @@ from ._config import (
     OnMismatch,
     OnUninferable,
 )
-from ._decorator import declare_freq
 
 __all__ = [
     "Freq",
@@ -51,7 +50,6 @@ __all__ = [
     "annotated_freq",
     "assert_valid_freq",
     "check_freq",
-    "declare_freq",
     "freq_compatible",
     "freq_from_signature",
 ]

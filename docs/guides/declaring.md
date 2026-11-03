@@ -34,23 +34,6 @@ marker off the signature and applies each on every call. The structural properti
 over public primitives (`check_schema` / `check_units` / `check_freq`) that you can call
 by hand; see [Reading and writing declarations](tooling.md).
 
-!!! note "Migrating from `declare_units` / `declare_schema` / `declare_freq`"
-
-    The per-domain decorators are deprecated and emit a `DeprecationWarning`. Replace a
-    stack of them with a single `@xra.enforce`, and rename any per-function keywords:
-
-    | before | after |
-    |---|---|
-    | `@declare_units(on_missing=...)` | `@xra.enforce(units_on_missing=...)` |
-    | `@declare_units(on_inexact=...)` | `@xra.enforce(units_on_inexact=...)` |
-    | `@declare_units(on_output=...)` | `@xra.enforce(units_on_output=...)` |
-    | `@declare_schema(on_mismatch=...)` | `@xra.enforce(schema_on_mismatch=...)` |
-    | `@declare_freq(on_mismatch=...)` | `@xra.enforce(temporal_on_mismatch=...)` |
-    | `@declare_freq(on_uninferable=...)` | `@xra.enforce(temporal_on_uninferable=...)` |
-
-    One behaviour differs from the old recommended stacking: an output's structure and
-    frequency are now checked *after* its unit is applied, not before.
-
 **Fail fast at decoration.** The decorator validates the *declarations* when it is
 applied (at import) — a typo'd unit or an unparseable dtype raises immediately, rather
 than only when the function is first called, and regardless of policy.
