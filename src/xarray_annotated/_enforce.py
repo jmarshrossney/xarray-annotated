@@ -92,7 +92,6 @@ def enforce(
     func: Callable[..., Any] | None = None,
     *,
     units_on_missing: _units.OnMissing | None = None,
-    units_on_inexact: _units.OnInexact | None = None,
     units_on_output: _units.OnOutput | None = None,
     temporal_on_uninferable: _temporal.OnUninferable | None = None,
 ) -> Callable[..., Any]:
@@ -125,9 +124,10 @@ def enforce(
 
     Each keyword sets one axis for this function, and is named
     `<domain>_<axis>`.  Per axis, a marker's own override beats the keyword,
-    which beats the built-in default.  Mismatch severity has no keyword: loosen
-    a structural or frequency check on the marker it applies to
-    (`Dims(..., on_mismatch="warn")`).
+    which beats the built-in default.  Mismatch severity and unit conversion
+    have no keyword: loosen a structural or frequency check, or allow a
+    conversion, on the marker it applies to (`Dims(..., on_mismatch="warn")`,
+    `Unit("Pa", convert=True)`).
 
     Usable bare (`@xra.enforce`) or called (`@xra.enforce(units_on_missing=...)`).
 
@@ -135,7 +135,6 @@ def enforce(
         func: The function to decorate (when used bare); `None` when called with
             keyword arguments, in which case a parametrised decorator is returned.
         units_on_missing: Overrides `units` `on_missing`.
-        units_on_inexact: Overrides `units` `on_inexact`.
         units_on_output: Overrides `units` `on_output`.
         temporal_on_uninferable: Overrides `temporal` `on_uninferable`.
 
@@ -152,7 +151,7 @@ def enforce(
         >>> from xarray_annotated import Dims, Unit
         >>> @xra.enforce
         ... def to_pa(
-        ...     p: Annotated[xr.DataArray, Unit("Pa"), Dims("x")],
+        ...     p: Annotated[xr.DataArray, Unit("Pa", convert=True), Dims("x")],
         ... ) -> Annotated[xr.DataArray, Unit("Pa")]:
         ...     return p
         >>> to_pa(xr.DataArray([1.0], dims="x", attrs={"units": "hPa"})).values
@@ -160,7 +159,6 @@ def enforce(
     """
     for keyword, value, allowed in (
         ("units_on_missing", units_on_missing, _units.OnMissing),
-        ("units_on_inexact", units_on_inexact, _units.OnInexact),
         ("units_on_output", units_on_output, _units.OnOutput),
         ("temporal_on_uninferable", temporal_on_uninferable, _temporal.OnUninferable),
     ):
@@ -247,8 +245,7 @@ def enforce(
                             decl.unit,
                             name,
                             units_on_missing,
-                            units_on_inexact,
-                            qualname,
+                            qualname=qualname,
                         )
                         bound.arguments[name] = val
                     if markers := _schema_markers(decl):

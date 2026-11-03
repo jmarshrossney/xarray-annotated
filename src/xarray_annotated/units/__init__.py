@@ -14,7 +14,6 @@ from ._check import (
     units_equal,
 )
 from ._config import (
-    OnInexact,
     OnMissing,
     OnOutput,
 )
@@ -25,7 +24,6 @@ from ._registry import (
 )
 
 __all__ = [
-    "OnInexact",
     "OnMissing",
     "OnOutput",
     "Unit",

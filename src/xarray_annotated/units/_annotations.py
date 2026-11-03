@@ -26,10 +26,9 @@ from .._annotations import (
     walk_signature,
 )
 from ._config import (
-    OnInexact,
     OnMissing,
     OnOutput,
-    _validate_on_inexact,
+    _validate_convert,
     _validate_on_missing,
     _validate_on_output,
 )
@@ -61,49 +60,58 @@ class Unit:
     The unit string is *not* validated here — parsing is deferred to
     `assert_valid_unit` at decoration time, exactly as for the bare-string form.
 
-    Each units axis can be set **for this declaration**, so the intent sits next
-    to the parameter that depends on it::
+    **Conversion is opt-in, per declaration.**  An input in a different but
+    compatible unit (`"hPa"` where `"Pa"` is declared) raises unless the
+    declaration says `convert=True`.  Whether a conversion is *correct* is a
+    property of the quantity, not of the function or the process: kelvin input
+    to a Celsius parameter should convert, but an annual total converted into a
+    daily mean is silently scaled by 365.25::
 
-        tair: Annotated[xr.DataArray, Unit("degC", on_inexact="convert")]
-        total: Annotated[xr.DataArray, Unit("g m-2 yr-1", on_inexact="error")]
+        tair: Annotated[xr.DataArray, Unit("degC", convert=True)]
+        total: Annotated[xr.DataArray, Unit("g m-2 yr-1")]  # refuses g m-2 d-1
 
-    A marker override beats the decorator keyword, which beats the default;
-    switching the package off (`enabled(False)`) still disables everything.
-    `on_missing` and `on_inexact` apply where the marker declares an input,
-    `on_output` where it declares an output; an override that does not apply
-    where the marker sits is ignored, so one marker can be reused on both sides.
+    Equivalent spellings (`"pascal"` for `"Pa"`) never need `convert=True`,
+    since the values do not change.
+
+    The other axes can be set for this declaration too.  A marker override
+    beats the decorator keyword, which beats the default; switching the package
+    off (`enabled(False)`) still disables everything.  `convert` and
+    `on_missing` apply where the marker declares an input, `on_output` where it
+    declares an output; an override that does not apply where the marker sits
+    is ignored, so one marker can be reused on both sides.
 
     Equality and hashing include the overrides, as for every other marker:
-    `Unit("Pa", on_output="strict") != Unit("Pa")`.  To compare only the units,
+    `Unit("Pa", convert=True) != Unit("Pa")`.  To compare only the units,
     compare `.unit`, or use `units_equal` to compare spellings by meaning.
 
     Args:
         unit: The declared unit string.
+        convert: Convert a compatible input into `unit` instead of raising.
         on_missing: Override the on-missing axis for this declaration.
-        on_inexact: Override the on-inexact axis for this declaration.
         on_output: Override the on-output axis for this declaration.
 
     Raises:
+        TypeError: If `convert` is not a bool.
         ValueError: If an override is not a valid value for its axis.
     """
 
     _unit: str
+    _convert: bool
     _on_missing: OnMissing | None
-    _on_inexact: OnInexact | None
     _on_output: OnOutput | None
-    __slots__ = ("_on_inexact", "_on_missing", "_on_output", "_unit")
+    __slots__ = ("_convert", "_on_missing", "_on_output", "_unit")
 
     def __init__(
         self,
         unit: str,
         *,
+        convert: bool = False,
         on_missing: OnMissing | None = None,
-        on_inexact: OnInexact | None = None,
         on_output: OnOutput | None = None,
     ) -> None:
         self._unit = unit
+        self._convert = _validate_convert(convert)
         self._on_missing = _optional(_validate_on_missing, on_missing)
-        self._on_inexact = _optional(_validate_on_inexact, on_inexact)
         self._on_output = _optional(_validate_on_output, on_output)
 
     @property
@@ -117,21 +125,23 @@ class Unit:
         return self._on_missing
 
     @property
-    def on_inexact(self) -> OnInexact | None:
-        """This declaration's on-inexact override, or `None`."""
-        return self._on_inexact
+    def convert(self) -> bool:
+        """Whether this declaration converts a compatible input."""
+        return self._convert
 
     @property
     def on_output(self) -> OnOutput | None:
         """This declaration's on-output override, or `None`."""
         return self._on_output
 
-    def _key(self) -> tuple[str, str | None, str | None, str | None]:
-        return (self._unit, self._on_missing, self._on_inexact, self._on_output)
+    def _key(self) -> tuple[str, bool, str | None, str | None]:
+        return (self._unit, self._convert, self._on_missing, self._on_output)
 
     def __repr__(self) -> str:
         parts = [repr(self._unit)]
-        for axis in ("on_missing", "on_inexact", "on_output"):
+        if self._convert:
+            parts.append("convert=True")
+        for axis in ("on_missing", "on_output"):
             value = getattr(self, f"_{axis}")
             if value is not None:
                 parts.append(f"{axis}={value!r}")

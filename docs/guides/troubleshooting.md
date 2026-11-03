@@ -138,7 +138,7 @@ DimensionalityError: Cannot convert from 'kilogram' ([mass])
   to 'pascal' ([mass] / [length] / [time] ** 2)
 ```
 
-…and setting `on_missing` or `on_inexact` to `"ignore"` doesn't help.
+…and setting `on_missing` to `"ignore"` or `convert=True` doesn't help.
 
 **Cause.** Working as intended. The units policy governs cases where validation is
 *uncertain* — an absent unit, a lossy conversion. A dimensional mismatch is not uncertain:

@@ -5,7 +5,8 @@ signature with `typing.Annotated`, then enforce it automatically with one decora
 `@xra.enforce`. There are five kinds of property, in three groups:
 
 - **structural** — **dims**, **coords**, and **dtype** — checked, never mutated;
-- **physical units** — checked *and converted* (via pint/CF);
+- **physical units** — checked, and converted where the declaration allows (via
+  pint/CF);
 - **temporal frequency** — the spacing *and phase* of a time axis — checked, never
   mutated.
 
@@ -28,8 +29,8 @@ of truth, read once and never written twice.
 **One decorator.** `@xra.enforce` (with `import xarray_annotated as xra`) reads every
 marker off the signature and applies each on every call. The structural properties —
 **dims**, **coords**, and **dtype** — and the time axis's **frequency** are only ever
-*checked* (arrays pass through unchanged); **units** are also *converted* (e.g. `"hPa"` →
-`"Pa"`). Any mix of markers can sit on one hint — see
+*checked* (arrays pass through unchanged); **units** can also be *converted* (e.g.
+`"hPa"` → `"Pa"`) where the declaration opts in with `Unit("Pa", convert=True)`. Any mix of markers can sit on one hint — see
 [Combining multiple checks](#combining-multiple-checks). The decorator is a thin layer
 over public primitives (`check_schema` / `check_units` / `check_freq`) that you can call
 by hand; see [Reading and writing declarations](tooling.md).
@@ -183,12 +184,15 @@ def normalise_pressure(
 ```
 
 On each call, under the [units policy](policy.md#units), `@xra.enforce` validates
-and converts every declared `DataArray` **input**, runs the function, then stamps each
-declared `DataArray` **output** with its unit. A `TypedDict` or `dataclass` return is
-stamped per-field; a bare `Annotated[DataArray, ...]` return takes that unit.
-Non-`DataArray` arguments and returns pass through untouched. The policy can be
-overridden for one declaration on the marker itself — `Unit("degC", on_inexact="convert")`
-— see [Units policy](policy.md#units).
+every declared `DataArray` **input**, runs the function, then stamps each declared
+`DataArray` **output** with its unit. A `TypedDict` or `dataclass` return is stamped
+per-field; a bare `Annotated[DataArray, ...]` return takes that unit. Non-`DataArray`
+arguments and returns pass through untouched.
+
+An input in a compatible but different unit (`"hPa"` where `"Pa"` is declared) raises
+unless the declaration opts into conversion — `Unit("Pa", convert=True)`. Whether a
+conversion is correct depends on the quantity, so the choice sits on the parameter — see
+[Units policy](policy.md#units). The bare-string shorthand cannot opt in.
 
 Inputs and outputs are treated differently, and the difference matters: an input is
 **checked**, an output is **stamped**. The decorator trusts a function to return what it
@@ -239,9 +243,9 @@ A **dimensional** mismatch — `"kg"` where `"Pa"` is declared — always raises
 `pint.DimensionalityError`, regardless of policy. There is no reading of that call under
 which the caller meant what they wrote.
 
-Everything else is negotiable and governed by the [units policy](policy.md#units): a
-compatible-but-different unit is converted (`"hPa"` → `"Pa"`) by default, and a missing or
-unparseable `units` attribute warns.
+Everything else is governed by the [units policy](policy.md#units): a
+compatible-but-different unit (`"hPa"` where `"Pa"` is declared) raises unless the
+declaration says `convert=True`, and a missing or unparseable `units` attribute warns.
 
 ## Frequency
 
@@ -367,7 +371,11 @@ from xarray_annotated import Coords, Dims, Dtype, Unit
 @xra.enforce
 def process(
     x: Annotated[
-        xr.DataArray, Dims("time", "x"), Coords("time"), Dtype("float64"), Unit("degC")
+        xr.DataArray,
+        Dims("time", "x"),
+        Coords("time"),
+        Dtype("float64"),
+        Unit("degC", convert=True),
     ],
 ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("degC")]:
     return x

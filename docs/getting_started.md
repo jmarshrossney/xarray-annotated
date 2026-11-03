@@ -78,7 +78,7 @@ from xarray_annotated import Dims, Unit
 
 @xra.enforce
 def altitude(
-    p: Annotated[xr.DataArray, Dims("time"), Unit("Pa")],
+    p: Annotated[xr.DataArray, Dims("time"), Unit("Pa", convert=True)],
 ) -> Annotated[xr.DataArray, Dims("time"), Unit("m")]:
     """Barometric altitude."""
     return 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
@@ -96,6 +96,7 @@ Attributes:
 
 Now the outputs are physical and carry the correct units attribute.
 The `hPa` input was converted to `Pa` before the body ran, and the result was stamped with the unit the signature promised.
+Conversion is opt-in: without `convert=True` the `hPa` input would have raised, because whether a conversion is correct depends on the quantity, and a compatible unit is not always the right one.
 The docstring no longer needs to say "assumes Pa", because the signature does --- and unlike the docstring, it is actually enforced.
 
 ### The catch

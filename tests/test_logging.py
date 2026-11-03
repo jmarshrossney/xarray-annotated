@@ -1,8 +1,8 @@
 """The audit trail: every non-trivial action is logged.
 
-INFO marks values changed without anyone opting in (a default conversion), or a
-failed or untestable check let through (anything under ``ignore``); DEBUG marks
-chosen or routine actions.
+INFO marks a failed or untestable check let through (anything under
+``ignore``); DEBUG marks chosen or routine actions, including every conversion,
+since conversion is always opted into.
 """
 
 import logging
@@ -37,49 +37,41 @@ def audit(caplog):
 
 
 class TestInputConversion:
-    def test_default_conversion_is_info(self, audit):
-        units.check_units(_da(), "Pa", "p")
-        [(level, msg)] = _records(audit, UNITS)
-        assert level == logging.INFO
-        assert "'hPa' -> 'Pa'" in msg
-        assert "by default" in msg
-
-    def test_marker_chosen_conversion_is_debug(self, audit):
-        units.check_units(_da(), Unit("Pa", on_inexact="convert"), "p")
+    def test_marker_opted_in_conversion_is_debug(self, audit):
+        units.check_units(_da(), Unit("Pa", convert=True), "p")
         [(level, msg)] = _records(audit, UNITS)
         assert level == logging.DEBUG
-        assert "by default" not in msg
+        assert "'hPa' -> 'Pa'" in msg
 
-    def test_argument_chosen_conversion_is_debug(self, audit):
-        units.check_units(_da(), "Pa", "p", on_inexact="convert")
+    def test_argument_opted_in_conversion_is_debug(self, audit):
+        units.check_units(_da(), "Pa", "p", convert=True)
         [(level, _)] = _records(audit, UNITS)
         assert level == logging.DEBUG
 
-    def test_keyword_chosen_conversion_is_debug(self, audit):
-        @xra.enforce(units_on_inexact="warn")
-        def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
+    def test_conversion_through_enforce_is_debug(self, audit):
+        @xra.enforce
+        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)]): ...
 
-        with pytest.warns(units.UnitsWarning):
-            f(_da())
+        f(_da())
         [(level, _)] = _records(audit, UNITS)
         assert level == logging.DEBUG
 
     def test_quantified_input_conversion_is_logged(self, audit):
-        units.check_units(_da().pint.quantify(), "Pa", "p")
+        units.check_units(_da().pint.quantify(), "Pa", "p", convert=True)
         [(level, _)] = _records(audit, UNITS)
-        assert level == logging.INFO
+        assert level == logging.DEBUG
 
     def test_same_unit_respelling_is_not_logged(self, audit):
         units.check_units(_da("pascal"), "Pa", "p")
         assert _records(audit, UNITS) == []
 
     def test_refused_conversion_is_not_logged(self, audit):
-        with pytest.raises(ValueError, match="on_inexact='error'"):
-            units.check_units(_da(), "Pa", "p", on_inexact="error")
+        with pytest.raises(ValueError, match="convert=True"):
+            units.check_units(_da(), "Pa", "p")
         assert _records(audit, UNITS) == []
 
     def test_message_carries_qualname(self, audit):
-        units.check_units(_da(), "Pa", "p", qualname="mod.f")
+        units.check_units(_da(), "Pa", "p", convert=True, qualname="mod.f")
         [(_, msg)] = _records(audit, UNITS)
         assert msg.startswith("[mod.f] input 'p'")
 
@@ -156,12 +148,12 @@ class TestIgnoredMismatches:
 class TestQuietByDefault:
     def test_nothing_reaches_a_warning_level_handler(self, caplog):
         caplog.set_level(logging.WARNING, logger="xarray_annotated")
-        units.check_units(_da(), "Pa", "p")
+        units.check_units(_da(), "Pa", "p", convert=True)
         units.apply_output_units(_da(), "Pa", "return")
         assert caplog.records == []
 
     def test_switched_off_logs_nothing(self, audit):
         with xra.enabled(False):
-            units.check_units(_da(), "Pa", "p")
+            units.check_units(_da(), "Pa", "p", convert=True)
             schema.check_schema(_da(), Dims("time"), "p", on_mismatch="ignore")
         assert audit.records == []

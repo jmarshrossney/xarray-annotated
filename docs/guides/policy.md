@@ -15,7 +15,7 @@ check. The one global is the switch that turns the package [off](#enabled).
 Every axis resolves **once per call**, taking the first of:
 
 1. a **per-marker** override — `Dtype("float64", on_mismatch="warn")`,
-   `Unit("degC", on_inexact="convert")`;
+   `Unit("degC", convert=True)`;
 2. a **per-function** argument — `@xra.enforce(units_on_output="require")`, named
    `<domain>_<axis>`, or the unprefixed keyword passed to a `check_*` primitive;
 3. the built-in default.
@@ -36,7 +36,7 @@ The defaults are chosen to be right for most code:
 |----------|------------------|-----------|
 | schema   | `on_mismatch`    | `error`   |
 | units    | `on_missing`     | `warn`    |
-| units    | `on_inexact`     | `convert` |
+| units    | `convert`        | `False`   |
 | units    | `on_output`      | `stamp`   |
 | temporal | `on_mismatch`    | `error`   |
 | temporal | `on_uninferable` | `warn`    |
@@ -108,35 +108,33 @@ Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64", on_mismatch="warn")]
 
 ## Units policy { #units }
 
-Three axes. Note that **dimensional** mismatches (e.g.
-`"kg"` where `"Pa"` is declared) are not governed by any of them — they always raise
-`pint.DimensionalityError`.
+Inputs have one axis, `on_missing`, plus an opt-in to conversion; outputs have one axis,
+`on_output`. **Dimensional** mismatches (e.g. `"kg"` where `"Pa"` is declared) are not
+governed by any of them — they always raise `pint.DimensionalityError`.
 
-Each may be set per function:
+### `convert` — value-changing conversion is opt-in { #units-convert }
 
-```python
-@xra.enforce(units_on_missing="error", units_on_inexact="error")
-def strict_node(x: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray: ...
-```
-
-or per declaration, on the `Unit` marker. Whether a conversion is *correct* is usually a
-property of the parameter rather than of the function, and one function can want both
-answers. Here the respiration term is written for Celsius, so kelvin input must convert;
-an annual total is dimensionally compatible with a daily mean, so converting one into the
-other would silently scale it by 365.25 and must be refused:
+An input whose unit is compatible with the declaration but *not identical* — any
+conversion that would change the values, including affine ones like `"K"` → `"degC"` —
+raises `ValueError` unless the declaration opts in:
 
 ```python
 @xra.enforce
 def partition(
-    tair: Annotated[xr.DataArray, Unit("degC", on_inexact="convert")],
-    total: Annotated[xr.DataArray, Unit("g m-2 yr-1", on_inexact="error")],
+    tair: Annotated[xr.DataArray, Unit("degC", convert=True)],
+    total: Annotated[xr.DataArray, Unit("g m-2 yr-1")],
 ) -> xr.DataArray: ...
 ```
 
-A marker override beats the `enforce` keyword, so the behaviour of `partition` is stated
-next to each parameter it applies to. `on_missing`
-and `on_inexact` apply where the marker declares an input and `on_output` where it declares
-an output; an override that doesn't apply where the marker sits is ignored.
+Whether a conversion is *correct* is a property of the quantity, not of the function or
+the process, and one function can want both answers. Here the respiration term is written
+for Celsius, so kelvin input should convert. An annual total is dimensionally compatible
+with a daily mean, but converting one into the other would silently scale it by 365.25,
+so it is refused.
+
+Equivalent spellings of the same unit (`"pascal"` for `"Pa"`) imply no value change and
+are always accepted. `convert` has no per-function keyword, and the bare-string shorthand
+cannot opt in. Every conversion is [logged](#auditing) at `DEBUG`.
 
 ### `on_missing` — no parseable unit to check against { #units-on_missing }
 
@@ -148,30 +146,12 @@ Governs only the "can't validate" cases: a missing or unparseable `units` attrib
 | `warn`       | emits `UnitsWarning`, returns input unchanged | always raises        |
 | `ignore`     | silently returns input unchanged              | always raises        |
 
-The default is `warn`.
-
-### `on_inexact` — value-changing conversion { #units-on_inexact }
-
-By default (`convert`), a dimensionally compatible unit is converted without a warning
-(`"hPa"` → `"Pa"`), though it is [logged](#auditing). `on_inexact` controls what happens when the actual unit is compatible
-with the declared one but *not identical* — any conversion that would change the values,
-including affine ones like `"K"` → `"degC"`:
-
-| `on_inexact` | value-changing conversion                 |
-|--------------|-------------------------------------------|
-| `convert`    | performs the conversion (logged)          |
-| `warn`       | converts, but emits `UnitsWarning`        |
-| `error`      | raises `ValueError` instead of converting |
-
-Equivalent spellings of the same unit (`"pascal"` for `"Pa"`) imply no value change and
-always convert. `error` is useful when implicit conversion would hide a likely mistake
-upstream, and you'd rather the caller fix the unit at the source.
-
-The default is `convert`.
+The default is `warn`. Set it on the marker, `Unit("Pa", on_missing="error")`, or for a
+whole function with `@xra.enforce(units_on_missing="error")`.
 
 ### `on_output` — trusting a declared return value { #units-on_output }
 
-The two axes above govern **inputs**. Outputs are treated differently: `@xra.enforce`
+The settings above govern **inputs**. Outputs are treated differently: `@xra.enforce`
 *stamps* a declared return — it overwrites `attrs["units"]` with the declared unit —
 rather than checking it.
 
@@ -328,26 +308,22 @@ logging.basicConfig()
 logging.getLogger("xarray_annotated").setLevel(logging.DEBUG)
 ```
 
-`INFO` is what an audit is usually looking for: values changed without anyone opting in,
-or a check that failed or could not run being let through. An `"ignore"` is always chosen,
-but a contract that went unchecked is still worth seeing. `DEBUG` adds chosen or routine
-actions.
+`INFO` is what an audit is usually looking for: a check that failed or could not run
+being let through. An `"ignore"` is always chosen, but a contract that went unchecked is
+still worth seeing. `DEBUG` adds chosen or routine actions, including every conversion,
+since conversion is always opted into.
 
 | Event                                                              | Level   |
 |--------------------------------------------------------------------|---------|
-| value-changing input conversion under the default `on_inexact`     | `INFO`  |
-| value-changing input conversion chosen by a marker or keyword      | `DEBUG` |
 | input passed unvalidated under `on_missing="ignore"`               | `INFO`  |
 | schema or frequency mismatch passed under `"ignore"`               | `INFO`  |
+| input converted under `convert=True`                               | `DEBUG` |
 | output stamped over a different label                              | `DEBUG` |
 | quantified output converted to its declaration                     | `DEBUG` |
 
 Same-unit respellings (`"pascal"` → `"Pa"`) are not logged, and nothing is logged when the
 package is switched off. Unlike a warning, a log record is emitted on every call rather
 than once per call site, so a conversion inside a loop shows up every time.
-
-Logging reports conversions; it does not refuse them. A conversion that must not happen is
-declared with `on_inexact="error"` on the marker.
 
 
 ## Not a policy: the unit registry

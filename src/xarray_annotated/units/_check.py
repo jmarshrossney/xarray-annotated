@@ -6,11 +6,10 @@ actual `DataArray` against it and convert it into the declared unit. Conversion
 is delegated to pint-xarray's `.pint` accessor via the active registry.
 
 Every non-trivial action is logged to the `xarray_annotated.units` logger.
-INFO marks values changed without anyone opting in (a conversion under the
-default `on_inexact`) or a check that could not run being let through (an input
-passed unvalidated under `on_missing="ignore"`).  DEBUG marks chosen or routine
-actions: a conversion chosen by a marker or keyword, an output stamped over a
-different label, a converted quantified output.
+INFO marks a check that could not run being let through (an input passed
+unvalidated under `on_missing="ignore"`).  DEBUG marks chosen or routine
+actions: an opted-in input conversion, an output stamped over a different
+label, a converted quantified output.
 """
 
 import logging
@@ -25,13 +24,11 @@ from pint_xarray.errors import PintExceptionGroup
 from .._config import resolve_enabled
 from ._annotations import Unit
 from ._config import (
-    DEFAULT_ON_INEXACT,
     DEFAULT_ON_MISSING,
     DEFAULT_ON_OUTPUT,
-    OnInexact,
     OnMissing,
     OnOutput,
-    _validate_on_inexact,
+    _validate_convert,
     _validate_on_missing,
     _validate_on_output,
 )
@@ -81,9 +78,8 @@ class UnitsWarning(UserWarning):
     """Emitted when a DataArray input cannot be fully unit-validated.
 
     Raised by `check_units` when an input has a missing or unparseable `units`
-    attribute and `on_missing` is `"warn"`, or when a value-changing conversion
-    happens under `on_inexact="warn"`.  Subclasses `UserWarning` so callers can
-    target it specifically.
+    attribute and `on_missing` is `"warn"`.  Subclasses `UserWarning` so callers
+    can target it specifically.
 
     Example:
         >>> import warnings
@@ -202,9 +198,10 @@ def units_equal(a: str | Unit, b: str | Unit) -> bool:
 
     Compares the parsed units, so different spellings of the same unit are equal
     (`"Pa"` == `"pascal"`, `"1"` == `"dimensionless"`) while a prefixed unit
-    differs (`"hPa"` != `"Pa"`).  This is the distinction the `on_inexact`
-    axis turns on: a value-changing conversion is one where the units are
-    compatible but *not* equal; equivalent spellings imply no value change.
+    differs (`"hPa"` != `"Pa"`).  This is the distinction `convert` turns
+    on: a value-changing conversion is one where the units are compatible but
+    *not* equal, and needs opting into; equivalent spellings imply no value
+    change.
 
     Accepts either a bare unit string or a `Unit` marker on each side (its
     `.unit` string is used), matching `units_compatible`.
@@ -235,7 +232,7 @@ def check_units(
     declared: str | Unit,
     name: str,
     on_missing: OnMissing | None = None,
-    on_inexact: OnInexact | None = None,
+    convert: bool = False,
     qualname: str | None = None,
 ) -> xr.DataArray:
     """Validate and convert an input `DataArray` to its declared unit.
@@ -243,10 +240,11 @@ def check_units(
     Returns a `DataArray` whose data is expressed in `declared` and whose
     `units` attribute equals `declared`.
 
-    `on_missing` and `on_inexact` set their axes for this call when given (`None`
-    takes the default).  When `declared` is a `Unit` marker, its own overrides
-    win over both.  When xarray-annotated is switched off (`enabled(False)`)
-    the array is returned unchanged.
+    `on_missing` sets its axis for this call when given (`None` takes the
+    default); a `Unit` marker's own override wins.  A value-changing conversion
+    happens only when opted into, by `convert=True` here or on the marker.
+    When xarray-annotated is switched off (`enabled(False)`) the array is
+    returned unchanged.
 
     Three events are handled, each building on the one before:
 
@@ -256,23 +254,23 @@ def check_units(
       `"ignore"` returns unchanged silently).
     * **Value-changing conversion** — the unit is dimensionally compatible with
       `declared` but not the same unit (e.g. `"hPa"` where `"Pa"` is
-      declared): follows `on_inexact` (`"error"` raises, `"warn"` warns then
-      converts, `"convert"` converts silently).  Equivalent spellings
+      declared): converted when opted into, otherwise raises `ValueError`.
+      Equivalent spellings
       (`"pascal"` for `"Pa"`) imply no value change and are simply relabelled,
       without touching the data.
     * **Dimensional mismatch** — two parseable but incompatible units (e.g. a
       mass where a pressure is declared): always raises
-      `pint.DimensionalityError`, whatever `on_missing` / `on_inexact` say.
+      `pint.DimensionalityError`, whatever `on_missing` / `convert` say.
 
     Args:
         da: The input `DataArray` to validate and convert.
         declared: The expected unit string (e.g. `"Pa"`), or a `Unit` marker,
-            whose `on_missing` / `on_inexact` overrides then apply.
+            whose `convert` / `on_missing` then apply.
         name: A label for the array, used in error/warning messages.
         on_missing: Set the on-missing axis for this call (`None` takes the
             default, `"warn"`); a marker's own override wins.
-        on_inexact: Set the on-inexact axis for this call (`None` takes the
-            default, `"convert"`); a marker's own override wins.
+        convert: Convert a compatible input into `declared` instead of
+            raising; conversion happens if this or the marker opts in.
         qualname: A qualifier prepended to warning messages as `[qualname]`,
             identifying the calling site.
 
@@ -284,7 +282,7 @@ def check_units(
 
     Raises:
         ValueError: When `on_missing="error"` and no parseable unit is found,
-            or when `on_inexact="error"` and a value-changing conversion would occur.
+            or when a value-changing conversion would occur without `convert`.
         pint.DimensionalityError: When the actual unit is dimensionally
             incompatible with `declared` (always, whatever the axes say).
 
@@ -292,7 +290,7 @@ def check_units(
         >>> import numpy as np, xarray as xr
         >>> from xarray_annotated.units import check_units
         >>> da = xr.DataArray([1013.0, 1000.0], attrs={"units": "hPa"})
-        >>> out = check_units(da, "Pa", "pressure")
+        >>> out = check_units(da, "Pa", "pressure", convert=True)
         >>> out.attrs["units"]
         'Pa'
         >>> out.values  # 10 * 100 = 1000
@@ -307,17 +305,7 @@ def check_units(
         _validate_on_missing,
         DEFAULT_ON_MISSING,
     )
-    # A conversion nobody chose is what an audit looks for, so remember whether
-    # the axis was set at all before resolving it.
-    inexact_chosen = on_inexact is not None or (
-        marker is not None and marker.on_inexact is not None
-    )
-    on_inexact = _resolve_axis(
-        marker.on_inexact if marker else None,
-        on_inexact,
-        _validate_on_inexact,
-        DEFAULT_ON_INEXACT,
-    )
+    convert = _validate_convert(convert) or (marker is not None and marker.convert)
     declared = str(declared)
 
     prefix = f"[{qualname}] " if qualname else ""
@@ -425,28 +413,22 @@ def check_units(
         relabelled.attrs["units"] = declared
         return relabelled
     if units_compatible(have, declared) and not units_equal(have, declared):
-        # Dimensionally compatible but value-changing (e.g. hPa -> Pa).
-        if on_inexact == "error":
+        # Dimensionally compatible but value-changing (e.g. hPa -> Pa).  Whether
+        # that is correct depends on the quantity (an annual total is not a daily
+        # mean), so it is only done when the declaration opts in.
+        if not convert:
             raise ValueError(
                 f"{prefix}input {name!r}: unit {have!r} differs from declared "
-                f"{declared!r} and on_inexact='error' forbids value-changing conversion"
+                f"{declared!r}. Converting would change the values; if that is "
+                f"correct for this quantity, declare "
+                f"Unit({declared!r}, convert=True)."
             )
-        if on_inexact == "warn":
-            warnings.warn(
-                f"{prefix}input {name!r}: converting {have!r} -> {declared!r} "
-                f"(value-changing)",
-                UnitsWarning,
-                stacklevel=2,
-            )
-        _log.log(
-            logging.DEBUG if inexact_chosen else logging.INFO,
-            "%sinput %r: converting %r -> %r (value-changing, on_inexact=%r%s)",
+        _log.debug(
+            "%sinput %r: converting %r -> %r (value-changing, convert=True)",
             prefix,
             name,
             have,
             declared,
-            on_inexact,
-            "" if inexact_chosen else " by default",
         )
     try:
         # quantify() is not a no-op on already-quantified data -- it raises when

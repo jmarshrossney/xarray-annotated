@@ -78,7 +78,7 @@ def enabled(value: bool) -> Generator[None]:
         >>> import xarray as xr
         >>> import xarray_annotated as xra
         >>> @xra.enforce
-        ... def to_pa(p: Annotated[xr.DataArray, xra.Unit("Pa")]):
+        ... def to_pa(p: Annotated[xr.DataArray, xra.Unit("Pa", convert=True)]):
         ...     return p
         >>> hpa = xr.DataArray([1.0], attrs={"units": "hPa"})
         >>> to_pa(hpa).values

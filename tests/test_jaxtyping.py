@@ -100,7 +100,7 @@ class TestDecorators:
     def test_units_are_converted(self):
         @xra.enforce
         def f(
-            x: Annotated[FloatDA, Unit("Pa")],
+            x: Annotated[FloatDA, Unit("Pa", convert=True)],
         ) -> Annotated[FloatDA, Unit("Pa")]:
             return x
 
@@ -140,7 +140,7 @@ class TestFullStack:
         @jaxtyping.jaxtyped(typechecker=beartype)
         @xra.enforce
         def f(
-            x: Annotated[FloatDA, Unit("Pa"), Dims("time", "x")],
+            x: Annotated[FloatDA, Unit("Pa", convert=True), Dims("time", "x")],
             y: Annotated[FloatDA, Unit("Pa"), Dims("time", "x")],
         ) -> Annotated[FloatDA, Unit("Pa")]:
             return x + y

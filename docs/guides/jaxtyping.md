@@ -44,8 +44,8 @@ Pressure = Float[xr.DataArray, "time x"]
 @jaxtyped(typechecker=beartype)
 @xra.enforce
 def total(
-    p: Annotated[Pressure, Unit("Pa"), Dims("time", "x")],
-    q: Annotated[Pressure, Unit("Pa"), Dims("time", "x")],
+    p: Annotated[Pressure, Unit("Pa", convert=True), Dims("time", "x")],
+    q: Annotated[Pressure, Unit("Pa", convert=True), Dims("time", "x")],
 ) -> Annotated[Pressure, Unit("Pa")]:
     return p + q
 ```

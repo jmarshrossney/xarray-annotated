@@ -37,7 +37,7 @@ class TestOrdering:
     def test_input_units_converted_before_schema_check(self):
         # An int64 hPa array converts to float64 Pa; Dtype must see the result.
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa"), Dtype("float64")]):
+        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True), Dtype("float64")]):
             return p
 
         out = f(_int_da())
@@ -105,7 +105,6 @@ class TestKeywords:
         "kwarg",
         [
             "units_on_missing",
-            "units_on_inexact",
             "units_on_output",
             "temporal_on_uninferable",
         ],
@@ -191,14 +190,14 @@ class TestWrapper:
 
     def test_non_dataarray_arguments_untouched(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa")], n: int = 3) -> int:
+        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)], n: int = 3) -> int:
             return n
 
         assert f(_int_da(), n=5) == 5
 
     def test_dimensional_mismatch_always_raises(self):
-        @xra.enforce(units_on_inexact="warn", units_on_missing="ignore")
-        def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
+        @xra.enforce(units_on_missing="ignore")
+        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)]): ...
 
         with pytest.raises(pint.DimensionalityError):
             f(_int_da(unit="kg"))
