@@ -1,14 +1,15 @@
 """The audit trail: every non-trivial action is logged.
 
-INFO marks values changed without anyone opting in (a default conversion), or a
-failed or untestable check let through (anything under ``ignore``); DEBUG marks
-chosen or routine actions.
+INFO marks a failed or untestable check let through (a schema or frequency
+check under ``ignore``, or an output unit that could not be checked); DEBUG marks chosen or routine actions, including every
+conversion, since conversion is always opted into.
 """
 
 import logging
 from typing import Annotated
 
 import numpy as np
+import pint
 import pint_xarray  # noqa: F401  (registers the .pint accessor)
 import pytest
 import xarray as xr
@@ -37,71 +38,45 @@ def audit(caplog):
 
 
 class TestInputConversion:
-    def test_default_conversion_is_info(self, audit):
-        units.check_units(_da(), "Pa", "p")
+    def test_marker_opted_in_conversion_is_debug(self, audit):
+        units.check_units(_da(), Unit("Pa", convert=True), "p")
         [(level, msg)] = _records(audit, UNITS)
-        assert level == logging.INFO
+        assert level == logging.DEBUG
         assert "'hPa' -> 'Pa'" in msg
-        assert "by default" in msg
 
-    def test_marker_chosen_conversion_is_debug(self, audit):
-        units.check_units(_da(), Unit("Pa", on_inexact="convert"), "p")
-        [(level, msg)] = _records(audit, UNITS)
-        assert level == logging.DEBUG
-        assert "by default" not in msg
+    def test_conversion_through_enforce_is_debug(self, audit):
+        @xra.enforce
+        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)]): ...
 
-    def test_argument_chosen_conversion_is_debug(self, audit):
-        units.check_units(_da(), "Pa", "p", on_inexact="convert")
-        [(level, _)] = _records(audit, UNITS)
-        assert level == logging.DEBUG
-
-    def test_keyword_chosen_conversion_is_debug(self, audit):
-        @xra.enforce(units_on_inexact="warn")
-        def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
-
-        with pytest.warns(units.UnitsWarning):
-            f(_da())
+        f(_da())
         [(level, _)] = _records(audit, UNITS)
         assert level == logging.DEBUG
 
     def test_quantified_input_conversion_is_logged(self, audit):
-        units.check_units(_da().pint.quantify(), "Pa", "p")
+        units.check_units(_da().pint.quantify(), Unit("Pa", convert=True), "p")
         [(level, _)] = _records(audit, UNITS)
-        assert level == logging.INFO
+        assert level == logging.DEBUG
 
     def test_same_unit_respelling_is_not_logged(self, audit):
         units.check_units(_da("pascal"), "Pa", "p")
         assert _records(audit, UNITS) == []
 
     def test_refused_conversion_is_not_logged(self, audit):
-        with pytest.raises(ValueError, match="on_inexact='error'"):
-            units.check_units(_da(), "Pa", "p", on_inexact="error")
+        with pytest.raises(ValueError, match="convert=True"):
+            units.check_units(_da(), "Pa", "p")
         assert _records(audit, UNITS) == []
 
     def test_message_carries_qualname(self, audit):
-        units.check_units(_da(), "Pa", "p", qualname="mod.f")
+        units.check_units(_da(), Unit("Pa", convert=True), "p", qualname="mod.f")
         [(_, msg)] = _records(audit, UNITS)
         assert msg.startswith("[mod.f] input 'p'")
 
 
-class TestIgnoredInputs:
-    @pytest.mark.parametrize(
-        ("unit", "fragment"),
-        [
-            (None, "no 'units' attribute"),
-            ("x" * 300, "over-long"),
-            ("not_a_unit", "unparseable"),
-        ],
-    )
-    def test_ignore_is_info(self, audit, unit, fragment):
-        units.check_units(_da(unit), "Pa", "p", on_missing="ignore")
-        [(level, msg)] = _records(audit, UNITS)
-        assert level == logging.INFO
-        assert fragment in msg
-
-    def test_warn_is_not_also_logged(self, audit):
-        with pytest.warns(units.UnitsWarning):
-            units.check_units(_da(None), "Pa", "p")
+class TestUnreadableInputs:
+    @pytest.mark.parametrize("unit", [None, "x" * 300, "not_a_unit"])
+    def test_refused_not_logged(self, audit, unit):
+        with pytest.raises(ValueError, match="'units' attribute"):
+            units.check_units(_da(unit), "Pa", "p")
         assert _records(audit, UNITS) == []
 
 
@@ -128,6 +103,30 @@ class TestOutputs:
         [(level, msg)] = _records(audit, UNITS)
         assert level == logging.DEBUG
         assert "quantified 'hPa' -> declared 'Pa'" in msg
+
+    @pytest.mark.parametrize("on_output", ["stamp", "strict"])
+    def test_quantified_output_in_a_foreign_unit_is_info(self, audit, on_output):
+        foreign = pint.UnitRegistry(force_ndarray_like=True)
+        foreign.define("widget = [thing]")
+        da = _da(None).pint.quantify("widget", unit_registry=foreign)
+        assert units.apply_output_units(da, "Pa", "return", on_output) is da
+        [(level, msg)] = _records(audit, UNITS)
+        assert level == logging.INFO
+        assert "'widget'" in msg
+        assert "unchecked" in msg
+
+    @pytest.mark.parametrize("label", ["not_a_unit", "e" * 300])
+    def test_strict_over_unverifiable_label_is_info(self, audit, label):
+        out = units.apply_output_units(_da(label), "Pa", "return", "strict")
+        assert out.attrs["units"] == "Pa"
+        [(level, msg)] = _records(audit, UNITS)
+        assert level == logging.INFO
+        assert "stamped unchecked" in msg
+        assert "e" * 300 not in msg
+
+    def test_strict_over_no_label_is_not_logged(self, audit):
+        units.apply_output_units(_da(None), "Pa", "return", "strict")
+        assert _records(audit, UNITS) == []
 
 
 class TestIgnoredMismatches:
@@ -156,12 +155,12 @@ class TestIgnoredMismatches:
 class TestQuietByDefault:
     def test_nothing_reaches_a_warning_level_handler(self, caplog):
         caplog.set_level(logging.WARNING, logger="xarray_annotated")
-        units.check_units(_da(), "Pa", "p")
+        units.check_units(_da(), Unit("Pa", convert=True), "p")
         units.apply_output_units(_da(), "Pa", "return")
         assert caplog.records == []
 
     def test_switched_off_logs_nothing(self, audit):
         with xra.enabled(False):
-            units.check_units(_da(), "Pa", "p")
+            units.check_units(_da(), Unit("Pa", convert=True), "p")
             schema.check_schema(_da(), Dims("time"), "p", on_mismatch="ignore")
         assert audit.records == []

@@ -9,7 +9,7 @@
 `xarray-annotated` checks `xarray.DataArray` arguments and return values against properties declared in the function signature with [`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated):
 
 - **structure**: dimensions, coordinates and dtype;
-- **physical units**, converting inputs to the declared unit where needed;
+- **physical units**, converting inputs to the declared unit where the declaration allows it;
 - **time frequency** and phase.
 
 Making signatures the single source of truth has several advantages: the same declaration
@@ -18,7 +18,7 @@ Making signatures the single source of truth has several advantages: the same de
 - appears in generated documentation without needing to be hand-written;
 - provides rich context for AI coding agents.
 
-For validating and automatically converting physical units we lean on the excellent [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io).
+For validating and converting physical units we lean on the excellent [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io).
 ([cf-xarray](https://cf-xarray.readthedocs.io) is an optional dependency for CF/UDUNITS unit strings.)
 
 For full user documentation please visit **[https://jmarshrossney.github.io/xarray-annotated/](https://jmarshrossney.github.io/xarray-annotated/)**.
@@ -80,7 +80,7 @@ from xarray_annotated import Dims, Unit
 
 @xra.enforce
 def altitude(
-    p: Annotated[xr.DataArray, Dims("time"), Unit("Pa")],
+    p: Annotated[xr.DataArray, Dims("time"), Unit("Pa", convert=True)],
 ) -> Annotated[xr.DataArray, Dims("time"), Unit("m")]:
     """Barometric altitude."""
     return 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
@@ -99,6 +99,7 @@ Attributes:
 
 Now the outputs are physical and carry the correct units attribute.
 The `hPa` input was converted to `Pa` before the body ran, and the result was stamped with the unit the signature promised.
+Conversion is opt-in: without `convert=True` the `hPa` input would have raised, because whether a conversion is correct depends on the quantity, and a compatible unit is not always the right one.
 The docstring no longer needs to say "assumes Pa", because the signature does --- and unlike the docstring, it is actually enforced.
 
 If we had handed the function an array whose units were _dimensionally_ wrong, or with an extra dimension, this would have failed gracefully:

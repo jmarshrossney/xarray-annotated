@@ -117,7 +117,7 @@ class TestComposeDecorators:
         # recommended form: the Unit marker alongside a schema marker
         @xra.enforce
         def f(
-            x: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")],
+            x: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa", convert=True)],
         ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
             return x
 
@@ -133,9 +133,13 @@ class TestComposeDecorators:
         ) -> Annotated[xr.DataArray, Dims("time", "x"), "Pa"]:
             return x
 
-        out = f(_da(("time", "x"), unit="hPa", fill=10.0))
+        # The shorthand cannot opt into conversion, so only a same-unit spelling
+        # passes; it is relabelled with the values untouched.
+        out = f(_da(("time", "x"), unit="pascal", fill=10.0))
         assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, np.full(out.shape, 1000.0))
+        np.testing.assert_allclose(out.values, np.full(out.shape, 10.0))
+        with pytest.raises(ValueError, match="convert=True"):
+            f(_da(("time", "x"), unit="hPa", fill=10.0))
 
     def test_dims_mismatch_raises_with_valid_units(self):
         @xra.enforce
@@ -163,7 +167,7 @@ class TestComposeDecorators:
                 Dims("time", "x"),
                 Coords("time"),
                 Dtype("float64"),
-                Unit("Pa"),
+                Unit("Pa", convert=True),
             ],
         ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
             return x
@@ -237,7 +241,7 @@ class TestComposeAllThreeDomains:
     def test_units_convert_before_freq_check(self):
         @xra.enforce
         def f(
-            x: Annotated[xr.DataArray, Unit("Pa"), Freq("7D")],
+            x: Annotated[xr.DataArray, Unit("Pa", convert=True), Freq("7D")],
         ) -> Annotated[xr.DataArray, Unit("Pa"), Freq("7D")]:
             return x
 

@@ -1,6 +1,6 @@
 """The package-wide master switch, the only global setting.
 
-Behaviour (`on_missing`, `on_mismatch`, ...) is declared on markers or passed to
+Behaviour (`convert`, `on_mismatch`, ...) is declared on markers or passed to
 `enforce` / the `check_*` primitives, never configured globally, so that how a
 function validates can be read off its signature.  What remains global is
 whether xarray-annotated does anything at all.
@@ -78,7 +78,7 @@ def enabled(value: bool) -> Generator[None]:
         >>> import xarray as xr
         >>> import xarray_annotated as xra
         >>> @xra.enforce
-        ... def to_pa(p: Annotated[xr.DataArray, xra.Unit("Pa")]):
+        ... def to_pa(p: Annotated[xr.DataArray, xra.Unit("Pa", convert=True)]):
         ...     return p
         >>> hpa = xr.DataArray([1.0], attrs={"units": "hPa"})
         >>> to_pa(hpa).values

@@ -37,7 +37,7 @@ class TestOrdering:
     def test_input_units_converted_before_schema_check(self):
         # An int64 hPa array converts to float64 Pa; Dtype must see the result.
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa"), Dtype("float64")]):
+        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True), Dtype("float64")]):
             return p
 
         out = f(_int_da())
@@ -104,11 +104,7 @@ class TestKeywords:
     @pytest.mark.parametrize(
         "kwarg",
         [
-            "units_on_missing",
-            "units_on_inexact",
             "units_on_output",
-            "schema_on_mismatch",
-            "temporal_on_mismatch",
             "temporal_on_uninferable",
         ],
     )
@@ -116,39 +112,32 @@ class TestKeywords:
         with pytest.raises(ValueError, match=f"^Invalid {kwarg} 'bogus'"):
             xra.enforce(**{kwarg: "bogus"})  # type: ignore[arg-type]
 
-    def test_units_on_missing_overrides_default(self):
-        @xra.enforce(units_on_missing="error")
+    def test_missing_unit_raises(self):
+        @xra.enforce
         def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
 
         with pytest.raises(ValueError, match="no 'units' attribute"):
             f(_int_da(unit=None))
 
-    def test_schema_on_mismatch_overrides_default(self):
-        @xra.enforce(schema_on_mismatch="warn")
-        def f(p: Annotated[xr.DataArray, Dims("x")]): ...
+    @pytest.mark.parametrize("kwarg", ["schema_on_mismatch", "temporal_on_mismatch"])
+    def test_mismatch_severity_has_no_keyword(self, kwarg):
+        # Loosening a check is stated on the marker it applies to.
+        with pytest.raises(TypeError, match=kwarg):
+            xra.enforce(**{kwarg: "warn"})  # type: ignore[call-arg]
 
-        with pytest.warns(schema.SchemaWarning):
-            f(_int_da())
-
-    def test_marker_override_beats_keyword(self):
-        @xra.enforce(schema_on_mismatch="error")
-        def f(p: Annotated[xr.DataArray, Dims("x", on_mismatch="ignore")]): ...
-
-        f(_int_da())  # marker says ignore
-
-    def test_temporal_keywords_override_policy(self):
-        @xra.enforce(temporal_on_mismatch="warn", temporal_on_uninferable="error")
+    def test_temporal_on_uninferable_keyword(self):
+        @xra.enforce(temporal_on_uninferable="error")
         def f(p: Annotated[xr.DataArray, Freq("7D")]): ...
 
-        with pytest.warns(temporal.FreqWarning):
-            f(_int_da())
         with pytest.raises(temporal.FreqError):
             f(_int_da().isel(time=slice(0, 2)))  # too short to infer
 
-    def test_keywords_are_independent_per_domain(self):
-        # schema_on_mismatch must not leak into the temporal domain.
-        @xra.enforce(schema_on_mismatch="ignore")
-        def f(p: Annotated[xr.DataArray, Dims("x"), Freq("7D")]): ...
+    def test_marker_overrides_are_independent_per_domain(self):
+        # A schema marker's on_mismatch must not leak into the temporal domain.
+        @xra.enforce
+        def f(
+            p: Annotated[xr.DataArray, Dims("x", on_mismatch="ignore"), Freq("7D")],
+        ): ...
 
         with pytest.raises(temporal.FreqError):
             f(_int_da())
@@ -200,14 +189,14 @@ class TestWrapper:
 
     def test_non_dataarray_arguments_untouched(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa")], n: int = 3) -> int:
+        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)], n: int = 3) -> int:
             return n
 
         assert f(_int_da(), n=5) == 5
 
     def test_dimensional_mismatch_always_raises(self):
-        @xra.enforce(units_on_inexact="warn", units_on_missing="ignore")
-        def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
+        @xra.enforce
+        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)]): ...
 
         with pytest.raises(pint.DimensionalityError):
             f(_int_da(unit="kg"))

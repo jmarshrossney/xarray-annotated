@@ -49,7 +49,7 @@ class TestCFParsing:
     )
     def test_cf_unit_strings_parse_and_convert(self, unit):
         da = _da([[1.0, 2.0]], unit=unit)
-        out = units.check_units(da, unit, "x", on_missing="error")
+        out = units.check_units(da, unit, "x")
         assert out.attrs["units"] == unit
         np.testing.assert_allclose(out.values, da.values)
 

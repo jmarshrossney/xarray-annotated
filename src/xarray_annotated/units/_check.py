@@ -1,21 +1,17 @@
 """Runtime unit validation and conversion.
 
 The "usage side" of the package: given a declared unit string (typically read
-off a signature by `_annotations`) and the behaviour for each axis, validate an
-actual `DataArray` against it and convert it into the declared unit. Conversion
-is delegated to pint-xarray's `.pint` accessor via the active registry.
+off a signature by `_annotations`), validate an actual `DataArray` against it
+and, where the declaration opts in, convert it into the declared unit.
+Conversion is delegated to pint-xarray's `.pint` accessor via the active
+registry.
 
-Every non-trivial action is logged to the `xarray_annotated.units` logger.
-INFO marks values changed without anyone opting in (a conversion under the
-default `on_inexact`) or a check that could not run being let through (an input
-passed unvalidated under `on_missing="ignore"`).  DEBUG marks chosen or routine
-actions: a conversion chosen by a marker or keyword, an output stamped over a
-different label, a converted quantified output.
+Every non-trivial action is logged at DEBUG to the `xarray_annotated.units`
+logger: an opted-in input conversion, an output stamped over a different label,
+a converted quantified output.
 """
 
 import logging
-import warnings
-from collections.abc import Callable
 from typing import Any
 
 import pint
@@ -25,14 +21,8 @@ from pint_xarray.errors import PintExceptionGroup
 from .._config import resolve_enabled
 from ._annotations import Unit
 from ._config import (
-    DEFAULT_ON_INEXACT,
-    DEFAULT_ON_MISSING,
     DEFAULT_ON_OUTPUT,
-    OnInexact,
-    OnMissing,
     OnOutput,
-    _validate_on_inexact,
-    _validate_on_missing,
     _validate_on_output,
 )
 from ._registry import _cf_hint, get_registry
@@ -49,24 +39,24 @@ _log = logging.getLogger("xarray_annotated.units")
 #: nested numeric exponentiation), only the length-driven class.
 _MAX_UNIT_LEN = 256
 
-
-def _resolve_axis[T](
-    marker: T | None, kw: T | None, validate: Callable[[T], object], default: T
-) -> T:
-    """Resolve one axis: marker override > call keyword > built-in default.
-
-    The keyword is validated even when the marker overrides it, so a bad
-    keyword is never masked by the declaration it happens to be used with.
-    """
-    if kw is not None:
-        validate(kw)
-    return marker or kw or default
+_ATTACH_UNIT = (
+    "Attach the unit where the data enters the pipeline "
+    "(`.assign_attrs(units=...)`), or switch checking off with "
+    "`xra.enabled(False)`."
+)
 
 
 def resolve_on_output(declared: str | Unit, on_output: OnOutput | None) -> OnOutput:
-    """The on-output axis that applies to `declared` (`None` defers to the default)."""
+    """The on-output axis that applies to `declared` (`None` defers to the default).
+
+    Resolves marker override > call keyword > built-in default.  The keyword is
+    validated even when the marker overrides it, so a bad keyword is never
+    masked by the declaration it happens to be used with.
+    """
+    if on_output is not None:
+        _validate_on_output(on_output)
     marker = declared.on_output if isinstance(declared, Unit) else None
-    return _resolve_axis(marker, on_output, _validate_on_output, DEFAULT_ON_OUTPUT)
+    return marker or on_output or DEFAULT_ON_OUTPUT
 
 
 def _labels_differ(have: Any, declared: str) -> bool:
@@ -75,23 +65,6 @@ def _labels_differ(have: Any, declared: str) -> bool:
         return not units_equal(have, declared)
     except Exception:
         return True
-
-
-class UnitsWarning(UserWarning):
-    """Emitted when a DataArray input cannot be fully unit-validated.
-
-    Raised by `check_units` when an input has a missing or unparseable `units`
-    attribute and `on_missing` is `"warn"`, or when a value-changing conversion
-    happens under `on_inexact="warn"`.  Subclasses `UserWarning` so callers can
-    target it specifically.
-
-    Example:
-        >>> import warnings
-        >>> from xarray_annotated.units import UnitsWarning
-        >>> issubclass(UnitsWarning, UserWarning)
-        True
-        >>> warnings.filterwarnings("error", category=UnitsWarning)
-    """
 
 
 def _quantified_label(unit: pint.Unit) -> str:
@@ -107,8 +80,8 @@ def _quantified_label(unit: pint.Unit) -> str:
     is deliberate: it keeps every comparison inside this package's registry,
     even when the array was quantified under a different one (quantities from
     two registries cannot be mixed). A unit that is undefined in the active
-    registry then fails to parse and is routed through the usual `on_missing`
-    path, exactly like any other unreadable label.
+    registry then fails to parse and is refused like any other unreadable
+    label.
 
     Args:
         unit: The `pint.Unit` taken from `da.pint.units`.
@@ -202,9 +175,10 @@ def units_equal(a: str | Unit, b: str | Unit) -> bool:
 
     Compares the parsed units, so different spellings of the same unit are equal
     (`"Pa"` == `"pascal"`, `"1"` == `"dimensionless"`) while a prefixed unit
-    differs (`"hPa"` != `"Pa"`).  This is the distinction the `on_inexact`
-    axis turns on: a value-changing conversion is one where the units are
-    compatible but *not* equal; equivalent spellings imply no value change.
+    differs (`"hPa"` != `"Pa"`).  This is the distinction `convert` turns
+    on: a value-changing conversion is one where the units are compatible but
+    *not* equal, and needs opting into; equivalent spellings imply no value
+    change.
 
     Accepts either a bare unit string or a `Unit` marker on each side (its
     `.unit` string is used), matching `units_compatible`.
@@ -234,8 +208,6 @@ def check_units(
     da: xr.DataArray,
     declared: str | Unit,
     name: str,
-    on_missing: OnMissing | None = None,
-    on_inexact: OnInexact | None = None,
     qualname: str | None = None,
 ) -> xr.DataArray:
     """Validate and convert an input `DataArray` to its declared unit.
@@ -243,37 +215,33 @@ def check_units(
     Returns a `DataArray` whose data is expressed in `declared` and whose
     `units` attribute equals `declared`.
 
-    `on_missing` and `on_inexact` set their axes for this call when given (`None`
-    takes the default).  When `declared` is a `Unit` marker, its own overrides
-    win over both.  When xarray-annotated is switched off (`enabled(False)`)
-    the array is returned unchanged.
+    A value-changing conversion happens only when the declaration opts in, by
+    passing `Unit(..., convert=True)` as `declared`; a plain string never
+    converts.  When xarray-annotated is switched off
+    (`enabled(False)`) the array is returned unchanged.
 
     Three events are handled, each building on the one before:
 
     * **No parseable unit** — the input has no `units` attribute, or one the
-      registry cannot parse (e.g. a non-CF string like `"fraction"`): follows
-      `on_missing` (`"error"` raises, `"warn"` warns and returns unchanged,
-      `"ignore"` returns unchanged silently).
+      registry cannot parse (e.g. a CF string like `"umol m-2 s-1"` without
+      `use_cf_units()`): always raises `ValueError`.  The declaration cannot be
+      checked, so the unit should be attached where the data enters.
     * **Value-changing conversion** — the unit is dimensionally compatible with
       `declared` but not the same unit (e.g. `"hPa"` where `"Pa"` is
-      declared): follows `on_inexact` (`"error"` raises, `"warn"` warns then
-      converts, `"convert"` converts silently).  Equivalent spellings
+      declared): converted when opted into, otherwise raises `ValueError`.
+      Equivalent spellings
       (`"pascal"` for `"Pa"`) imply no value change and are simply relabelled,
       without touching the data.
     * **Dimensional mismatch** — two parseable but incompatible units (e.g. a
       mass where a pressure is declared): always raises
-      `pint.DimensionalityError`, whatever `on_missing` / `on_inexact` say.
+      `pint.DimensionalityError`, whether or not conversion is opted into.
 
     Args:
         da: The input `DataArray` to validate and convert.
         declared: The expected unit string (e.g. `"Pa"`), or a `Unit` marker,
-            whose `on_missing` / `on_inexact` overrides then apply.
+            whose `convert` then applies.
         name: A label for the array, used in error/warning messages.
-        on_missing: Set the on-missing axis for this call (`None` takes the
-            default, `"warn"`); a marker's own override wins.
-        on_inexact: Set the on-inexact axis for this call (`None` takes the
-            default, `"convert"`); a marker's own override wins.
-        qualname: A qualifier prepended to warning messages as `[qualname]`,
+        qualname: A qualifier prepended to error messages as `[qualname]`,
             identifying the calling site.
 
     Returns:
@@ -283,16 +251,16 @@ def check_units(
         declaring a unit an array already has costs nothing.
 
     Raises:
-        ValueError: When `on_missing="error"` and no parseable unit is found,
-            or when `on_inexact="error"` and a value-changing conversion would occur.
+        ValueError: When no parseable unit is found, or when a value-changing
+            conversion would occur without `convert`.
         pint.DimensionalityError: When the actual unit is dimensionally
-            incompatible with `declared` (always, whatever the axes say).
+            incompatible with `declared`.
 
     Examples:
         >>> import numpy as np, xarray as xr
-        >>> from xarray_annotated.units import check_units
+        >>> from xarray_annotated.units import Unit, check_units
         >>> da = xr.DataArray([1013.0, 1000.0], attrs={"units": "hPa"})
-        >>> out = check_units(da, "Pa", "pressure")
+        >>> out = check_units(da, Unit("Pa", convert=True), "pressure")
         >>> out.attrs["units"]
         'Pa'
         >>> out.values  # 10 * 100 = 1000
@@ -300,24 +268,7 @@ def check_units(
     """
     if not resolve_enabled():
         return da
-    marker = declared if isinstance(declared, Unit) else None
-    on_missing = _resolve_axis(
-        marker.on_missing if marker else None,
-        on_missing,
-        _validate_on_missing,
-        DEFAULT_ON_MISSING,
-    )
-    # A conversion nobody chose is what an audit looks for, so remember whether
-    # the axis was set at all before resolving it.
-    inexact_chosen = on_inexact is not None or (
-        marker is not None and marker.on_inexact is not None
-    )
-    on_inexact = _resolve_axis(
-        marker.on_inexact if marker else None,
-        on_inexact,
-        _validate_on_inexact,
-        DEFAULT_ON_INEXACT,
-    )
+    convert = isinstance(declared, Unit) and declared.convert
     declared = str(declared)
 
     prefix = f"[{qualname}] " if qualname else ""
@@ -333,84 +284,29 @@ def check_units(
     else:
         have = da.attrs.get("units")
     if have is None:
-        if on_missing == "error":
-            raise ValueError(
-                f"{prefix}input {name!r} has no 'units' attribute "
-                f"(declared {declared!r})"
-            )
-        if on_missing == "warn":
-            # stacklevel=2 targets a direct check_units call; via enforce it
-            # lands on the wrapper line, still identified by the [qualname] prefix.
-            warnings.warn(
-                f"{prefix}input {name!r} unvalidated: no 'units' attribute "
-                f"(declared {declared!r})",
-                UnitsWarning,
-                stacklevel=2,
-            )
-        else:
-            _log.info(
-                "%sinput %r unvalidated: no 'units' attribute (declared %r, "
-                "on_missing='ignore')",
-                prefix,
-                name,
-                declared,
-            )
-        return da
+        raise ValueError(
+            f"{prefix}input {name!r} has no 'units' attribute "
+            f"(declared {declared!r}). {_ATTACH_UNIT}"
+        )
     if isinstance(have, str) and len(have) > _MAX_UNIT_LEN:
         # An over-long units attribute can hang pint's parser (DoS); refuse it
-        # *before* parsing and route it through on_missing like any other input we
-        # cannot validate. Never echo `have` in the message -- it may be huge.
-        if on_missing == "error":
-            raise ValueError(
-                f"{prefix}input {name!r} has an over-long 'units' attribute "
-                f"({len(have)} chars > {_MAX_UNIT_LEN}; declared {declared!r}); "
-                f"refusing to parse"
-            )
-        if on_missing == "warn":
-            warnings.warn(
-                f"{prefix}input {name!r} unvalidated: over-long 'units' attribute "
-                f"({len(have)} chars > {_MAX_UNIT_LEN}; declared {declared!r})",
-                UnitsWarning,
-                stacklevel=2,
-            )
-        else:
-            _log.info(
-                "%sinput %r unvalidated: over-long 'units' attribute (declared %r, "
-                "on_missing='ignore')",
-                prefix,
-                name,
-                declared,
-            )
-        return da
+        # *before* parsing. Never echo `have` in the message -- it may be huge.
+        raise ValueError(
+            f"{prefix}input {name!r} has an over-long 'units' attribute "
+            f"({len(have)} chars > {_MAX_UNIT_LEN}; declared {declared!r}); "
+            f"refusing to parse. {_ATTACH_UNIT}"
+        )
     try:
         get_registry().Unit(have)
     except Exception as exc:
         # A units attribute that exists but the registry cannot parse can no more be
-        # validated than a missing one; route it through the same on_missing axis
-        # rather than letting an opaque parse error escape (and break a warn run).
-        if on_missing == "error":
-            raise ValueError(
-                f"{prefix}input {name!r} has unparseable 'units' attribute {have!r} "
-                f"(declared {declared!r}): {type(exc).__name__}: {exc}"
-                f"{_cf_hint(have)}"
-            ) from exc
-        if on_missing == "warn":
-            warnings.warn(
-                f"{prefix}input {name!r} unvalidated: unparseable 'units' attribute "
-                f"{have!r} (declared {declared!r}){_cf_hint(have)}",
-                UnitsWarning,
-                stacklevel=2,
-            )
-        else:
-            _log.info(
-                "%sinput %r unvalidated: unparseable 'units' attribute %r "
-                "(declared %r, on_missing='ignore')",
-                prefix,
-                name,
-                have,
-                declared,
-            )
-        return da
+        # validated than a missing one; refuse it with a message rather than letting
+        # an opaque parse error escape.
+        raise ValueError(
+            f"{prefix}input {name!r} has unparseable 'units' attribute {have!r} "
+            f"(declared {declared!r}): {type(exc).__name__}: {exc}"
+            f"{_cf_hint(have)}. {_ATTACH_UNIT}"
+        ) from exc
     if quantified is None and units_equal(have, declared):
         # Same unit, differently spelled ("pascal" for "Pa", "1" for
         # "dimensionless"): nothing to convert, so the quantify/convert/dequantify
@@ -425,28 +321,22 @@ def check_units(
         relabelled.attrs["units"] = declared
         return relabelled
     if units_compatible(have, declared) and not units_equal(have, declared):
-        # Dimensionally compatible but value-changing (e.g. hPa -> Pa).
-        if on_inexact == "error":
+        # Dimensionally compatible but value-changing (e.g. hPa -> Pa).  Whether
+        # that is correct depends on the quantity (an annual total is not a daily
+        # mean), so it is only done when the declaration opts in.
+        if not convert:
             raise ValueError(
                 f"{prefix}input {name!r}: unit {have!r} differs from declared "
-                f"{declared!r} and on_inexact='error' forbids value-changing conversion"
+                f"{declared!r}. Converting would change the values; if that is "
+                f"correct for this quantity, declare "
+                f"Unit({declared!r}, convert=True)."
             )
-        if on_inexact == "warn":
-            warnings.warn(
-                f"{prefix}input {name!r}: converting {have!r} -> {declared!r} "
-                f"(value-changing)",
-                UnitsWarning,
-                stacklevel=2,
-            )
-        _log.log(
-            logging.DEBUG if inexact_chosen else logging.INFO,
-            "%sinput %r: converting %r -> %r (value-changing, on_inexact=%r%s)",
+        _log.debug(
+            "%sinput %r: converting %r -> %r (value-changing, convert=True)",
             prefix,
             name,
             have,
             declared,
-            on_inexact,
-            "" if inexact_chosen else " by default",
         )
     try:
         # quantify() is not a no-op on already-quantified data -- it raises when
@@ -520,6 +410,15 @@ def _apply_output_quantified(
                     prefix, name, declared, f"an unparseable unit {str(have)!r}"
                 )
             ) from None
+        _log.info(
+            "%soutput %r: quantified unit %r is unparseable in the active "
+            "registry; returned unchecked (declared %r, on_output=%r)",
+            prefix,
+            name,
+            str(have),
+            declared,
+            on_output,
+        )
         return da
     if equal:
         return da
@@ -695,6 +594,15 @@ def apply_output_units(
             raise ValueError(
                 _require_message(prefix, name, declared, "an unverifiable unit label")
             )
+        # Never echo `have`: it may be huge.
+        _log.info(
+            "%soutput %r: unverifiable unit label; stamped unchecked "
+            "(declared %r, on_output=%r)",
+            prefix,
+            name,
+            declared,
+            on_output,
+        )
         da.attrs["units"] = declared
         return da
     try:
@@ -706,6 +614,15 @@ def apply_output_units(
                     prefix, name, declared, f"an unparseable unit label {have!r}"
                 )
             ) from None
+        _log.info(
+            "%soutput %r: unparseable unit label %r; stamped unchecked "
+            "(declared %r, on_output=%r)",
+            prefix,
+            name,
+            have,
+            declared,
+            on_output,
+        )
         da.attrs["units"] = declared
         return da
 

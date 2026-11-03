@@ -36,26 +36,25 @@ check_schema(da, Dims("time", "x"), name="da", on_mismatch=None, qualname=None)
 
 ### `check_units`
 
-Validates *and converts* a single array:
+Validates, and where allowed converts, a single array:
 
 ```python
 from xarray_annotated.units import check_units
 
-check_units(da, declared, name, on_missing=None, on_inexact=None, qualname=None)
+check_units(da, declared, name, qualname=None)
 ```
 
 Given an input `da`, `check_units`:
 
-1. reads `da.attrs["units"]`;
-2. if present and parseable, converts `da` to `declared` and re-stamps
-   `attrs["units"] = declared` on the result;
-3. if missing or unparseable, follows the [`on_missing`](policy.md#units-on_missing) axis;
+1. reads the unit from `da.pint.units` if `da` is quantified, else `da.attrs["units"]`;
+2. if present and parseable, re-stamps `attrs["units"] = declared` on the result when it
+   names the same unit, converts `da` to `declared` when it is compatible and conversion
+   is opted into (a `Unit(..., convert=True)` marker passed as `declared`), and
+   raises `ValueError` otherwise;
+3. if missing, unparseable or over-long, raises `ValueError`;
 4. if present but **dimensionally incompatible** with `declared` (e.g. `"kg"` where
    `"Pa"` is declared), raises `pint.DimensionalityError` naming the offending
    variable — always, regardless of policy.
-
-`on_missing` and `on_inexact` may be passed per call; each takes its
-[default](policy.md#resolution) when `None`.
 
 ### `apply_output_units`
 

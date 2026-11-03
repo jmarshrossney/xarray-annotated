@@ -16,7 +16,7 @@ def _resolve() -> bool:
 
 @xra.enforce
 def _to_pa(
-    p: Annotated[xr.DataArray, Unit("Pa")],
+    p: Annotated[xr.DataArray, Unit("Pa", convert=True)],
 ) -> Annotated[xr.DataArray, Unit("Pa")]:
     return p
 

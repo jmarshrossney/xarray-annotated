@@ -416,9 +416,9 @@ class TestDeclareFreq:
             f()  # x left at its non-conforming default
 
     def test_declared_default_honours_on_mismatch(self):
-        @xra.enforce(temporal_on_mismatch="warn")
+        @xra.enforce
         def f(
-            x: Annotated[xr.DataArray, Freq("D")] = _da(
+            x: Annotated[xr.DataArray, Freq("D", on_mismatch="warn")] = _da(
                 pd.date_range("2020-01-01", periods=5, freq="7D")
             ),
         ) -> xr.DataArray:
@@ -471,9 +471,11 @@ class TestDeclareFreq:
         with pytest.raises(temporal.FreqError, match="frequency mismatch"):
             f()
 
-    def test_decorator_kwargs(self):
-        @xra.enforce(temporal_on_mismatch="warn")
-        def f(x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
+    def test_marker_on_mismatch_softens(self):
+        @xra.enforce
+        def f(
+            x: Annotated[xr.DataArray, Freq("D", on_mismatch="warn")],
+        ) -> xr.DataArray:
             return x
 
         with pytest.warns(temporal.FreqWarning, match="frequency mismatch"):
@@ -486,16 +488,6 @@ class TestDeclareFreq:
 
         with pytest.raises(temporal.FreqError, match="uninferable"):
             f(_da(pd.date_range("2020-01-01", periods=2, freq="D")))
-
-    def test_marker_override_beats_decorator(self):
-        @xra.enforce(temporal_on_mismatch="error")
-        def f(
-            x: Annotated[xr.DataArray, Freq("D", on_mismatch="warn")],
-        ) -> xr.DataArray:
-            return x
-
-        with pytest.warns(temporal.FreqWarning):
-            f(_da(pd.date_range("2020-01-01", periods=5, freq="7D")))
 
     def test_wraps_metadata_preserved(self):
         @xra.enforce
@@ -516,12 +508,6 @@ class TestDeclareFreq:
             assert f(da) is da
 
     def test_invalid_decorator_kwargs(self):
-        with pytest.raises(ValueError, match="Invalid temporal_on_mismatch"):
-
-            @xra.enforce(temporal_on_mismatch="bogus")  # type: ignore[arg-type]
-            def f(x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
-                return x
-
         with pytest.raises(ValueError, match="Invalid temporal_on_uninferable"):
 
             @xra.enforce(temporal_on_uninferable="bogus")  # type: ignore[arg-type]

@@ -490,7 +490,7 @@ def _(Annotated, Coords, Dims, Dtype, Freq, TypedDict, Unit, xr, xra):
     @xra.enforce
     def partition_fluxes_declared(
         nee: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
-        tair: Annotated[xr.DataArray, Unit("degC")],  # (6)
+        tair: Annotated[xr.DataArray, Unit("degC", convert=True)],  # (6)
         ppfd: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
     ) -> Partitioned:
         """Partition NEE into GPP and respiration via a Q10 model."""
@@ -546,7 +546,9 @@ def _(mo):
     5. Two outputs need somewhere to hang declarations, so the tuple became a `TypedDict`,
        validated field by field.
     6. The docstring's *"assumes tair in degC"*, made real. Kelvin is now converted at the
-       boundary instead of blowing up the Q10 exponent inside the body.
+       boundary instead of blowing up the Q10 exponent inside the body. Conversion is
+       opt-in (`convert=True`): it is right for a temperature, but the same declaration
+       would refuse to turn an annual total into a daily rate.
     7. Aggregation changes the frequency and nothing else, so this stage declares a
        frequency and says nothing at all about units — it means whatever it is handed, and
        the silence is the statement.
@@ -568,7 +570,7 @@ def _(mo):
     Two of the three bugs from the bug hunt cannot recur:
 
     - `tair` can be in either Kelvin or degrees C --- either way it is converted at the
-      boundary (by `pint`) thanks to the `Unit("degC")` annotation.
+      boundary (by `pint`) thanks to the `Unit("degC", convert=True)` annotation.
     - The weekly anchor is declared on both the producer and the consumer.
 
     Beyond those, the checks reject inputs that never belonged in this pipeline

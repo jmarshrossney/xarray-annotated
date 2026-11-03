@@ -26,35 +26,39 @@ def _da(value=1.0, unit: str | None = "hPa") -> xr.DataArray:
 
 
 class TestMarker:
-    @pytest.mark.parametrize("axis", ["on_missing", "on_inexact", "on_output"])
-    def test_invalid_override_rejected_at_construction(self, axis):
-        with pytest.raises(ValueError, match=f"Invalid {axis} 'bogus'"):
-            Unit("Pa", **{axis: "bogus"})  # type: ignore[arg-type]
+    def test_invalid_override_rejected_at_construction(self):
+        with pytest.raises(ValueError, match="Invalid on_output 'bogus'"):
+            Unit("Pa", on_output="bogus")  # type: ignore[arg-type]
+
+    def test_on_missing_is_gone(self):
+        with pytest.raises(TypeError, match="on_missing"):
+            Unit("Pa", on_missing="warn")  # type: ignore[call-arg]
+
+    @pytest.mark.parametrize("value", ["yes", 1, None])
+    def test_convert_must_be_a_bool(self, value):
+        with pytest.raises(TypeError, match="convert must be a bool"):
+            Unit("Pa", convert=value)  # type: ignore[arg-type]
 
     def test_overrides_exposed(self):
-        u = Unit("Pa", on_missing="error", on_inexact="warn", on_output="strict")
-        assert (u.unit, u.on_missing, u.on_inexact, u.on_output) == (
-            "Pa",
-            "error",
-            "warn",
-            "strict",
-        )
-        assert Unit("Pa").on_inexact is None
+        u = Unit("Pa", convert=True, on_output="strict")
+        assert (u.unit, u.convert, u.on_output) == ("Pa", True, "strict")
+        assert Unit("Pa").convert is False
 
     def test_repr_shows_only_set_overrides(self):
         assert repr(Unit("Pa")) == "Unit('Pa')"
-        assert repr(Unit("Pa", on_inexact="error")) == "Unit('Pa', on_inexact='error')"
+        assert repr(Unit("Pa", convert=True)) == "Unit('Pa', convert=True)"
+        assert repr(Unit("Pa", convert=False)) == "Unit('Pa')"
 
     def test_overrides_take_part_in_equality_and_hash(self):
-        assert Unit("Pa", on_inexact="error") != Unit("Pa")
-        assert Unit("Pa", on_inexact="error") == Unit("Pa", on_inexact="error")
+        assert Unit("Pa", convert=True) != Unit("Pa")
+        assert Unit("Pa", convert=True) == Unit("Pa", convert=True)
         assert hash(Unit("Pa", on_output="strict")) == hash(
             Unit("Pa", on_output="strict")
         )
 
     def test_overrides_must_be_keywords(self):
         with pytest.raises(TypeError):
-            Unit("Pa", "error")  # type: ignore[misc]
+            Unit("Pa", True)  # type: ignore[misc]
 
 
 class TestThroughEnforce:
@@ -63,41 +67,34 @@ class TestThroughEnforce:
         # and no single function-wide setting can say both.
         @xra.enforce
         def f(
-            tair: Annotated[xr.DataArray, Unit("degC", on_inexact="convert")],
-            total: Annotated[xr.DataArray, Unit("g / m**2 / year", on_inexact="error")],
+            tair: Annotated[xr.DataArray, Unit("degC", convert=True)],
+            total: Annotated[xr.DataArray, Unit("g / m**2 / year")],
         ) -> None: ...
 
         f(_da(283.15, "K"), _da(1.0, "g / m**2 / year"))  # tair converts
-        with pytest.raises(ValueError, match=r"'total'.*on_inexact='error'"):
+        with pytest.raises(ValueError, match=r"'total'.*convert=True"):
             f(_da(283.15, "K"), _da(1.0, "g / m**2 / day"))
 
     def test_converted_value_is_correct(self):
         @xra.enforce
-        def f(t: Annotated[xr.DataArray, Unit("degC", on_inexact="convert")]):
+        def f(t: Annotated[xr.DataArray, Unit("degC", convert=True)]):
             return t
 
         np.testing.assert_allclose(f(_da(283.15, "K")).values, [10.0])
 
-    def test_marker_beats_enforce_keyword(self):
-        @xra.enforce(units_on_inexact="error")
-        def f(p: Annotated[xr.DataArray, Unit("Pa", on_inexact="convert")]):
-            return p
-
-        assert f(_da()).attrs["units"] == "Pa"
-
-    def test_keyword_still_applies_where_the_marker_is_silent(self):
-        @xra.enforce(units_on_inexact="error")
+    def test_opt_in_is_per_parameter(self):
+        @xra.enforce
         def f(
-            p: Annotated[xr.DataArray, Unit("Pa", on_inexact="convert")],
+            p: Annotated[xr.DataArray, Unit("Pa", convert=True)],
             q: Annotated[xr.DataArray, Unit("Pa")],
         ): ...
 
         with pytest.raises(ValueError, match="'q'"):
             f(_da(), _da())
 
-    def test_on_missing_override(self):
+    def test_missing_unit_always_raises(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa", on_missing="error")]): ...
+        def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
 
         with pytest.raises(ValueError, match="no 'units' attribute"):
             f(_da(unit=None))
@@ -123,16 +120,16 @@ class TestThroughEnforce:
         assert out["q"].attrs["units"] == "Pa"
 
     def test_input_axes_ignored_on_an_output(self):
-        # on_inexact has no meaning on an output; it must not leak into on_output.
+        # convert has no meaning on an output; it must not leak into on_output.
         @xra.enforce
-        def f() -> Annotated[xr.DataArray, Unit("Pa", on_inexact="error")]:
+        def f() -> Annotated[xr.DataArray, Unit("Pa", convert=True)]:
             return _da(unit="hPa")
 
         assert f().attrs["units"] == "Pa"  # stamped, as on_output="stamp"
 
     def test_master_switch_beats_marker(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa", on_missing="error")]):
+        def f(p: Annotated[xr.DataArray, Unit("Pa", on_output="require")]):
             return p
 
         with xra.enabled(False):
@@ -141,18 +138,18 @@ class TestThroughEnforce:
 
 class TestPrimitivesAcceptTheMarker:
     def test_check_units(self):
-        with pytest.raises(ValueError, match="on_inexact='error'"):
-            units.check_units(_da(), Unit("Pa", on_inexact="error"), "p")
+        out = units.check_units(_da(), Unit("Pa", convert=True), "p")
+        np.testing.assert_allclose(out.values, [100.0])
 
-    def test_check_units_marker_beats_argument(self):
-        out = units.check_units(
-            _da(), Unit("Pa", on_inexact="convert"), "p", on_inexact="error"
-        )
-        assert out.attrs["units"] == "Pa"
+    def test_check_units_only_the_marker_opts_in(self):
+        with pytest.raises(ValueError, match="convert=True"):
+            units.check_units(_da(), Unit("Pa"), "p")
+        with pytest.raises(TypeError, match="convert"):
+            units.check_units(_da(), Unit("Pa"), "p", convert=True)  # type: ignore[call-arg]
 
     def test_check_units_message_uses_the_unit_string(self):
         with pytest.raises(ValueError, match="declared 'Pa'"):
-            units.check_units(_da(unit=None), Unit("Pa", on_missing="error"), "p")
+            units.check_units(_da(unit=None), Unit("Pa"), "p")
 
     def test_apply_output_units(self):
         with pytest.raises(ValueError, match="on_output='strict'"):
@@ -164,14 +161,19 @@ class TestPrimitivesAcceptTheMarker:
         )
         assert out.attrs["units"] == "Pa"
 
-    def test_invalid_argument_still_rejected_with_a_marker(self):
-        with pytest.raises(ValueError, match="Invalid on_inexact"):
-            units.check_units(_da(), Unit("Pa"), "p", on_inexact="bogus")  # type: ignore[arg-type]
+    def test_numpy_bool_convert_is_accepted(self):
+        marker = Unit("Pa", convert=np.True_)  # type: ignore[arg-type]
+        assert marker.convert is True
+        assert marker == Unit("Pa", convert=True)
+
+    def test_non_bool_convert_names_its_type(self):
+        with pytest.raises(TypeError, match="convert must be a bool, not str"):
+            Unit("Pa", convert="yes")  # type: ignore[arg-type]
 
 
 class TestReaders:
     def test_declarations_from_signature_keeps_overrides(self):
-        marker = Unit("Pa", on_inexact="error", on_output="strict")
+        marker = Unit("Pa", convert=True, on_output="strict")
 
         def f(
             p: Annotated[xr.DataArray, marker],
@@ -183,12 +185,12 @@ class TestReaders:
         assert output.unit == marker
 
     def test_annotate_round_trip_keeps_overrides(self):
-        marker = Unit("Pa", on_missing="error")
+        marker = Unit("Pa", convert=True)
 
         def f(p: annotate(unit=marker)) -> None: ...  # type: ignore[valid-type]
 
         assert declarations_from_signature(f)[0]["p"].unit == marker
 
     def test_string_readers_return_the_plain_unit(self):
-        hint = Annotated[xr.DataArray, Unit("Pa", on_inexact="error")]
+        hint = Annotated[xr.DataArray, Unit("Pa", convert=True)]
         assert units.annotated_unit(hint) == "Pa"

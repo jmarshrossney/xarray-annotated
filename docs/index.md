@@ -3,7 +3,7 @@
 `xarray-annotated` checks `xarray.DataArray` arguments and return values against properties declared in the function signature with [`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated):
 
 - **structure**: dimensions, coordinates and dtype;
-- **physical units**, converting inputs to the declared unit where needed;
+- **physical units**, converting inputs to the declared unit where the declaration allows it;
 - **time frequency** and phase.
 
 Making signatures the single source of truth has several advantages: the same declaration
@@ -28,7 +28,9 @@ from xarray_annotated import Dims, Dtype, Freq, Unit
 
 
 def daily_mean_pressure(
-    p: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64"), Unit("Pa")],
+    p: Annotated[
+        xr.DataArray, Dims("time", "x"), Dtype("float64"), Unit("Pa", convert=True)
+    ],
 ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa"), Freq("D")]:
     return p.resample(time="D").mean()
 ```
@@ -48,7 +50,8 @@ or decorate its definition (recommended):
 def daily_mean_pressure(...): ...
 ```
 
-On each call, `enforce` converts inputs to their declared units with [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io), so the function body sees `Pa` whether the caller passed `Pa` or `hPa`.
+On each call, `enforce` checks inputs against their declared units with [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io).
+Where the declaration opts in with `convert=True`, a compatible unit is converted, so the function body sees `Pa` whether the caller passed `Pa` or `hPa`; otherwise a different unit raises.
 Structure and frequency are then checked on the converted arrays, and again on the return value.
 
 Whether a violation raises, warns or is ignored is set by a configurable policy.

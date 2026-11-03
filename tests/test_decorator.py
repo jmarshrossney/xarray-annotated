@@ -2,7 +2,6 @@
 
 import dataclasses
 import typing
-import warnings
 from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
@@ -12,7 +11,7 @@ import pytest
 import xarray as xr
 
 import xarray_annotated as xra
-from xarray_annotated import units
+from xarray_annotated import Unit, units
 
 
 def _da(values, unit=None):
@@ -32,7 +31,9 @@ def _da(values, unit=None):
 class TestBareDecorator:
     def test_converts_input_and_stamps_output(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, "Pa"]) -> Annotated[xr.DataArray, "Pa"]:
+        def f(
+            p: Annotated[xr.DataArray, Unit("Pa", convert=True)],
+        ) -> Annotated[xr.DataArray, "Pa"]:
             return p
 
         out = f(_da([[10.0, 20.0]], unit="hPa"))
@@ -76,7 +77,7 @@ class TestBareDecorator:
 
     def test_input_passed_by_keyword(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
+        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)]) -> xr.DataArray:
             return p
 
         out = f(p=_da([[10.0]], unit="hPa"))
@@ -95,7 +96,9 @@ class TestDefaults:
     def test_declared_default_is_converted(self):
         @xra.enforce
         def f(
-            p: Annotated[xr.DataArray, "Pa"] = _da([[10.0]], unit="hPa"),
+            p: Annotated[xr.DataArray, Unit("Pa", convert=True)] = _da(
+                [[10.0]], unit="hPa"
+            ),
         ) -> xr.DataArray:
             return p
 
@@ -107,7 +110,9 @@ class TestDefaults:
         default = _da([[10.0]], unit="hPa")
 
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, "Pa"] = default) -> xr.DataArray:
+        def f(
+            p: Annotated[xr.DataArray, Unit("Pa", convert=True)] = default,
+        ) -> xr.DataArray:
             return p
 
         f()
@@ -117,7 +122,9 @@ class TestDefaults:
 
     def test_varargs_and_kwargs_survive_apply_defaults(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, "Pa"], *rest: int, **kw: int) -> xr.DataArray:
+        def f(
+            p: Annotated[xr.DataArray, Unit("Pa", convert=True)], *rest: int, **kw: int
+        ) -> xr.DataArray:
             assert rest == (1, 2)
             assert kw == {"z": 3}
             return p
@@ -143,33 +150,18 @@ class TestFailFast:
             f(_da([[1.0]], unit="degC"))
 
 
-class TestAxisResolution:
-    def test_on_missing_kwarg_overrides_default(self):
-        @xra.enforce(units_on_missing="error")
-        def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
-            return p
-
-        # The default on_missing is warn, but the per-decorator "error" must raise.
-        with pytest.raises(ValueError, match="no 'units'"):
-            f(_da([[1.0]]))
-
-    def test_on_missing_defaults_to_warn(self):
+class TestMissingUnits:
+    def test_missing_unit_always_raises(self):
         @xra.enforce
         def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
             return p
 
-        with pytest.warns(units.UnitsWarning):
+        with pytest.raises(ValueError, match=r"no 'units'.*assign_attrs"):
             f(_da([[1.0]]))
 
-    def test_on_missing_ignore_skips_input_validation(self):
-        @xra.enforce(units_on_missing="ignore")
-        def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
-            return p
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            out = f(_da([[1.0]]))  # missing units, but ignore neither raises nor warns
-        assert "units" not in out.attrs
+    def test_no_enforce_keyword(self):
+        with pytest.raises(TypeError, match="units_on_missing"):
+            xra.enforce(units_on_missing="ignore")  # type: ignore[call-arg]
 
     def test_disabled_policy_is_total_noop(self):
         # enabled=False: input is not converted AND output is not stamped.
@@ -184,39 +176,34 @@ class TestAxisResolution:
         assert out.attrs["units"] == "hPa"  # not converted, not re-stamped
         np.testing.assert_allclose(out.values, [[10.0]])
 
-    def test_invalid_on_missing_kwarg_raises_at_decoration(self):
-        with pytest.raises(ValueError, match="Invalid units_on_missing"):
 
-            @xra.enforce(units_on_missing="bogus")  # type: ignore[arg-type]
-            def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
-                return p
-
-
-class TestInexact:
-    def test_on_inexact_error_forbids_conversion(self):
-        @xra.enforce(units_on_inexact="error")
+class TestConversionIsOptIn:
+    def test_refused_by_default(self):
+        @xra.enforce
         def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
             return p
 
-        with pytest.raises(ValueError, match="on_inexact='error'"):
+        with pytest.raises(ValueError, match=r"Unit\('Pa', convert=True\)"):
             f(_da([[10.0]], unit="hPa"))
 
-    def test_on_inexact_error_accepts_equivalent_spelling(self):
-        @xra.enforce(units_on_inexact="error")
+    def test_equivalent_spelling_needs_no_opt_in(self):
+        @xra.enforce
         def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
             return p
 
         out = f(_da([[10.0]], unit="pascal"))
         np.testing.assert_allclose(out.values, [[10.0]])
 
-    def test_on_inexact_warn_converts_with_warning(self):
-        @xra.enforce(units_on_inexact="warn")
-        def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
+    def test_opted_in_converts(self):
+        @xra.enforce
+        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)]) -> xr.DataArray:
             return p
 
-        with pytest.warns(units.UnitsWarning, match="value-changing"):
-            out = f(_da([[10.0]], unit="hPa"))
-        np.testing.assert_allclose(out.values, [[1000.0]])
+        np.testing.assert_allclose(f(_da([[10.0]], unit="hPa")).values, [[1000.0]])
+
+    def test_no_enforce_keyword(self):
+        with pytest.raises(TypeError, match="units_on_inexact"):
+            xra.enforce(units_on_inexact="convert")  # type: ignore[call-arg]
 
 
 class TestAnnotationsSurviveWraps:
@@ -367,7 +354,9 @@ class TestOnOutput:
         case ``strict`` is actually for."""
 
         @xra.enforce(units_on_output="strict")
-        def f(p: Annotated[xr.DataArray, "Pa"]) -> Annotated[xr.DataArray, "Pa"]:
+        def f(
+            p: Annotated[xr.DataArray, Unit("Pa", convert=True)],
+        ) -> Annotated[xr.DataArray, "Pa"]:
             return p.isel(pixel=slice(0, 1))
 
         out = f(_da([[10.0, 20.0]], unit="hPa"))
@@ -543,7 +532,7 @@ class TestQuantifiedOutputs:
 class TestQuantifiedThroughDecorator:
     def test_quantified_input_end_to_end(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray:
+        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)]) -> xr.DataArray:
             return p
 
         out = f(_quantified([[1.0]], "hPa"))

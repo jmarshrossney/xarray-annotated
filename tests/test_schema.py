@@ -378,9 +378,11 @@ class TestDeclareSchema:
             f()  # x left at its non-conforming default
 
     def test_declared_default_honours_on_mismatch(self):
-        @xra.enforce(schema_on_mismatch="warn")
+        @xra.enforce
         def f(
-            x: Annotated[xr.DataArray, Dims("time", "x")] = _da(("time",)),
+            x: Annotated[xr.DataArray, Dims("time", "x", on_mismatch="warn")] = _da(
+                ("time",)
+            ),
         ) -> xr.DataArray:
             return x
 
@@ -430,16 +432,8 @@ class TestDeclareSchema:
         with pytest.raises(schema.SchemaError, match="dims mismatch"):
             f()
 
-    def test_decorator_on_mismatch_kwarg(self):
-        @xra.enforce(schema_on_mismatch="warn")
-        def f(x: Annotated[xr.DataArray, Dims("time", "x")]) -> xr.DataArray:
-            return x
-
-        with pytest.warns(schema.SchemaWarning):
-            f(_da(("time",)))
-
-    def test_marker_override_beats_decorator(self):
-        @xra.enforce(schema_on_mismatch="error")
+    def test_marker_on_mismatch_softens(self):
+        @xra.enforce
         def f(
             x: Annotated[xr.DataArray, Dims("time", "x", on_mismatch="warn")],
         ) -> xr.DataArray:
@@ -455,13 +449,6 @@ class TestDeclareSchema:
 
         with xra.enabled(False):
             assert f(_da(("time", "x"))).shape
-
-    def test_invalid_decorator_kwarg(self):
-        with pytest.raises(ValueError, match="Invalid schema_on_mismatch"):
-
-            @xra.enforce(schema_on_mismatch="bogus")  # type: ignore[arg-type]
-            def f(x: Annotated[xr.DataArray, Dims("time")]) -> xr.DataArray:
-                return x
 
     def test_fail_fast_bad_input_declaration(self):
         with pytest.raises(ValueError, match="invalid dtype"):
