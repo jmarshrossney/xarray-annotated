@@ -13,7 +13,8 @@ switch, `enabled`.
 
 Every axis resolves **once per call**, taking the first of:
 
-1. a **per-marker** override — `Dtype("float64", on_mismatch="warn")`;
+1. a **per-marker** override — `Dtype("float64", on_mismatch="warn")`,
+   `Unit("degC", on_inexact="convert")`;
 2. a **per-function** argument — `@xra.enforce(schema_on_mismatch="warn")`, named
    `<domain>_<axis>`, or the unprefixed keyword passed to a `check_*` primitive;
 3. the **environment variable** for that axis;
@@ -24,8 +25,9 @@ The rule of thumb: the more specific the statement, the more it wins. A marker o
 is a claim about *this particular declaration* and beats everything; the built-in default
 is a claim about nothing in particular and loses to everything.
 
-Not every axis is available at every level — only `on_mismatch` can be set on a marker,
-since the other axes describe situations a single declaration can't anticipate.
+Not every axis is available at every level. Every units axis and every `on_mismatch` can
+be set on a marker; `temporal`'s `on_uninferable` cannot, since a short or irregular axis
+is a property of the data rather than of the declaration.
 
 
 ## The `enabled` switch { #enabled }
@@ -98,15 +100,34 @@ Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64", on_mismatch="warn")]
 ## Units policy { #units }
 
 Three behavioural axes on top of `enabled`. Note that **dimensional** mismatches (e.g.
-`"kg"` where `"Pa"` is declared) are not governed by either — they always raise
+`"kg"` where `"Pa"` is declared) are not governed by any of them — they always raise
 `pint.DimensionalityError`.
 
-Both may be overridden per function (each defaults to the active policy when omitted):
+Each may be overridden per function (each defaults to the active policy when omitted):
 
 ```python
 @xra.enforce(units_on_missing="error", units_on_inexact="error")
 def strict_node(x: Annotated[xr.DataArray, "Pa"]) -> xr.DataArray: ...
 ```
+
+or per declaration, on the `Unit` marker. Whether a conversion is *correct* is usually a
+property of the parameter rather than of the function, and one function can want both
+answers. Here the respiration term is written for Celsius, so kelvin input must convert;
+an annual total is dimensionally compatible with a daily mean, so converting one into the
+other would silently scale it by 365.25 and must be refused:
+
+```python
+@xra.enforce
+def partition(
+    tair: Annotated[xr.DataArray, Unit("degC", on_inexact="convert")],
+    total: Annotated[xr.DataArray, Unit("g m-2 yr-1", on_inexact="error")],
+) -> xr.DataArray: ...
+```
+
+A marker override beats the `enforce` keyword, the environment and `set_policy`, so the
+behaviour of `partition` no longer depends on how the process was configured. `on_missing`
+and `on_inexact` apply where the marker declares an input and `on_output` where it declares
+an output; an override that doesn't apply where the marker sits is ignored.
 
 ### `on_missing` — no parseable unit to check against { #units-on_missing }
 
@@ -164,10 +185,11 @@ would multiply by 100 a second time, so stamping is the only safe default.
 |-------------------|----------------------------------------------------------------|
 | `stamp` (default) | overwrites `attrs["units"]` with the declared unit, no checks   |
 | `strict`          | a present, parseable label that differs from the declaration raises |
+| `require`         | as `strict`, and an output with no parseable label of its own raises instead of being stamped |
 
-Both rows describe a return value labelled through `attrs`. A pint-quantified return is
-*converted* to the declaration instead of stamped, under either setting — see
-[Quantified arrays](troubleshooting.md#quantified-arrays).
+The rows describe a return value labelled through `attrs`. A pint-quantified return is
+*converted* to the declaration instead of stamped, under every setting (`strict` raises
+rather than converting) — see [Quantified arrays](troubleshooting.md#quantified-arrays).
 
 Environment variable: `XARRAY_ANNOTATED_UNITS_ON_OUTPUT` (default `stamp`).
 
@@ -185,6 +207,33 @@ Environment variable: `XARRAY_ANNOTATED_UNITS_ON_OUTPUT` (default `stamp`).
 Note what no setting here can do: **outputs are never inspected by value.** A forgotten
 conversion factor produces the same label as a correct one, so it is invisible to this
 axis — see [Troubleshooting](troubleshooting.md#a-forgotten-conversion-is-not-caught-at-the-producer).
+
+### Wrapping a library that returns bare arrays { #wrapping-a-library }
+
+A function wrapping a third-party library is in a different position from one doing its
+own arithmetic. Its output declaration is not a description of its body but a claim about
+someone else's convention, and the author can simply be wrong about it. Under `stamp` or
+`strict` a bare return is **taken on trust**: it is stamped with the declared unit, and
+every consumer downstream then compares that declaration with its own, never with the
+values.
+
+Attach the unit the library actually returns, at the boundary, and quantify:
+
+```python
+@xra.enforce(units_on_output="require")
+def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
+    raw = some_library.gpp(ppfd.values)  # documented as ug m-2 s-1
+    out = xr.DataArray(raw, dims=ppfd.dims, coords=ppfd.coords)
+    return out.assign_attrs(units="ug m-2 s-1").pint.quantify()
+```
+
+The declared unit is now checked against something real: a compatible unit is converted
+(here by a factor of 86.4e-3), and an incompatible one raises `DimensionalityError`.
+`require` makes forgetting this impossible to do silently — a bare return raises, with a
+message pointing at `.pint.quantify()`. So does returning something that is not a
+`DataArray` at all (the library's raw numpy array, `None`, or a `TypedDict` missing the
+declared key), and a quantified return whose unit the active registry cannot parse. See [For a module](#for-a-module) to apply it to a
+whole module of wrappers.
 
 
 ## Temporal policy { #temporal }
@@ -254,6 +303,27 @@ set_policy(on_mismatch="warn")
 Each domain has its own `get_policy()` / `set_policy()` / `policy()` trio, importable from
 `xarray_annotated.schema`, `.units` and `.temporal`. Import them under an alias if you
 need more than one in the same module.
+
+### For a module { #for-a-module }
+
+A per-function keyword can be bound once with `functools.partial`, giving a module its own
+decorator. This suits a module whose functions share a role, such as wrappers around a
+library that returns bare arrays:
+
+```python
+import functools
+
+import xarray_annotated as xra
+
+enforce = functools.partial(xra.enforce, units_on_output="require")
+
+
+@enforce
+def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]: ...
+```
+
+It is a per-function argument, so it beats the environment and `set_policy` but not a
+marker's own override.
 
 ### From the environment
 

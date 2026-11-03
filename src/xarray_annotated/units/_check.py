@@ -7,6 +7,8 @@ delegated to pint-xarray's `.pint` accessor via the active registry.
 """
 
 import warnings
+from collections.abc import Callable
+from typing import Any
 
 import pint
 import xarray as xr
@@ -33,6 +35,25 @@ from ._registry import _cf_hint, get_registry
 #: every DoS input pint accepts (a short string can still be pathological, e.g.
 #: nested numeric exponentiation), only the length-driven class.
 _MAX_UNIT_LEN = 256
+
+
+def _resolve_axis[T](
+    marker: T | None, kw: T | None, validate: Callable[[T], object], policy: T
+) -> T:
+    """Resolve one policy axis: marker override > call keyword > active policy.
+
+    The keyword is validated even when the marker overrides it, so a bad
+    keyword is never masked by the declaration it happens to be used with.
+    """
+    if kw is not None:
+        validate(kw)
+    return marker or kw or policy
+
+
+def resolve_on_output(declared: str | Unit, on_output: OnOutput | None) -> OnOutput:
+    """The on-output axis that applies to `declared` (`None` defers to the policy)."""
+    marker = declared.on_output if isinstance(declared, Unit) else None
+    return _resolve_axis(marker, on_output, _validate_on_output, get_policy().on_output)
 
 
 class UnitsWarning(UserWarning):
@@ -190,7 +211,7 @@ def units_equal(a: str | Unit, b: str | Unit) -> bool:
 
 def check_units(
     da: xr.DataArray,
-    declared: str,
+    declared: str | Unit,
     name: str,
     on_missing: OnMissing | None = None,
     on_inexact: OnInexact | None = None,
@@ -203,7 +224,8 @@ def check_units(
 
     Behaviour follows the active `Policy` (`get_policy`); `on_missing` and
     `on_inexact` override their axes for this call when given (`None` defers to
-    the policy).  If the policy is disabled the array is returned unchanged.
+    the policy).  When `declared` is a `Unit` marker, its own overrides win over
+    both.  If the policy is disabled the array is returned unchanged.
 
     Three events are handled, each building on the one before:
 
@@ -223,12 +245,13 @@ def check_units(
 
     Args:
         da: The input `DataArray` to validate and convert.
-        declared: The expected unit string (e.g. `"Pa"`).
+        declared: The expected unit string (e.g. `"Pa"`), or a `Unit` marker,
+            whose `on_missing` / `on_inexact` overrides then apply.
         name: A label for the array, used in error/warning messages.
         on_missing: Override the on-missing axis for this call (`None` defers
-            to the active policy).
+            to the active policy); a marker's own override wins.
         on_inexact: Override the on-inexact axis for this call (`None` defers
-            to the active policy).
+            to the active policy); a marker's own override wins.
         qualname: A qualifier prepended to warning messages as `[qualname]`,
             identifying the calling site.
 
@@ -257,12 +280,20 @@ def check_units(
     pol = get_policy()
     if not pol.enabled:
         return da
-    on_missing = (
-        pol.on_missing if on_missing is None else _validate_on_missing(on_missing)
+    marker = declared if isinstance(declared, Unit) else None
+    on_missing = _resolve_axis(
+        marker.on_missing if marker else None,
+        on_missing,
+        _validate_on_missing,
+        pol.on_missing,
     )
-    on_inexact = (
-        pol.on_inexact if on_inexact is None else _validate_on_inexact(on_inexact)
+    on_inexact = _resolve_axis(
+        marker.on_inexact if marker else None,
+        on_inexact,
+        _validate_on_inexact,
+        pol.on_inexact,
     )
+    declared = str(declared)
 
     prefix = f"[{qualname}] " if qualname else ""
     quantified = da.pint.units  # None unless the data is a pint Quantity
@@ -408,10 +439,11 @@ def _apply_output_quantified(
 
     Raises:
         pint.DimensionalityError: When the unit cannot be converted to
-            `declared` — under `"strict"`, or under `"stamp"` from the
-            conversion itself.
+            `declared` — under `"strict"`, or under `"stamp"` or `"require"`
+            from the conversion itself.
         ValueError: Under `"strict"`, when the unit is compatible with but not
-            equal to `declared`.
+            equal to `declared`; under `"require"`, when the active registry
+            cannot parse the unit.
     """
     try:
         label = _quantified_label(have)
@@ -421,7 +453,13 @@ def _apply_output_quantified(
         # under a different one). Unverifiable and unconvertible from here --
         # return it untouched rather than stamping attrs onto a Quantity and
         # creating the two-labels-at-once inconsistency this path exists to
-        # avoid.
+        # avoid.  "require" refuses it, as it does an unparseable attrs label.
+        if on_output == "require":
+            raise ValueError(
+                _require_message(
+                    prefix, name, declared, f"an unparseable unit {str(have)!r}"
+                )
+            ) from None
         return da
     if equal:
         return da
@@ -450,7 +488,7 @@ def _apply_output_quantified(
 
 def apply_output_units(
     da: xr.DataArray,
-    declared: str,
+    declared: str | Unit,
     name: str,
     on_output: OnOutput | None = None,
     qualname: str | None = None,
@@ -469,13 +507,19 @@ def apply_output_units(
     and converting on the strength of it would rescale correct values a second
     time.
 
-    Two modes follow from that:
+    Three modes follow from that:
 
     - `"stamp"` (default) — overwrite `attrs["units"]` with `declared`, no checks.
       The only sound default, because a stale label is the norm rather than a
       symptom.
     - `"strict"` — a label that is present, parseable, and not equal to
       `declared` raises.
+    - `"require"` — as `"strict"`, and additionally an output with **no unit of
+      its own** (no label, or one that cannot be parsed) raises instead of being
+      stamped.  For wrappers around libraries that return bare arrays, where the
+      declaration is a claim about someone else's convention: attach the unit the
+      library actually returns (`.assign_attrs(units=...).pint.quantify()`) and
+      the declared unit is checked and converted to.
 
     **`"strict"` is only meaningful for bodies that maintain their own units** —
     pass-through and subsetting functions, or computations on pint-quantified
@@ -498,6 +542,8 @@ def apply_output_units(
       `"stamp"` can raise, because here a mismatch is a real error rather than
       the expected consequence of an inert label.
     - `"strict"` — a unit other than `declared` raises, as for `attrs`.
+    - `"require"` — as `"stamp"`: a quantified array carries its own unit, which
+      is all `"require"` asks for.
 
     Either way the array is **returned still quantified**, with `attrs`
     untouched: it already describes itself, and dequantifying it purely to
@@ -505,18 +551,21 @@ def apply_output_units(
 
     Note what no mode can do: distinguish `flux * F` from `flux` when both are
     labelled the same.  Output *values* are never inspected, so a forgotten
-    conversion factor is not detectable here — only at a consumer that declares
-    the quantity and receives an array that was never stamped.
+    conversion factor is not detectable here.  Nor is it detectable downstream
+    once the output is stamped: a consumer then compares one declaration against
+    another, never against the values.  Only `"require"` keeps an output's unit
+    tied to something other than its own declaration.
 
-    An absent, over-long, or unparseable label is always stamped: absence is not
-    evidence of a mismatch.
+    Under `"stamp"` and `"strict"`, an absent, over-long, or unparseable label is
+    stamped: absence is not evidence of a mismatch.
 
     Args:
         da: The returned `DataArray`.
-        declared: The declared unit string (e.g. `"Pa"`).
+        declared: The declared unit string (e.g. `"Pa"`), or a `Unit` marker,
+            whose `on_output` override then applies.
         name: A label for the value, used in error messages.
         on_output: Override the on-output axis for this call (`None` defers to
-            the active policy).
+            the active policy); a marker's own override wins.
         qualname: A qualifier prepended to messages as `[qualname]`.
 
     Returns:
@@ -527,11 +576,15 @@ def apply_output_units(
         use the return value rather than relying on mutation.
 
     Raises:
-        pint.DimensionalityError: Under `"strict"`, when the returned array's own
-            unit is dimensionally incompatible with `declared`; also under
-            `"stamp"` for a quantified array that cannot be converted.
+        pint.DimensionalityError: Under `"strict"` or `"require"`, when the
+            returned array's own unit is dimensionally incompatible with
+            `declared`; also under `"stamp"` or `"require"` for a quantified array
+            that cannot be converted.
         ValueError: Under `"strict"`, when the returned array's unit is
-            compatible with but not equal to `declared`.
+            compatible with but not equal to `declared`; likewise under
+            `"require"` for an `attrs`-labelled array (a quantified one is
+            converted instead).  Under `"require"`, also when it carries no
+            parseable unit of its own.
 
     Examples:
         >>> import xarray as xr
@@ -540,10 +593,10 @@ def apply_output_units(
         >>> apply_output_units(da, "Pa", "return").attrs["units"]
         'Pa'
     """
-    pol = get_policy()
-    if not pol.enabled:
+    if not get_policy().enabled:
         return da
-    on_output = pol.on_output if on_output is None else _validate_on_output(on_output)
+    on_output = resolve_on_output(declared, on_output)
+    declared = str(declared)
     prefix = f"[{qualname}] " if qualname else ""
 
     quantified = da.pint.units
@@ -553,19 +606,35 @@ def apply_output_units(
         )
 
     have = da.attrs.get("units")
-    if on_output == "stamp" or have is None:
+    if have is None:
+        if on_output == "require":
+            raise ValueError(_require_message(prefix, name, declared, "no unit"))
+        da.attrs["units"] = declared
+        return da
+    if on_output == "stamp":
         da.attrs["units"] = declared
         return da
     if not isinstance(have, str) or len(have) > _MAX_UNIT_LEN:
-        # Unverifiable for the same reasons as on the input path; stamp regardless.
+        # Unverifiable for the same reasons as on the input path.
+        if on_output == "require":
+            raise ValueError(
+                _require_message(prefix, name, declared, "an unverifiable unit label")
+            )
         da.attrs["units"] = declared
         return da
     try:
         get_registry().Unit(have)
     except Exception:
+        if on_output == "require":
+            raise ValueError(
+                _require_message(
+                    prefix, name, declared, f"an unparseable unit label {have!r}"
+                )
+            ) from None
         da.attrs["units"] = declared
         return da
 
+    # "strict" and "require" compare a parseable label alike.
     if not units_equal(have, declared):
         if not units_compatible(have, declared):
             try:
@@ -578,15 +647,52 @@ def apply_output_units(
                     exc.dim2,
                     extra_msg=(
                         f" ({prefix}output {name!r} is labelled {have!r} but declares "
-                        f"{declared!r}, and on_output='strict' requires them to match; "
-                        f"if the body converts by scalar arithmetic, clear its 'units' "
-                        f"attribute or use on_output='stamp')"
+                        f"{declared!r}, and on_output={on_output!r} requires them to "
+                        f"match; if the body converts by scalar arithmetic, clear its "
+                        f"'units' attribute or use on_output='stamp')"
                     ),
                 ) from None
         else:
             raise ValueError(
                 f"{prefix}output {name!r}: unit {have!r} differs from declared "
-                f"{declared!r} and on_output='strict' requires them to match"
+                f"{declared!r} and on_output={on_output!r} requires them to match"
             )
     da.attrs["units"] = declared
     return da
+
+
+def require_dataarray(
+    value: Any,
+    declared: str | Unit,
+    name: str,
+    on_output: OnOutput | None = None,
+    qualname: str | None = None,
+) -> None:
+    """Refuse a declared output that is not a `DataArray` under `"require"`.
+
+    `apply_output_units` only sees `DataArray` values, so a wrapper returning a
+    bare numpy array, `None`, or a container with the declared field missing
+    would otherwise pass `"require"` unchecked.  Other modes let it through.
+
+    Raises:
+        ValueError: Under `"require"`, always.
+    """
+    if not get_policy().enabled or resolve_on_output(declared, on_output) != (
+        "require"
+    ):
+        return
+    prefix = f"[{qualname}] " if qualname else ""
+    carries = "no value" if value is None else f"a {type(value).__name__}"
+    raise ValueError(
+        _require_message(prefix, name, str(declared), f"{carries}, not a DataArray")
+    )
+
+
+def _require_message(prefix: str, name: str, declared: str, carries: str) -> str:
+    return (
+        f"{prefix}output {name!r} carries {carries} (declared {declared!r}), and "
+        f"on_output='require' refuses to stamp a unit the values were not "
+        f"computed in. Attach the unit the values are actually in where they "
+        f"enter, e.g. `.assign_attrs(units=...).pint.quantify()`, and the declared "
+        f"unit is then checked and converted to."
+    )

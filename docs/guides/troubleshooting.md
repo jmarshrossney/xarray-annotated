@@ -190,6 +190,24 @@ and no amount of checking that claim can verify arithmetic. Declarations catch w
 mistakes, not algebra.
 
 
+## A wrapper's output units are wrong, and every check passes { #wrapper-output-units }
+
+**Symptom.** A function wrapping a third-party library declares an output unit, the
+library actually returns something else, and nothing complains — not at the wrapper, and
+not at any consumer that declares the same unit.
+
+**Cause.** The library returns bare arrays, and a bare declared output is stamped with the
+declared unit under the default `on_output="stamp"` (and under `"strict"`). The
+declaration is then the array's only unit, so every check downstream compares one
+declaration with another. A consumer that declares the same wrong unit agrees with it.
+
+**Fix.** Attach the unit the library documents, where its output enters, and quantify:
+`xr.DataArray(raw).assign_attrs(units="ug m-2 s-1").pint.quantify()`. The declaration is
+then checked against it and converted to. Set `units_on_output="require"` on wrappers so a
+bare return raises instead of being stamped — see
+[Wrapping a library that returns bare arrays](policy.md#wrapping-a-library).
+
+
 ## Validation stopped happening everywhere { #validation-stopped-happening }
 
 **Symptom.** Checks that used to fire don't, across every domain at once, in one

@@ -100,6 +100,36 @@ class TestInternalHelpersStayInternal:
         assert "check_schema" in xra.schema.__all__
 
 
+class TestMarkersAtRoot:
+    """Markers are the one domain name re-exported from the root: they are
+    unique across domains and mixed in one hint. Policy names are not, since
+    they collide (``Policy``, ``set_policy``, ...)."""
+
+    @pytest.mark.parametrize(
+        ("domain", "name"),
+        [
+            ("schema", "Coords"),
+            ("schema", "Dims"),
+            ("schema", "Dtype"),
+            ("temporal", "Freq"),
+            ("units", "Unit"),
+        ],
+    )
+    def test_root_marker_is_the_domain_marker(self, domain, name):
+        assert name in xra.__all__
+        domain_mod = importlib.import_module(f"xarray_annotated.{domain}")
+        assert getattr(xra, name) is getattr(domain_mod, name)
+
+    def test_only_markers_are_re_exported_from_domains(self):
+        domain_names = {
+            n
+            for d in DOMAINS
+            for n in importlib.import_module(f"xarray_annotated.{d}").__all__
+        }
+        leaked = domain_names & set(xra.__all__)
+        assert leaked == {"Coords", "Dims", "Dtype", "Freq", "Unit"}
+
+
 def test_integrations_are_never_imported():
     """The jaxtyping/beartype support must stay structural, not a dependency.
 

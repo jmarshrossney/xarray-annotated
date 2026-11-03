@@ -11,6 +11,7 @@ must precede any descriptive metadata, e.g.
 `Annotated[DataArray, "m s-1", "description"]`.
 """
 
+from collections.abc import Callable
 from typing import (
     Annotated,
     Any,
@@ -24,9 +25,22 @@ from .._annotations import (
     unwrap_annotated,
     walk_signature,
 )
+from ._config import (
+    OnInexact,
+    OnMissing,
+    OnOutput,
+    _validate_on_inexact,
+    _validate_on_missing,
+    _validate_on_output,
+)
 
 # Re-exported so `units._annotations.unwrap_annotated` stays a stable import.
 __all__ = ["Unit", "annotated_unit", "units_from_signature", "unwrap_annotated"]
+
+
+def _optional[T: str](validate: Callable[[str], T], value: T | None) -> T | None:
+    """Validate an optional override at construction; `None` means no override."""
+    return None if value is None else validate(value)
 
 
 class Unit:
@@ -46,20 +60,83 @@ class Unit:
 
     The unit string is *not* validated here — parsing is deferred to
     `assert_valid_unit` at decoration time, exactly as for the bare-string form.
+
+    Each units policy axis can be overridden **for this declaration**, so the
+    intent sits next to the parameter that depends on it rather than in ambient
+    configuration::
+
+        tair: Annotated[xr.DataArray, Unit("degC", on_inexact="convert")]
+        total: Annotated[xr.DataArray, Unit("g m-2 yr-1", on_inexact="error")]
+
+    A marker override beats the decorator keyword, which beats the policy; the
+    package-wide `enabled` switch still disables everything.  `on_missing` and
+    `on_inexact` apply where the marker declares an input, `on_output` where it
+    declares an output; an override that does not apply where the marker sits is
+    ignored, so one marker can be reused on both sides.
+
+    Equality and hashing include the overrides, as for every other marker:
+    `Unit("Pa", on_output="strict") != Unit("Pa")`.  To compare only the units,
+    compare `.unit`, or use `units_equal` to compare spellings by meaning.
+
+    Args:
+        unit: The declared unit string.
+        on_missing: Override the on-missing axis for this declaration.
+        on_inexact: Override the on-inexact axis for this declaration.
+        on_output: Override the on-output axis for this declaration.
+
+    Raises:
+        ValueError: If an override is not a valid value for its axis.
     """
 
-    __slots__ = ("_unit",)
+    _unit: str
+    _on_missing: OnMissing | None
+    _on_inexact: OnInexact | None
+    _on_output: OnOutput | None
+    __slots__ = ("_on_inexact", "_on_missing", "_on_output", "_unit")
 
-    def __init__(self, unit: str) -> None:
+    def __init__(
+        self,
+        unit: str,
+        *,
+        on_missing: OnMissing | None = None,
+        on_inexact: OnInexact | None = None,
+        on_output: OnOutput | None = None,
+    ) -> None:
         self._unit = unit
+        self._on_missing = _optional(_validate_on_missing, on_missing)
+        self._on_inexact = _optional(_validate_on_inexact, on_inexact)
+        self._on_output = _optional(_validate_on_output, on_output)
 
     @property
     def unit(self) -> str:
         """The declared unit string."""
         return self._unit
 
+    @property
+    def on_missing(self) -> OnMissing | None:
+        """This declaration's on-missing override, or `None`."""
+        return self._on_missing
+
+    @property
+    def on_inexact(self) -> OnInexact | None:
+        """This declaration's on-inexact override, or `None`."""
+        return self._on_inexact
+
+    @property
+    def on_output(self) -> OnOutput | None:
+        """This declaration's on-output override, or `None`."""
+        return self._on_output
+
+    def _key(self) -> tuple[str, str | None, str | None, str | None]:
+        return (self._unit, self._on_missing, self._on_inexact, self._on_output)
+
     def __repr__(self) -> str:
-        return f"Unit({self._unit!r})"
+        parts = [repr(self._unit)]
+        for axis in ("on_missing", "on_inexact", "on_output"):
+            value = getattr(self, f"_{axis}")
+            if value is not None:
+                parts.append(f"{axis}={value!r}")
+        return f"Unit({', '.join(parts)})"
 
     def __str__(self) -> str:
         # The bare unit string, for readable interpolation (e.g. f"expected {m}").
@@ -67,14 +144,14 @@ class Unit:
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Unit):
-            return self._unit == other._unit
+            return self._key() == other._key()
         return NotImplemented
 
     def __hash__(self) -> int:
         # Defining __eq__ drops the default __hash__; restore it so that an
         # Annotated[...] hint carrying a Unit marker stays hashable (typing and
         # downstream tools cache/hash annotations).
-        return hash(self._unit)
+        return hash(self._key())
 
 
 def annotated_unit(hint: Any) -> str | None:
@@ -130,6 +207,17 @@ def annotated_unit(hint: Any) -> str | None:
         >>> annotated_unit(Annotated[bool, "toggles X"]) is None
         True
     """
+    marker = _unit_marker(hint)
+    return None if marker is None else marker.unit
+
+
+def _unit_marker(hint: Any) -> Unit | None:
+    """`annotated_unit`, but returning the marker so its overrides survive.
+
+    A bare-string shorthand comes back as `Unit(string)`.  Used by the
+    marker-carrying readers (`declarations_from_signature`, and so `enforce`);
+    `annotated_unit` and `units_from_signature` return the plain string.
+    """
     if get_origin(hint) is not Annotated:
         return None
     # get_args(Annotated[T, m1, m2, ...]) == (T, m1, m2, ...); skip the base type.
@@ -140,10 +228,10 @@ def annotated_unit(hint: Any) -> str | None:
     # The typed marker wins over a bare string, regardless of relative order.
     marker = _single_marker(metadata, Unit)
     if marker is not None:
-        return marker.unit
+        return marker
     for meta in metadata:
         if isinstance(meta, str):
-            return meta
+            return Unit(meta)
     return None
 
 

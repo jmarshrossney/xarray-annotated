@@ -33,7 +33,7 @@ from .schema._annotations import annotated_schema
 from .temporal import Freq
 from .temporal._annotations import annotated_freq
 from .units import Unit
-from .units._annotations import annotated_unit
+from .units._annotations import _unit_marker
 
 __all__ = ["Declared", "declarations_from_signature"]
 
@@ -66,13 +66,13 @@ class Declared:
 def _annotated_declaration(hint: Any) -> Declared | None:
     """Combine the per-domain extractors into one `Declared`, or `None`.
 
-    Delegates to the existing `annotated_unit`, `annotated_schema` and
+    Delegates to the existing `_unit_marker`, `annotated_schema` and
     `annotated_freq` so the "is this an `Annotated[DataArray, ...]` hint?" logic is
     not duplicated, then folds their payloads into a single homogeneous value.
     Returns `None` when the hint declares no facet, which is `walk_signature`'s "no
     declaration" signal.
     """
-    unit = annotated_unit(hint)
+    unit = _unit_marker(hint)
     markers = annotated_schema(hint) or ()
     dims = next((m for m in markers if isinstance(m, Dims)), None)
     dtype = next((m for m in markers if isinstance(m, Dtype)), None)
@@ -81,7 +81,7 @@ def _annotated_declaration(hint: Any) -> Declared | None:
     if all(facet is None for facet in (unit, dims, dtype, coords, freq)):
         return None
     return Declared(
-        unit=Unit(unit) if unit is not None else None,
+        unit=unit,
         dims=dims,
         dtype=dtype,
         coords=coords,

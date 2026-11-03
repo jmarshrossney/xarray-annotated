@@ -81,9 +81,8 @@ def _():
     import xarray as xr
 
     import xarray_annotated as xra
-    from xarray_annotated.schema import Coords, Dims, Dtype
-    from xarray_annotated.temporal import Freq
-    from xarray_annotated.units import Unit, use_cf_units
+    from xarray_annotated import Coords, Dims, Dtype, Freq, Unit
+    from xarray_annotated.units import use_cf_units
 
     # Catch an annoying warning from cf-xarray when matplotlib not available.
     with warnings.catch_warnings():
