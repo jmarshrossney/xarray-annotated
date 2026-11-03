@@ -6,8 +6,9 @@ compares one declaration against another.  ``"require"`` makes the wrapper
 attach the unit the values really are in, which is then checked and converted.
 """
 
+import dataclasses
 import functools
-from typing import Annotated
+from typing import Annotated, TypedDict
 
 import numpy as np
 import pint
@@ -73,11 +74,90 @@ class TestQuantified:
         with pytest.raises(pint.DimensionalityError):
             _require(_da("kg").pint.quantify())
 
-    def test_foreign_registry_left_untouched(self):
+    def test_foreign_registry_unit_raises(self):
+        # Unparseable here, as an unparseable attrs label is.
         foreign = pint.UnitRegistry(force_ndarray_like=True)
         foreign.define("widget = [thing]")
         da = _da().pint.quantify("widget", unit_registry=foreign)
-        assert _require(da) is da
+        with pytest.raises(ValueError, match="unparseable unit 'widget'"):
+            _require(da)
+
+    @pytest.mark.parametrize("mode", ["stamp", "strict"])
+    def test_foreign_registry_unit_left_untouched_otherwise(self, mode):
+        foreign = pint.UnitRegistry(force_ndarray_like=True)
+        foreign.define("widget = [thing]")
+        da = _da().pint.quantify("widget", unit_registry=foreign)
+        assert units.apply_output_units(da, "Pa", "r", mode) is da
+
+
+class TestNotADataArray:
+    @pytest.mark.parametrize(
+        ("value", "carries"),
+        [(np.array([1.0]), "a ndarray"), (None, "no value"), (1.0, "a float")],
+    )
+    def test_return_raises(self, value, carries):
+        @xra.enforce(units_on_output="require")
+        def wrap() -> Annotated[xr.DataArray, Unit("Pa")]:
+            return value
+
+        with pytest.raises(ValueError, match=f"carries {carries}, not a DataArray"):
+            wrap()
+
+    def test_marker_override_raises(self):
+        @xra.enforce
+        def wrap() -> Annotated[xr.DataArray, Unit("Pa", on_output="require")]:
+            return np.array([1.0])  # type: ignore[return-value]
+
+        with pytest.raises(ValueError, match="not a DataArray"):
+            wrap()
+
+    def test_missing_typeddict_key_raises(self):
+        class Out(TypedDict, total=False):
+            p: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.enforce(units_on_output="require")
+        def wrap() -> Out:
+            return {}
+
+        with pytest.raises(ValueError, match=r"output 'p' carries no value"):
+            wrap()
+
+    def test_none_dataclass_field_raises(self):
+        @dataclasses.dataclass
+        class Out:
+            p: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.enforce(units_on_output="require")
+        def wrap() -> Out:
+            return Out(p=None)  # type: ignore[arg-type]
+
+        with pytest.raises(ValueError, match=r"output 'p' carries no value"):
+            wrap()
+
+    @pytest.mark.parametrize("mode", ["stamp", "strict"])
+    def test_other_modes_pass_through(self, mode):
+        class Out(TypedDict, total=False):
+            p: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.enforce(units_on_output=mode)
+        def wrap() -> Out:
+            return {}
+
+        @xra.enforce(units_on_output=mode)
+        def bare() -> Annotated[xr.DataArray, Unit("Pa")]:
+            return None  # type: ignore[return-value]
+
+        assert wrap() == {}
+        assert bare() is None
+
+    def test_disabled_passes_through(self, monkeypatch):
+        monkeypatch.setenv("XARRAY_ANNOTATED_ENABLED", "0")
+
+        @xra.enforce(units_on_output="require")
+        def wrap() -> Annotated[xr.DataArray, Unit("Pa")]:
+            return None  # type: ignore[return-value]
+
+        assert wrap() is None
 
 
 class TestWiring:

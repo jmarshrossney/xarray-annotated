@@ -7,6 +7,8 @@ delegated to pint-xarray's `.pint` accessor via the active registry.
 """
 
 import warnings
+from collections.abc import Callable
+from typing import Any
 
 import pint
 import xarray as xr
@@ -33,6 +35,25 @@ from ._registry import _cf_hint, get_registry
 #: every DoS input pint accepts (a short string can still be pathological, e.g.
 #: nested numeric exponentiation), only the length-driven class.
 _MAX_UNIT_LEN = 256
+
+
+def _resolve_axis[T](
+    marker: T | None, kw: T | None, validate: Callable[[T], object], policy: T
+) -> T:
+    """Resolve one policy axis: marker override > call keyword > active policy.
+
+    The keyword is validated even when the marker overrides it, so a bad
+    keyword is never masked by the declaration it happens to be used with.
+    """
+    if kw is not None:
+        validate(kw)
+    return marker or kw or policy
+
+
+def resolve_on_output(declared: str | Unit, on_output: OnOutput | None) -> OnOutput:
+    """The on-output axis that applies to `declared` (`None` defers to the policy)."""
+    marker = declared.on_output if isinstance(declared, Unit) else None
+    return _resolve_axis(marker, on_output, _validate_on_output, get_policy().on_output)
 
 
 class UnitsWarning(UserWarning):
@@ -259,16 +280,20 @@ def check_units(
     pol = get_policy()
     if not pol.enabled:
         return da
-    if on_missing is not None:
-        _validate_on_missing(on_missing)
-    if on_inexact is not None:
-        _validate_on_inexact(on_inexact)
-    if isinstance(declared, Unit):
-        on_missing = declared.on_missing or on_missing
-        on_inexact = declared.on_inexact or on_inexact
-        declared = declared.unit
-    on_missing = on_missing or pol.on_missing
-    on_inexact = on_inexact or pol.on_inexact
+    marker = declared if isinstance(declared, Unit) else None
+    on_missing = _resolve_axis(
+        marker.on_missing if marker else None,
+        on_missing,
+        _validate_on_missing,
+        pol.on_missing,
+    )
+    on_inexact = _resolve_axis(
+        marker.on_inexact if marker else None,
+        on_inexact,
+        _validate_on_inexact,
+        pol.on_inexact,
+    )
+    declared = str(declared)
 
     prefix = f"[{qualname}] " if qualname else ""
     quantified = da.pint.units  # None unless the data is a pint Quantity
@@ -414,10 +439,11 @@ def _apply_output_quantified(
 
     Raises:
         pint.DimensionalityError: When the unit cannot be converted to
-            `declared` — under `"strict"`, or under `"stamp"` from the
-            conversion itself.
+            `declared` — under `"strict"`, or under `"stamp"` or `"require"`
+            from the conversion itself.
         ValueError: Under `"strict"`, when the unit is compatible with but not
-            equal to `declared`.
+            equal to `declared`; under `"require"`, when the active registry
+            cannot parse the unit.
     """
     try:
         label = _quantified_label(have)
@@ -427,7 +453,13 @@ def _apply_output_quantified(
         # under a different one). Unverifiable and unconvertible from here --
         # return it untouched rather than stamping attrs onto a Quantity and
         # creating the two-labels-at-once inconsistency this path exists to
-        # avoid.
+        # avoid.  "require" refuses it, as it does an unparseable attrs label.
+        if on_output == "require":
+            raise ValueError(
+                _require_message(
+                    prefix, name, declared, f"an unparseable unit {str(have)!r}"
+                )
+            ) from None
         return da
     if equal:
         return da
@@ -548,9 +580,11 @@ def apply_output_units(
             returned array's own unit is dimensionally incompatible with
             `declared`; also under `"stamp"` or `"require"` for a quantified array
             that cannot be converted.
-        ValueError: Under `"strict"` or `"require"`, when the returned array's
-            unit is compatible with but not equal to `declared`; under
-            `"require"`, when it carries no parseable unit of its own.
+        ValueError: Under `"strict"`, when the returned array's unit is
+            compatible with but not equal to `declared`; likewise under
+            `"require"` for an `attrs`-labelled array (a quantified one is
+            converted instead).  Under `"require"`, also when it carries no
+            parseable unit of its own.
 
     Examples:
         >>> import xarray as xr
@@ -559,15 +593,10 @@ def apply_output_units(
         >>> apply_output_units(da, "Pa", "return").attrs["units"]
         'Pa'
     """
-    pol = get_policy()
-    if not pol.enabled:
+    if not get_policy().enabled:
         return da
-    if on_output is not None:
-        _validate_on_output(on_output)
-    if isinstance(declared, Unit):
-        on_output = declared.on_output or on_output
-        declared = declared.unit
-    on_output = on_output or pol.on_output
+    on_output = resolve_on_output(declared, on_output)
+    declared = str(declared)
     prefix = f"[{qualname}] " if qualname else ""
 
     quantified = da.pint.units
@@ -630,6 +659,33 @@ def apply_output_units(
             )
     da.attrs["units"] = declared
     return da
+
+
+def require_dataarray(
+    value: Any,
+    declared: str | Unit,
+    name: str,
+    on_output: OnOutput | None = None,
+    qualname: str | None = None,
+) -> None:
+    """Refuse a declared output that is not a `DataArray` under `"require"`.
+
+    `apply_output_units` only sees `DataArray` values, so a wrapper returning a
+    bare numpy array, `None`, or a container with the declared field missing
+    would otherwise pass `"require"` unchecked.  Other modes let it through.
+
+    Raises:
+        ValueError: Under `"require"`, always.
+    """
+    if not get_policy().enabled or resolve_on_output(declared, on_output) != (
+        "require"
+    ):
+        return
+    prefix = f"[{qualname}] " if qualname else ""
+    carries = "no value" if value is None else f"a {type(value).__name__}"
+    raise ValueError(
+        _require_message(prefix, name, str(declared), f"{carries}, not a DataArray")
+    )
 
 
 def _require_message(prefix: str, name: str, declared: str, carries: str) -> str:

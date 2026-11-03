@@ -11,6 +11,7 @@ must precede any descriptive metadata, e.g.
 `Annotated[DataArray, "m s-1", "description"]`.
 """
 
+from collections.abc import Callable
 from typing import (
     Annotated,
     Any,
@@ -35,6 +36,11 @@ from ._config import (
 
 # Re-exported so `units._annotations.unwrap_annotated` stays a stable import.
 __all__ = ["Unit", "annotated_unit", "units_from_signature", "unwrap_annotated"]
+
+
+def _optional[T: str](validate: Callable[[str], T], value: T | None) -> T | None:
+    """Validate an optional override at construction; `None` means no override."""
+    return None if value is None else validate(value)
 
 
 class Unit:
@@ -68,6 +74,10 @@ class Unit:
     declares an output; an override that does not apply where the marker sits is
     ignored, so one marker can be reused on both sides.
 
+    Equality and hashing include the overrides, as for every other marker:
+    `Unit("Pa", on_output="strict") != Unit("Pa")`.  To compare only the units,
+    compare `.unit`, or use `units_equal` to compare spellings by meaning.
+
     Args:
         unit: The declared unit string.
         on_missing: Override the on-missing axis for this declaration.
@@ -93,13 +103,9 @@ class Unit:
         on_output: OnOutput | None = None,
     ) -> None:
         self._unit = unit
-        self._on_missing = (
-            None if on_missing is None else _validate_on_missing(on_missing)
-        )
-        self._on_inexact = (
-            None if on_inexact is None else _validate_on_inexact(on_inexact)
-        )
-        self._on_output = None if on_output is None else _validate_on_output(on_output)
+        self._on_missing = _optional(_validate_on_missing, on_missing)
+        self._on_inexact = _optional(_validate_on_inexact, on_inexact)
+        self._on_output = _optional(_validate_on_output, on_output)
 
     @property
     def unit(self) -> str:

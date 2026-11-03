@@ -36,7 +36,12 @@ from .schema._check import assert_valid_schema, check_schema
 from .temporal import _config as _temporal
 from .temporal._check import assert_valid_freq, check_freq
 from .units import _config as _units
-from .units._check import apply_output_units, assert_valid_unit, check_units
+from .units._check import (
+    apply_output_units,
+    assert_valid_unit,
+    check_units,
+    require_dataarray,
+)
 
 __all__ = ["enforce"]
 
@@ -161,10 +166,13 @@ def _enforce(
             # caller receives.  apply_output_units may return a *new* array (a
             # converted quantified one), so its result is always used.
             if not isinstance(value, xr.DataArray):
+                if decl.unit is not None:
+                    require_dataarray(value, decl.unit, name, units_on_output, qualname)
                 return value
             if decl.unit is not None:
-                on_output = units_on_output or _units.get_policy().on_output
-                value = apply_output_units(value, decl.unit, name, on_output, qualname)
+                value = apply_output_units(
+                    value, decl.unit, name, units_on_output, qualname
+                )
             if markers := _schema_markers(decl):
                 on_mismatch = schema_on_mismatch or _schema.get_policy().on_mismatch
                 check_schema(value, markers, name, on_mismatch, qualname)
@@ -186,8 +194,10 @@ def _enforce(
             if isinstance(output, dict):
                 if isinstance(result, dict):
                     for name, decl in output.items():
+                        # A missing key is checked as None, so "require" sees it.
+                        applied = _apply_output(result.get(name), decl, name)
                         if name in result:
-                            result[name] = _apply_output(result[name], decl, name)
+                            result[name] = applied
                 elif dataclasses.is_dataclass(result):
                     for name, decl in output.items():
                         value = getattr(result, name, None)
@@ -211,13 +221,12 @@ def _enforce(
                     if decl is None or not isinstance(val, xr.DataArray):
                         continue
                     if decl.unit is not None:
-                        pol = _units.get_policy()
                         val = check_units(
                             val,
                             decl.unit,
                             name,
-                            units_on_missing or pol.on_missing,
-                            units_on_inexact or pol.on_inexact,
+                            units_on_missing,
+                            units_on_inexact,
                             qualname,
                         )
                         bound.arguments[name] = val
@@ -276,7 +285,9 @@ def enforce(
        converted when pint-quantified), then validates structure and frequency
        on the value returned to the caller.
 
-    Only `DataArray` values are touched; anything else passes through.  When
+    Only `DataArray` values are touched; anything else passes through, except
+    that under `on_output="require"` a declared output that is not a
+    `DataArray` (including `None` or a missing key) raises.  When
     the package-wide master switch is off (`enabled=False`) the wrapper is a
     total no-op.  Every declaration is validated **at decoration time**, so a
     malformed unit, marker or offset string fails at import regardless of

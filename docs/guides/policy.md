@@ -230,7 +230,9 @@ def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
 The declared unit is now checked against something real: a compatible unit is converted
 (here by a factor of 86.4e-3), and an incompatible one raises `DimensionalityError`.
 `require` makes forgetting this impossible to do silently — a bare return raises, with a
-message pointing at `.pint.quantify()`. See [For a module](#for-a-module) to apply it to a
+message pointing at `.pint.quantify()`. So does returning something that is not a
+`DataArray` at all (the library's raw numpy array, `None`, or a `TypedDict` missing the
+declared key), and a quantified return whose unit the active registry cannot parse. See [For a module](#for-a-module) to apply it to a
 whole module of wrappers.
 
 
