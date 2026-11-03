@@ -6,19 +6,17 @@
 [![Docs](https://github.com/jmarshrossney/xarray-annotated/actions/workflows/docs.yml/badge.svg)](https://jmarshrossney.github.io/xarray-annotated)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/jmarshrossney/xarray-annotated/blob/main/LICENSE)
 
-`xarray-annotated` enables run-time validation of `xarray.DataArray` properties declared in function signatures via [`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated).
+`xarray-annotated` checks `xarray.DataArray` arguments and return values against properties declared in the function signature with [`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated):
 
-The main idea is that annotations serve as a single source of truth for
+- **structure**: dimensions, coordinates and dtype;
+- **physical units**, converting inputs to the declared unit where needed;
+- **time frequency** and phase.
 
-- structural schema (dims, coords, dtype),
-- physical units,
-- frequency (and phase) of a time axis,
+Making signatures the single source of truth has several advantages: the same declaration
 
-from which
-
-- static checkers and run-time validation can derive expected properties,
-- documentation can be generated automatically,
-- automated tools (coding agents) receive steering.
+- can be used by automated checks and validation, and hence enforced at run time;
+- appears in generated documentation without needing to be hand-written;
+- provides rich context for AI coding agents.
 
 For validating and automatically converting physical units we lean on the excellent [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io).
 ([cf-xarray](https://cf-xarray.readthedocs.io) is an optional dependency for CF/UDUNITS unit strings.)
@@ -116,17 +114,5 @@ altitude(xr.DataArray([[1013.0, 1000.0]], dims=["run", "time"], attrs={"units": 
 
 ## Contributing
 
-```sh
-uv sync   # install the package + dev dependencies into .venv
-just      # lint, typecheck, test, build docs
-```
-
-See the `justfile` for individual targets (`just lint`, `just test`, `just test-cov`, ...).
-
-A `.pre-commit-config.yaml` is included to run the same linting (ruff) and type-checking (pyright) steps on every commit. Install the hooks with:
-
-```sh
-uv run pre-commit install
-```
-
-Contributions are welcome --- open an issue or pull request on GitHub.
+Issues and pull requests are welcome.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the package's scope and how to set up a development environment.

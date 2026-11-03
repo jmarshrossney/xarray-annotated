@@ -163,6 +163,9 @@ def to_float(
     return x
 ```
 
+This checks the dtype's *kind* (floating point), not its width: a `float32` array
+passes too. Use `exact=True` to check the width as well; see below.
+
 ### Strictness
 
 **`Dtype(dtype, exact=False)`** — by default matches by numpy *kind*: any float satisfies
