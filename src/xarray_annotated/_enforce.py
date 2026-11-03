@@ -127,7 +127,8 @@ def enforce(
         The wrapped function, or a decorator when `func` is `None`.
 
     Raises:
-        ValueError: If a keyword or a declaration is malformed (at decoration).
+        ValueError: If a keyword or a declaration is malformed, or a `*args` or
+            `**kwargs` parameter carries a declaration (at decoration).
 
     Example:
         >>> from typing import Annotated
@@ -161,6 +162,16 @@ def enforce(
 
         for name, decl in inputs.items():
             _assert_valid(decl, f"{qualname} input {name!r}")
+            if sig.parameters[name].kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            ):
+                raise ValueError(
+                    f"{qualname} input {name!r}: enforce cannot check a declaration "
+                    f"on a variadic parameter, since it binds a tuple or dict rather "
+                    f"than a DataArray. Use named parameters, or call the checkers "
+                    f"on each element in the function body."
+                )
         if isinstance(output, Declared):
             _assert_valid(output, f"{qualname} output")
         elif isinstance(output, dict):

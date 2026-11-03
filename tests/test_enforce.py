@@ -331,3 +331,24 @@ class TestOutputStampLeavesTheInputAlone:
         da = _int_da("hPa")
         assert f(da)["p"].attrs["units"] == "Pa"
         assert da.attrs["units"] == "hPa"
+
+
+class TestVariadics:
+    def test_declared_var_positional_is_rejected(self):
+        with pytest.raises(ValueError, match=r"'xs'.*variadic"):
+
+            @xra.enforce
+            def f(*xs: Annotated[xr.DataArray, Unit("Pa")]) -> None: ...
+
+    def test_declared_var_keyword_is_rejected(self):
+        with pytest.raises(ValueError, match=r"'xs'.*variadic"):
+
+            @xra.enforce
+            def f(**xs: Annotated[xr.DataArray, Dims("x")]) -> None: ...
+
+    def test_undeclared_variadics_are_fine(self):
+        @xra.enforce
+        def f(p: Annotated[xr.DataArray, Unit("Pa")], *a: int, **k: str) -> int:
+            return len(a) + len(k)
+
+        assert f(_int_da("Pa"), 1, 2, z="3") == 3
