@@ -108,3 +108,11 @@ class TestRoundTrip:
             coords=Coords("time"),
             freq=Freq("7D"),
         )
+
+
+class TestBareStringNames:
+    def test_dims_string_is_one_name(self):
+        assert Dims("time") in get_args(annotate(dims="time"))
+
+    def test_coords_string_is_one_name(self):
+        assert Coords("time") in get_args(annotate(coords="time"))
