@@ -12,6 +12,7 @@ a converted quantified output.
 """
 
 import logging
+import math
 from typing import Any
 
 import pint
@@ -178,9 +179,11 @@ def units_compatible(a: str | Unit, b: str | Unit) -> bool:
 def units_equal(a: str | Unit, b: str | Unit) -> bool:
     """Return whether two units are the *same* unit (no conversion needed).
 
-    Compares the parsed units, so different spellings of the same unit are equal
-    (`"Pa"` == `"pascal"`, `"1"` == `"dimensionless"`) while a prefixed unit
-    differs (`"hPa"` != `"Pa"`).  This is the distinction `convert` turns
+    Compares what converting would do to the values, so different spellings and
+    compositions of one unit are equal (`"Pa"` == `"pascal"` == `"N/m**2"`,
+    `"1"` == `"dimensionless"`) while a prefixed unit differs (`"hPa"` != `"Pa"`).
+    pint treats radians as dimensionless, so `"rad"` == `"1"` and `"Hz"` ==
+    `"rad/s"`.  This is the distinction `convert` turns
     on: a value-changing conversion is one where the units are compatible but
     *not* equal, and needs opting into; equivalent spellings imply no value
     change.
@@ -201,12 +204,32 @@ def units_equal(a: str | Unit, b: str | Unit) -> bool:
         True
         >>> units_equal(Unit("Pa"), Unit("pascal"))  # markers accepted too
         True
+        >>> units_equal("Pa", "kg/m/s**2")
+        True
         >>> units_equal("hPa", "Pa")
         False
     """
     a = a.unit if isinstance(a, Unit) else a
     b = b.unit if isinstance(b, Unit) else b
-    return get_registry().Unit(a) == get_registry().Unit(b)
+    registry = get_registry()
+    unit_a, unit_b = registry.Unit(a), registry.Unit(b)
+    if unit_a == unit_b:
+        return True
+    if not unit_a.is_compatible_with(unit_b):
+        return False
+    try:
+        # Two points, because an offset unit can agree with another at one of them.
+        return all(
+            math.isclose(
+                registry.Quantity(x, unit_a).to(unit_b).magnitude,
+                x,
+                rel_tol=1e-12,
+                abs_tol=1e-12,
+            )
+            for x in (0.0, 1.0)
+        )
+    except pint.DimensionalityError:
+        return False  # compatible by dimension, yet no conversion: degC, delta_degC
 
 
 def check_units(

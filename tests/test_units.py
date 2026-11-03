@@ -468,3 +468,38 @@ class TestConversionLeavesCoordsAlone:
         with pytest.raises(pint.DimensionalityError) as info:
             units.check_units(da, Unit("Pa", convert=True), "p")
         assert "while validating input 'p'" in info.value.__notes__[0]
+
+
+class TestUnitsEqualIsPhysical:
+    @pytest.mark.parametrize(
+        ("a", "b"),
+        [("Pa", "N/m**2"), ("Pa", "kg/m/s**2"), ("Hz", "1/s"), ("delta_degC", "K")],
+    )
+    def test_same_scale_different_composition_is_equal(self, a, b):
+        assert units.units_equal(a, b)
+
+    @pytest.mark.parametrize(
+        ("a", "b"),
+        [
+            ("Pa", "hPa"),
+            ("degC", "K"),  # same size of degree, different zero
+            ("degC", "delta_degC"),  # compatible, but pint refuses to convert
+            ("percent", "1"),
+            ("dB", "1"),
+            ("Pa", "kg"),
+        ],
+    )
+    def test_different_values_or_dimensions_are_not_equal(self, a, b):
+        assert not units.units_equal(a, b)
+
+    def test_recomposed_input_passes_without_convert(self):
+        da = xr.DataArray([1.0], attrs={"units": "kg/m/s**2"})
+        out = units.check_units(da, "Pa", "p")
+        np.testing.assert_array_equal(out.values, da.values)
+        assert out.attrs["units"] == "Pa"
+
+    @pytest.mark.parametrize("on_output", ["strict", "require"])
+    def test_recomposed_output_label_is_no_mismatch(self, on_output):
+        da = xr.DataArray([1.0], attrs={"units": "N/m**2"})
+        out = units.apply_output_units(da, "Pa", "return", on_output)
+        assert out.attrs["units"] == "Pa"
