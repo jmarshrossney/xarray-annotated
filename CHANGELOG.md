@@ -14,6 +14,7 @@ A declaration now either holds or raises, and how a function validates can be re
 | `units_from_signature`, `schema_from_signature`, `freq_from_signature`, `annotated_unit`, `annotated_schema`, `annotated_freq` | `xra.declarations_from_signature`, `xra.declaration_from_hint` |
 | `Annotated[xr.DataArray, "Pa"]` declaring a unit | `Annotated[xr.DataArray, Unit("Pa")]`; a string is only a description |
 | `xra.unwrap_annotated`, `xra.walk_signature` | Removed; read declarations with the readers above |
+| `check_freq(da, [Freq("D")], name)` | `check_freq(da, Freq("D"), name)`; a hint holds one `Freq` |
 | `set_policy`, `policy`, `get_policy`, `Policy`, and the `on_missing`, `on_inexact`, `on_output`, `on_mismatch` and `on_uninferable` settings and environment variables | Removed; every failed check raises |
 | `units.policy(enabled=False)` and similar | `with xra.enabled(False):`, or `XARRAY_ANNOTATED_ENABLED` |
 | `UnitsWarning`, `SchemaWarning`, `FreqWarning` | Removed; nothing warns |

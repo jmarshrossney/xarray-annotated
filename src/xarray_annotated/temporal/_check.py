@@ -333,7 +333,7 @@ def _mismatch(marker: Freq, coord: xr.DataArray) -> str | None:
 
 def check_freq(
     da: xr.DataArray,
-    declared: Freq | list[Freq],
+    declared: Freq,
     name: str,
     qualname: str | None = None,
 ) -> xr.DataArray:
@@ -353,7 +353,7 @@ def check_freq(
 
     Args:
         da: The DataArray to validate.
-        declared: A single `Freq` or a list of them declared for `da`.
+        declared: The `Freq` declared for `da`.
         name: The parameter/field name, for error messages.
         qualname: Optional qualified function name, prefixed to messages.
 
@@ -366,16 +366,14 @@ def check_freq(
     if not resolve_enabled():
         return da
 
-    markers = [declared] if isinstance(declared, Freq) else declared
     prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
-    for marker in markers:
-        dim, detail = _locate_axis(da, marker)
-        if dim is None:
-            raise FreqError(f"{prefix} {detail}")
-        got = _mismatch(marker, da[dim])
-        if got is not None:
-            raise FreqError(
-                f"{prefix} frequency mismatch on {dim!r}: expected {marker.freq!r}, "
-                f"got {got}"
-            )
+    dim, detail = _locate_axis(da, declared)
+    if dim is None:
+        raise FreqError(f"{prefix} {detail}")
+    got = _mismatch(declared, da[dim])
+    if got is not None:
+        raise FreqError(
+            f"{prefix} frequency mismatch on {dim!r}: expected {declared.freq!r}, "
+            f"got {got}"
+        )
     return da

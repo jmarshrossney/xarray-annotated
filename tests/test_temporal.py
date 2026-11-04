@@ -220,11 +220,6 @@ class TestCheckFreq:
         with pytest.raises(temporal.FreqError, match=r"\[myfunc\] 'x'"):
             temporal.check_freq(da, Freq("7D"), "x", qualname="myfunc")
 
-    def test_list_of_markers(self):
-        da = _da(pd.date_range("2020-01-01", periods=5, freq="D"))
-        with pytest.raises(temporal.FreqError, match="frequency mismatch"):
-            temporal.check_freq(da, [Freq("D"), Freq("ME")], "x")
-
     def test_disabled_is_noop(self):
         da = _da(pd.date_range("2020-01-01", periods=5, freq="D"))
         with xra.enabled(False):
