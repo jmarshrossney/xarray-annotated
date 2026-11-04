@@ -20,11 +20,19 @@ This is deliberately the *convenience* layer over public primitives — the
 different behaviour should build its own consumer from those.
 """
 
+import contextlib
 import dataclasses
 import functools
 import inspect
 from collections.abc import Callable
-from typing import Any, TypeAliasType, get_args, get_origin
+from typing import (
+    Any,
+    TypeAliasType,
+    get_args,
+    get_origin,
+    get_type_hints,
+    is_typeddict,
+)
 
 import xarray as xr
 
@@ -56,26 +64,65 @@ def _assert_valid(declared: Declared, context: str) -> None:
         assert_valid_freq(declared.freq, context)
 
 
-def _markers_in(hint: Any, seen: set[TypeAliasType] | None = None) -> list[Any]:
-    """Return every marker anywhere inside a hint, however deeply nested.
+def _nested_hints(hint: Any, seen: set[Any]) -> list[Any]:
+    """Return what sits directly inside a hint.
 
-    Each `type` alias is entered once, since one may refer to itself.
+    That is its type arguments, with a `Callable`'s parameter list flattened, since
+    `get_args` returns that as a plain list, and the value of a `type` alias.  Each
+    alias is entered once, since one may refer to itself.
     """
-    seen = set() if seen is None else seen
-    found = []
+    nested = []
     for alias in (hint, get_origin(hint)):
         if isinstance(alias, TypeAliasType) and alias not in seen:
             seen.add(alias)
-            found.extend(_markers_in(alias.__value__, seen))
+            nested.append(alias.__value__)
     for arg in get_args(hint):
-        if isinstance(arg, Unit | Dims | Dtype | Coords | Freq):
-            found.append(arg)
-        elif isinstance(arg, list):
-            # A Callable's parameter list, which get_args returns as a plain list.
-            for item in arg:
-                found.extend(_markers_in(item, seen))
+        if isinstance(arg, list):
+            nested.extend(arg)
         else:
-            found.extend(_markers_in(arg, seen))
+            nested.append(arg)
+    return nested
+
+
+def _markers_in(hint: Any, seen: set[Any] | None = None) -> list[Any]:
+    """Return every marker anywhere inside a hint, however deeply nested."""
+    seen = set() if seen is None else seen
+    found = []
+    for nested in _nested_hints(hint, seen):
+        if isinstance(nested, Unit | Dims | Dtype | Coords | Freq):
+            found.append(nested)
+        else:
+            found.extend(_markers_in(nested, seen))
+    return found
+
+
+def _is_record(tp: Any) -> bool:
+    """Return whether `tp` is a `TypedDict`, dataclass or `NamedTuple` class."""
+    return isinstance(tp, type) and (
+        is_typeddict(tp)
+        or dataclasses.is_dataclass(tp)
+        or (issubclass(tp, tuple) and hasattr(tp, "_fields"))
+    )
+
+
+def _record_fields_in(hint: Any, seen: set[Any] | None = None) -> list[Any]:
+    """Return the field hints of every record class inside a hint.
+
+    Each class is entered once, since one may refer to itself.  A class with an
+    unresolvable forward reference is skipped: one that declares fields through it
+    raises when read, and any other has nothing to do with this package.
+    """
+    seen = set() if seen is None else seen
+    found = []
+    record = get_origin(hint) or hint
+    if _is_record(record) and record not in seen:
+        seen.add(record)
+        with contextlib.suppress(NameError):
+            found.extend(get_type_hints(record, include_extras=True).values())
+        for field in list(found):
+            found.extend(_record_fields_in(field, seen))
+    for nested in _nested_hints(hint, seen):
+        found.extend(_record_fields_in(nested, seen))
     return found
 
 
@@ -92,6 +139,22 @@ def _refuse_stray_markers(hint: Any) -> None:
             f"Annotated[DataArray, ...] parameter, return, or TypedDict or dataclass "
             f"field declares anything. For several outputs, return a TypedDict or "
             f"dataclass."
+        )
+
+
+def _refuse_unread_fields(hint: Any) -> None:
+    """Raise if a return hint holds a record whose declared fields go unread.
+
+    Raises:
+        ValueError: If a class inside `hint` has fields carrying markers, but the
+            hint is not one `TypedDict` or dataclass, optionally `| None`.
+    """
+    stray = [m for field in _record_fields_in(hint) for m in _markers_in(field)]
+    if stray:
+        raise ValueError(
+            f"return hint {hint!r} holds fields carrying {stray!r}, which enforce "
+            f"cannot apply: only one TypedDict or dataclass return, optionally "
+            f"`| None`, is read field by field."
         )
 
 
@@ -165,7 +228,8 @@ def enforce(
     Raises:
         ValueError: If a keyword or a declaration is malformed, a `*args` or
             `**kwargs` parameter carries a declaration, or a hint carries a marker
-            that cannot apply, such as in a tuple or on a `Dataset` (at decoration).
+            that cannot apply, such as in a tuple, on a `Dataset`, or on a field of
+            a `NamedTuple` return (at decoration).
 
     Example:
         >>> from typing import Annotated
@@ -192,6 +256,9 @@ def enforce(
     def decorate(fn: Callable[..., Any]) -> Callable[..., Any]:
         walk_signature(fn, _refuse_stray_markers)
         inputs, output = declarations_from_signature(fn)
+        return_hint = get_type_hints(fn, include_extras=True).get("return")
+        if not isinstance(output, dict):
+            _refuse_unread_fields(return_hint)
         sig = inspect.signature(fn)
         qualname = getattr(fn, "__qualname__", repr(fn))
 

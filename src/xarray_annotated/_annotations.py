@@ -90,6 +90,30 @@ def _is_dataarray_type(tp: Any) -> bool:
     return False
 
 
+def _strip_return_hint(hint: Any) -> Any:
+    """Strip `type` aliases, `Annotated` and `| None` off a return hint."""
+    origin = get_origin(hint)
+    if isinstance(hint, TypeAliasType):
+        return _strip_return_hint(hint.__value__)
+    if isinstance(origin, TypeAliasType):
+        return _strip_return_hint(origin.__value__)
+    if origin is Annotated:
+        return _strip_return_hint(get_args(hint)[0])
+    if origin in (Union, types.UnionType):
+        members = [arg for arg in get_args(hint) if arg is not types.NoneType]
+        if len(members) == 1:
+            return _strip_return_hint(members[0])
+    return hint
+
+
+def _record_type(hint: Any) -> Any:
+    """Return the `TypedDict` or dataclass a return hint resolves to, else `None`."""
+    base = _strip_return_hint(hint)
+    record = get_origin(base) or base
+    is_record = is_typeddict(record) or dataclasses.is_dataclass(record)
+    return record if isinstance(record, type) and is_record else None
+
+
 def walk_signature[T](
     func: object,
     extract: Callable[[Any], T | None],
@@ -98,7 +122,8 @@ def walk_signature[T](
 
     Reads `get_type_hints(func, include_extras=True)` and maps each hint through
     `extract`, which returns a declaration payload for that hint or `None` when
-    the hint carries no declaration.
+    the hint carries no declaration.  `extract` also sees a whole return hint before
+    any of its fields, so it can refuse what it finds there.
 
     Args:
         func: A callable whose parameters/return may carry `Annotated` metadata.
@@ -111,8 +136,9 @@ def walk_signature[T](
 
         * `inputs` — `dict[str, T]` mapping each declared parameter to its payload.
         * `output` — a `dict[str, T]` (per-field) if the return hint is a
-            `TypedDict` or dataclass; a single `T` if the return is one declared
-            `Annotated[DataArray, ...]`; `None` otherwise.
+            `TypedDict` or dataclass, read through a `type` alias, `Annotated`,
+            `| None` and generic parameters; a single `T` if the return is one
+            declared `Annotated[DataArray, ...]`; `None` otherwise.
     """
     qualname = getattr(func, "__qualname__", repr(func))
 
@@ -125,8 +151,6 @@ def walk_signature[T](
 
     hints = get_type_hints(func, include_extras=True)
     ret = hints.pop("return", None)
-    while isinstance(ret, TypeAliasType):
-        ret = ret.__value__
 
     inputs = {
         name: payload
@@ -134,23 +158,22 @@ def walk_signature[T](
         if (payload := _extract(hint, f"input {name!r}")) is not None
     }
 
-    output: dict[str, T] | T | None
-    if is_typeddict(ret):
-        ret_hints = get_type_hints(ret, include_extras=True)
+    output: dict[str, T] | T | None = _extract(ret, "output")
+    record = _record_type(ret)
+    if is_typeddict(record):
+        ret_hints = get_type_hints(record, include_extras=True)
         output = {
             name: payload
             for name, hint in ret_hints.items()
             if (payload := _extract(hint, f"output {name!r}")) is not None
         }
-    elif dataclasses.is_dataclass(ret):
-        ret_hints = get_type_hints(ret, include_extras=True)
+    elif record is not None:
+        ret_hints = get_type_hints(record, include_extras=True)
         output = {
             f.name: payload
-            for f in dataclasses.fields(ret)
+            for f in dataclasses.fields(record)
             if (payload := _extract(ret_hints.get(f.name), f"output {f.name!r}"))
             is not None
         }
-    else:
-        output = _extract(ret, "output")
 
     return inputs, output

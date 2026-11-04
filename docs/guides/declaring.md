@@ -37,6 +37,7 @@ def weekly_mean(
 ## Rules
 
 - **Where markers go:** on a parameter, on a return, or on the fields of a `TypedDict` or dataclass return.
+- **Return containers:** a `TypedDict` or dataclass return may also be written `R | None`, `R[int]` or `Annotated[R, "description"]`, or through a `type` alias. Fields carrying markers anywhere else, such as in a `NamedTuple`, `list[R]` or `R1 | R2`, raise at decoration.
 - **Optional values:** `Annotated[xr.DataArray | None, ...]` and `Annotated[xr.DataArray, ...] | None` are equivalent, and a `TypedDict` field may be `NotRequired`.
 - **Other values:** anything that is not a `DataArray` passes through untouched.
 - **One of each:** a second marker of the same kind on one hint raises `ValueError`, so write `Coords("time", "lat")`.

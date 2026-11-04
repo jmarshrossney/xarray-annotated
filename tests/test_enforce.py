@@ -11,7 +11,14 @@ import inspect
 import typing
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, Concatenate, NotRequired, ParamSpec, TypedDict
+from typing import (
+    Annotated,
+    Concatenate,
+    NamedTuple,
+    NotRequired,
+    ParamSpec,
+    TypedDict,
+)
 
 import numpy as np
 import pandas as pd
@@ -505,3 +512,137 @@ class TestTypeAliases:
         f = xra.enforce(_annotated(ret=_FieldsAlias))
         out = f({"pa": xr.DataArray([1.0], attrs={"units": "pascal"})})
         assert out["pa"].attrs["units"] == "Pa"
+
+
+@dataclass
+class _Record:
+    pa: _PA
+
+
+@dataclass
+class _Record2:
+    pa: _PA
+
+
+@dataclass
+class _GenericRecord[T]:
+    pa: _PA
+    other: T
+
+
+class _Tuple(NamedTuple):
+    pa: _PA
+
+
+@dataclass
+class _Nested:
+    inner: _Record
+
+
+class _Plain(TypedDict):
+    x: int
+
+
+@dataclass
+class _SelfReferring:
+    pa: _PA
+    next: "_SelfReferring | None" = None
+
+
+@dataclass
+class _Unresolvable:
+    x: "NotDefinedAnywhere"  # type: ignore[name-defined]  # noqa: F821
+
+
+type _OptionalRecord = _Record | None
+type _GenericAlias[T] = _GenericRecord[T] | None
+
+
+def _kg() -> xr.DataArray:
+    return xr.DataArray([1.0], attrs={"units": "kg"})
+
+
+class TestReturnContainers:
+    """A declared return container is read, or refused, but never left unchecked."""
+
+    @pytest.mark.parametrize(
+        ("hint", "value"),
+        [
+            (_Record, lambda: _Record(_kg())),
+            (_Record | None, lambda: _Record(_kg())),
+            (_OptionalRecord, lambda: _Record(_kg())),
+            (_Fields | None, lambda: {"pa": _kg()}),
+            (_FieldsAlias, lambda: {"pa": _kg()}),
+            (Annotated[_Record, "described"], lambda: _Record(_kg())),
+            (_GenericRecord[int], lambda: _GenericRecord(_kg(), 1)),
+            (_GenericRecord[int] | None, lambda: _GenericRecord(_kg(), 1)),
+            (_GenericAlias[int], lambda: _GenericRecord(_kg(), 1)),
+        ],
+    )
+    def test_read_field_by_field(self, hint, value):
+        f = xra.enforce(_annotated(ret=hint))
+        with pytest.raises(pint.DimensionalityError):
+            f(value())
+
+    @pytest.mark.parametrize(
+        "hint",
+        [
+            _Tuple,
+            _Tuple | None,
+            list[_Record],
+            tuple[_Record, _Record],
+            _Record | _Record2,
+            _Record | _Fields,
+            _PA | _Record,
+            list[_Nested],
+            list[_SelfReferring],
+            dict[str, _OptionalRecord],
+        ],
+    )
+    def test_refused_at_decoration(self, hint):
+        with pytest.raises(ValueError, match=r"enforce\s+cannot apply"):
+            xra.enforce(_annotated(ret=hint))
+
+    @pytest.mark.parametrize(
+        "hint",
+        [
+            Annotated[_Record, Unit("Pa")],
+            _GenericRecord[_PA],
+        ],
+    )
+    def test_marker_on_the_container_itself_is_refused(self, hint):
+        with pytest.raises(ValueError, match="enforce cannot apply"):
+            xra.enforce(_annotated(ret=hint))
+
+    @pytest.mark.parametrize(
+        "hint",
+        [
+            list[_Plain],
+            list[_Unresolvable],
+            _Plain | int,
+            _PA,
+            _PA | None,
+        ],
+    )
+    def test_nothing_unread_is_not_refused(self, hint):
+        xra.enforce(_annotated(ret=hint))
+
+    def test_a_parameter_is_not_read_field_by_field(self):
+        f = xra.enforce(_annotated(param=_Record))
+        value = _Record(_kg())
+        assert f(value) is value
+
+    def test_optional_container_may_return_none(self):
+        f = xra.enforce(_annotated(ret=_Record | None))
+        assert f(None) is None
+
+    def test_reader_reports_the_fields(self):
+        expected = {"pa": Declared(unit=Unit("Pa"))}
+        for hint in (_Record | None, _OptionalRecord, _GenericRecord[int]):
+            _, output = xra.declarations_from_signature(_annotated(ret=hint))
+            assert output == expected
+
+    def test_reader_returns_nothing_for_what_enforce_refuses(self):
+        for hint in (_Tuple, list[_Record], _Record | _Record2):
+            _, output = xra.declarations_from_signature(_annotated(ret=hint))
+            assert output is None
