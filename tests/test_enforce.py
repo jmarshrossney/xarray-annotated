@@ -363,6 +363,10 @@ type _StrayAlias = list[_PA]
 type _StrayGeneric[T] = Annotated[T, Unit("Pa")]
 type _StrayGenericAlias = _StrayGeneric[xr.DataArray]
 type _Generic[T] = list[T]
+type _Recursive = dict[str, _Recursive] | list[_Recursive] | str
+type _RecursiveGeneric[T] = list[_RecursiveGeneric[T]] | T
+type _StrayRecursive = list[_StrayRecursive] | list[_PA]
+type _DeclaredRecursive = _PA | list[_DeclaredRecursive]
 
 
 class _Fields(TypedDict):
@@ -402,6 +406,7 @@ class TestStrayMarkers:
             _StrayGeneric[xr.DataArray] | None,
             _StrayGenericAlias,
             _Generic[_PA],
+            _StrayRecursive,
         ],
     )
     @pytest.mark.parametrize("side", ["param", "ret"])
@@ -430,10 +435,14 @@ class TestStrayMarkers:
             Annotated[int, "Pa"],
             _PA,
             _Generic[int],
+            _Recursive,
+            _RecursiveGeneric[int],
+            _DeclaredRecursive,
         ],
     )
-    def test_hints_without_stray_markers_pass(self, hint):
-        xra.enforce(_annotated(param=hint))
+    @pytest.mark.parametrize("side", ["param", "ret"])
+    def test_hints_without_stray_markers_pass(self, hint, side):
+        xra.enforce(_annotated(**{side: hint}))
 
     def test_the_readers_still_report_nothing(self):
         def f(x: tuple[_PA, _PA]): ...

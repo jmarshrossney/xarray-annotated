@@ -59,18 +59,22 @@ def _assert_valid(declared: Declared, context: str) -> None:
         assert_valid_freq(declared.freq, context)
 
 
-def _markers_in(hint: Any) -> list[Any]:
-    """Return every marker anywhere inside a hint, however deeply nested."""
-    if isinstance(hint, TypeAliasType):
-        hint = hint.__value__
+def _markers_in(hint: Any, seen: set[TypeAliasType] | None = None) -> list[Any]:
+    """Return every marker anywhere inside a hint, however deeply nested.
+
+    Each `type` alias is entered once, since one may refer to itself.
+    """
+    seen = set() if seen is None else seen
     found = []
-    if isinstance(origin := get_origin(hint), TypeAliasType):
-        found.extend(_markers_in(origin))
+    for alias in (hint, get_origin(hint)):
+        if isinstance(alias, TypeAliasType) and alias not in seen:
+            seen.add(alias)
+            found.extend(_markers_in(alias.__value__, seen))
     for arg in get_args(hint):
         if isinstance(arg, Unit | Dims | Dtype | Coords | Freq):
             found.append(arg)
         else:
-            found.extend(_markers_in(arg))
+            found.extend(_markers_in(arg, seen))
     return found
 
 
