@@ -227,4 +227,34 @@ Whether that matters depends on the analysis, and the annotated function makes i
 
 Whether a schema or frequency violation raises, warns or is ignored is [configurable](guides/policy.md).
 
+## Shorter signatures
+
+Spelling out every marker keeps a declaration in view where it applies, and is a good default.
+When a signature gets long, or the same markers repeat across many functions, you can name the markers they share with a `type` statement and add the rest where they are used:
+
+```python
+from typing import Annotated
+
+import numpy as np
+import xarray as xr
+import xarray_annotated as xra
+from xarray_annotated import Dims, Freq, Unit
+
+type HourlyBySite = Annotated[xr.DataArray, Dims("time", "site"), Freq("h")]
+type DailyBySite = Annotated[xr.DataArray, Dims("time", "site"), Freq("D")]
+
+
+@xra.enforce
+def daily_vpd(
+    tair: Annotated[HourlyBySite, Unit("degC", convert=True)],
+    rh: Annotated[HourlyBySite, Unit("percent", convert=True)],
+) -> Annotated[DailyBySite, Unit("kPa")]:
+    """Daily mean vapour pressure deficit."""
+    es = 0.6108 * np.exp(17.27 * tair / (tair + 237.3))
+    return (es * (1 - rh / 100)).resample(time="D").mean()
+```
+
+This declares exactly what the longer version does.
+See [Reusing a declaration](guides/declaring.md#reusing-a-declaration) for the trade-offs.
+
 Next, see [Declaring properties](guides/declaring.md) for every marker, or the [worked example](example.md) for an end-to-end pipeline.

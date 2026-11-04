@@ -54,6 +54,8 @@ The tabs switch together across these docs.
         return p.resample(time="D").mean()
     ```
 
+If signatures get long or repetitive, [type aliases can shorten them](getting_started.md#shorter-signatures).
+
 ### 1. Declare
 
 Add markers to the `Annotated` hint of each `DataArray` parameter or return value.

@@ -92,7 +92,8 @@ An axis with fewer than three timestamps or irregular spacing has no inferable f
 
 ## Reusing a declaration
 
-Name a declaration with a `type` statement or an assignment:
+Writing markers in the signature keeps each declaration in view, so it is a good default.
+When signatures get long, or the same markers repeat across many functions, you can name a declaration with a `type` statement or an assignment:
 
 ```python
 type Pressure = Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x")]
@@ -105,4 +106,10 @@ type TypedPressure = Annotated[Pressure, Dtype("float64")]
 ```
 
 It declares `Unit`, `Dims` and `Dtype`.
-A marker cannot be replaced this way, so a second `Unit` raises `ValueError`.
+
+An alias is checked exactly like the hint it stands for, but keep these in mind:
+
+- **The markers move out of the signature.** A reader, an AI agent or generated documentation sees `Pressure` and has to look up what it declares, so name an alias after what it declares and keep it close to the code that uses it.
+- **Only repetition pays for an alias.** It takes no marker arguments, so each distinct combination needs its own name, and a one-off function is usually clearer written out.
+- **Alias what is shared.** A marker cannot be replaced, so a second `Unit` raises `ValueError`. Name the parts that repeat, such as dims and frequency, and add the rest where they are used, rather than adjusting a complete alias.
+- **Import aliases at run time.** `enforce` reads them at decoration, so an alias imported only under `TYPE_CHECKING` raises `NameError`.
