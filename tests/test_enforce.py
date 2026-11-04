@@ -625,11 +625,6 @@ class TestReturnContainers:
     def test_nothing_unread_is_not_refused(self, hint):
         xra.enforce(_annotated(ret=hint))
 
-    def test_a_parameter_is_not_read_field_by_field(self):
-        f = xra.enforce(_annotated(param=_Record))
-        value = _Record(_kg())
-        assert f(value) is value
-
     def test_optional_container_may_return_none(self):
         f = xra.enforce(_annotated(ret=_Record | None))
         assert f(None) is None
@@ -849,3 +844,50 @@ class TestOtherValues:
 
         with xra.enabled(False):
             f(None)  # type: ignore[arg-type]
+
+
+class TestRecordParameters:
+    """A parameter's fields are never read, so a marker on one is refused."""
+
+    class _Fields(TypedDict):
+        p: Annotated[xr.DataArray, Unit("Pa")]
+
+    @dataclass
+    class _Data:
+        p: Annotated[xr.DataArray, Unit("Pa")]
+
+    @pytest.mark.parametrize("record", [_Fields, _Data], ids=["TypedDict", "dataclass"])
+    @pytest.mark.parametrize(
+        "wrap",
+        [
+            lambda r: r,
+            lambda r: r | None,
+            lambda r: list[r],
+            lambda r: Annotated[r, "a description"],
+        ],
+        ids=["bare", "optional", "list", "described"],
+    )
+    def test_refused_at_decoration(self, record, wrap):
+        hint = wrap(record)
+
+        def f(x: hint): ...  # pyright: ignore[reportInvalidTypeForm]
+
+        with pytest.raises(ValueError, match="Declare a parameter's arrays"):
+            xra.enforce(f)
+
+    def test_a_record_with_no_markers_is_fine(self):
+        @dataclass
+        class Plain:
+            p: xr.DataArray
+
+        @xra.enforce
+        def f(x: Plain):
+            return x
+
+        record = Plain(p=xr.DataArray([1.0]))
+        assert f(record) is record
+
+    def test_the_reader_still_reports_nothing(self):
+        def f(x: TestRecordParameters._Data): ...
+
+        assert xra.declarations_from_signature(f) == ({}, None)

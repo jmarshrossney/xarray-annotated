@@ -148,15 +148,16 @@ def _refuse_unread_fields(hint: Any) -> None:
 
     Raises:
         ValueError: If a class inside `hint` has fields carrying markers: `hint` is
-            either a return that is not read field by field, or a field of one that
-            is, and fields are read one level deep.
+            a parameter, a return that is not read field by field, or a field of one
+            that is, and fields are read one level deep.
     """
     stray = [m for field in _record_fields_in(hint) for m in _markers_in(field)]
     if stray:
         raise ValueError(
             f"{hint!r} holds fields carrying {stray!r}, which enforce cannot apply: "
             f"only one TypedDict or dataclass return, optionally `| None`, is read "
-            f"field by field, and not any class nested in its fields."
+            f"field by field, and not any class nested in its fields or any parameter. "
+            f"Declare a parameter's arrays as parameters of their own."
         )
 
 
@@ -240,8 +241,8 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
     Raises:
         ValueError: If a declaration is malformed, a `*args` or `**kwargs` parameter
             carries a declaration, or a hint carries a marker that cannot apply, such
-            as in a tuple, on a `Dataset`, on a field of a `NamedTuple` return, or on a
-            class nested in a field (at decoration).
+            as in a tuple, on a `Dataset`, on a field of a `NamedTuple` return or of a
+            class nested in a field, or on a field of a parameter (at decoration).
         TypeError: If a declared value is not a `DataArray` and its hint does not allow
             it, or a `TypedDict` return lacks a required declared field (when called).
 
@@ -260,7 +261,10 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
     """
     walk_signature(func, _refuse_stray_markers)
     inputs, output = declarations_from_signature(func)
-    return_hint = get_type_hints(func, include_extras=True).get("return")
+    hints = get_type_hints(func, include_extras=True)
+    return_hint = hints.pop("return", None)
+    for param_hint in hints.values():
+        _refuse_unread_fields(param_hint)
     record, record_optional = _record_return(return_hint)
     if record is None:
         _refuse_unread_fields(return_hint)
