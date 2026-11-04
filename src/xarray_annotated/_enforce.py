@@ -37,7 +37,7 @@ from typing import (
 
 import xarray as xr
 
-from ._annotations import walk_signature
+from ._annotations import _record_type, walk_signature
 from ._config import resolve_enabled
 from ._reader import Declared, declaration_from_hint, declarations_from_signature
 from .schema import Coords, Dims, Dtype
@@ -144,18 +144,19 @@ def _refuse_stray_markers(hint: Any) -> None:
 
 
 def _refuse_unread_fields(hint: Any) -> None:
-    """Raise if a return hint holds a record whose declared fields go unread.
+    """Raise if a hint holds a record whose declared fields go unread.
 
     Raises:
-        ValueError: If a class inside `hint` has fields carrying markers, but the
-            hint is not one `TypedDict` or dataclass, optionally `| None`.
+        ValueError: If a class inside `hint` has fields carrying markers: `hint` is
+            either a return that is not read field by field, or a field of one that
+            is, and fields are read one level deep.
     """
     stray = [m for field in _record_fields_in(hint) for m in _markers_in(field)]
     if stray:
         raise ValueError(
-            f"return hint {hint!r} holds fields carrying {stray!r}, which enforce "
-            f"cannot apply: only one TypedDict or dataclass return, optionally "
-            f"`| None`, is read field by field."
+            f"{hint!r} holds fields carrying {stray!r}, which enforce cannot apply: "
+            f"only one TypedDict or dataclass return, optionally `| None`, is read "
+            f"field by field, and not any class nested in its fields."
         )
 
 
@@ -233,8 +234,8 @@ def enforce(
     Raises:
         ValueError: If a keyword or a declaration is malformed, a `*args` or
             `**kwargs` parameter carries a declaration, or a hint carries a marker
-            that cannot apply, such as in a tuple, on a `Dataset`, or on a field of
-            a `NamedTuple` return (at decoration).
+            that cannot apply, such as in a tuple, on a `Dataset`, on a field of a
+            `NamedTuple` return, or on a class nested in a field (at decoration).
 
     Example:
         >>> from typing import Annotated
@@ -262,8 +263,12 @@ def enforce(
         walk_signature(fn, _refuse_stray_markers)
         inputs, output = declarations_from_signature(fn)
         return_hint = get_type_hints(fn, include_extras=True).get("return")
-        if not isinstance(output, dict):
+        record = _record_type(return_hint)
+        if record is None:
             _refuse_unread_fields(return_hint)
+        else:
+            for field in get_type_hints(record, include_extras=True).values():
+                _refuse_unread_fields(field)
         sig = inspect.signature(fn)
         qualname = getattr(fn, "__qualname__", repr(fn))
 

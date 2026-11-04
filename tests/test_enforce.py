@@ -539,8 +539,28 @@ class _Nested:
     inner: _Record
 
 
+@dataclass
+class _OptionalNested:
+    inner: _Record | None
+
+
+@dataclass
+class _ListNested:
+    inners: list[_Record]
+
+
+class _NestedInTypedDict(TypedDict):
+    inner: NotRequired[_Record]
+
+
 class _Plain(TypedDict):
     x: int
+
+
+@dataclass
+class _HoldsPlain:
+    pa: _PA
+    config: _Plain
 
 
 @dataclass
@@ -597,6 +617,12 @@ class TestReturnContainers:
             list[_Nested],
             list[_SelfReferring],
             dict[str, _OptionalRecord],
+            _Nested,
+            _Nested | None,
+            _OptionalNested,
+            _ListNested,
+            _SelfReferring,
+            _NestedInTypedDict,
         ],
     )
     def test_refused_at_decoration(self, hint):
@@ -619,6 +645,7 @@ class TestReturnContainers:
         [
             list[_Plain],
             list[_Unresolvable],
+            _HoldsPlain,
             _Plain | int,
             _PA,
             _PA | None,
