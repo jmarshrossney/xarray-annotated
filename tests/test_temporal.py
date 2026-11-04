@@ -14,11 +14,21 @@ import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
+from xarray.backends import BackendArray
+from xarray.core import indexing
 
 import xarray_annotated as xra
 from xarray_annotated import temporal
 from xarray_annotated.schema import Dims
 from xarray_annotated.temporal import Freq, _config
+
+
+def _two_time_dims():
+    times = pd.date_range("2020-01-01", periods=5, freq="D")
+    inits = pd.date_range("2021-01-01", periods=2, freq="D")
+    return xr.DataArray(
+        np.zeros((5, 2)), dims=("time", "init"), coords={"time": times, "init": inits}
+    )
 
 
 def _da(times, dim="time", extra_coords=None):
@@ -214,36 +224,29 @@ class TestCheckFreq:
 
     def test_no_datetime_coord_is_a_mismatch(self):
         da = xr.DataArray(np.zeros(3), dims=("time",))
-        with pytest.raises(temporal.FreqError, match="no datetime coordinate"):
+        with pytest.raises(temporal.FreqError, match="no indexed datetime coordinate"):
             temporal.check_freq(da, Freq("D"), "x")
 
     def test_no_datetime_coord_under_warn(self):
         # The "no axis to check" mismatch is routed through on_mismatch, so `warn`
         # (and `ignore`) really do soften it rather than raising regardless.
         da = xr.DataArray(np.zeros(3), dims=("time",))
-        with pytest.warns(temporal.FreqWarning, match="no datetime coordinate"):
+        with pytest.warns(temporal.FreqWarning, match="no indexed datetime coordinate"):
             assert temporal.check_freq(da, Freq("D"), "x", on_mismatch="warn") is da
 
-    def test_two_datetime_coords_are_ambiguous(self):
-        da = _da(
-            pd.date_range("2020-01-01", periods=5, freq="D"),
-            extra_coords={"valid_time": pd.date_range("2021-01-01", periods=5)},
-        )
+    def test_two_indexed_datetime_coords_are_ambiguous(self):
         with pytest.raises(temporal.FreqError, match="ambiguous") as excinfo:
-            temporal.check_freq(da, Freq("D"), "x")
+            temporal.check_freq(_two_time_dims(), Freq("D"), "x")
         assert "time" in str(excinfo.value)
-        assert "valid_time" in str(excinfo.value)
+        assert "init" in str(excinfo.value)
 
     def test_ambiguity_resolved_by_declaring_the_dim(self):
-        da = _da(
-            pd.date_range("2020-01-01", periods=5, freq="D"),
-            extra_coords={"valid_time": pd.date_range("2021-01-01", periods=5)},
-        )
+        da = _two_time_dims()
         assert temporal.check_freq(da, Freq("D", dim="time"), "x") is da
 
     def test_declared_dim_absent_is_a_mismatch(self):
         da = _da(pd.date_range("2020-01-01", periods=5, freq="D"))
-        with pytest.raises(temporal.FreqError, match="not a datetime coordinate"):
+        with pytest.raises(temporal.FreqError, match="not an indexed datetime"):
             temporal.check_freq(da, Freq("D", dim="nope"), "x")
 
     def test_cftime_calendar_axis(self):
@@ -496,3 +499,111 @@ class TestQuarterlyAxisAgainstItsOwnDeclaration:
         times = pd.date_range("2020-03-31", periods=8, freq="QE-MAR")
         with pytest.raises(temporal.FreqError):
             temporal.check_freq(_da(times), Freq("QE-NOV"), "x")
+
+
+_TIMES = pd.date_range("2020-01-01", periods=5, freq="D")
+
+
+class _NoPandasIndex(xr.Index):
+    """A custom index, which `da.indexes` cannot cast to pandas."""
+
+    @classmethod
+    def from_variables(cls, variables, *, options):
+        return cls()
+
+
+class _CountingBackend(BackendArray):
+    """A lazily read array that counts how often the backend is read."""
+
+    def __init__(self, values):
+        self.values = np.asarray(values)
+        self.shape = self.values.shape
+        self.dtype = self.values.dtype
+        self.reads = 0
+
+    def __getitem__(self, key):
+        return indexing.explicit_indexing_adapter(
+            key, self.shape, indexing.IndexingSupport.BASIC, self._read
+        )
+
+    def _read(self, key):
+        self.reads += 1
+        return self.values[key]
+
+
+def _lazy_variable(dim, values):
+    backend = _CountingBackend(values)
+    data = indexing.LazilyIndexedArray(backend)
+    return xr.Variable((dim,), data), backend  # pyright: ignore[reportArgumentType]
+
+
+class TestOnlyAnIndexedCoordIsATimeAxis:
+    def test_scalar_datetime_coord_is_ignored(self):
+        da = _da(_TIMES).assign_coords(ref=np.datetime64("2000-01-01"))
+        assert temporal.check_freq(da, Freq("D"), "x") is da
+
+    def test_2d_datetime_coord_is_ignored(self):
+        valid = np.tile(_TIMES.values[:, None], (1, 2))
+        da = xr.DataArray(
+            np.zeros((5, 2)),
+            dims=("time", "step"),
+            coords={"time": _TIMES, "valid": (("time", "step"), valid)},
+        )
+        assert temporal.check_freq(da, Freq("D"), "x") is da
+
+    def test_unindexed_aux_coord_on_the_same_dim_is_ignored(self):
+        da = _da(_TIMES, extra_coords={"valid": _TIMES + pd.Timedelta(days=1)})
+        assert temporal.check_freq(da, Freq("D"), "x") is da
+
+    def test_wrong_frequency_is_still_caught_beside_a_scalar(self):
+        da = _da(_TIMES).assign_coords(ref=np.datetime64("2000-01-01"))
+        with pytest.raises(temporal.FreqError, match="frequency mismatch"):
+            temporal.check_freq(da, Freq("ME"), "x")
+
+    @pytest.mark.parametrize("dim", [None, "valid"])
+    def test_unindexed_axis_is_a_mismatch(self, dim):
+        da = xr.DataArray(np.zeros(5), dims="s", coords={"valid": ("s", _TIMES)})
+        with pytest.raises(temporal.FreqError, match="indexed datetime"):
+            temporal.check_freq(da, Freq("D", dim=dim), "x")
+
+    def test_unindexed_cftime_is_treated_as_unindexed_datetime64(self):
+        times = xr.date_range(
+            "2020-01-01", periods=5, freq="D", calendar="noleap", use_cftime=True
+        )
+        da = _da(times).drop_indexes("time")
+        with pytest.raises(temporal.FreqError, match="no indexed datetime coordinate"):
+            temporal.check_freq(da, Freq("D"), "x")
+
+    @pytest.mark.parametrize("dim", [None, "time"])
+    def test_custom_index_on_another_coord(self, dim):
+        da = xr.DataArray(
+            np.zeros((5, 2)),
+            dims=("time", "s"),
+            coords={"time": _TIMES, "lat": ("s", [1.0, 2.0]), "lon": ("s", [3.0, 4.0])},
+        ).set_xindex(("lat", "lon"), _NoPandasIndex)
+        assert temporal.check_freq(da, Freq("D", dim=dim), "x") is da
+
+    def test_a_multiindex_level_counts(self):
+        da = xr.DataArray(
+            np.zeros(5),
+            dims="s",
+            coords={"time": ("s", _TIMES), "n": ("s", np.arange(5))},
+        ).set_index(s=["time", "n"])
+        assert temporal.check_freq(da, Freq("D", dim="time"), "x") is da
+
+
+class TestNothingIsReadFromDisk:
+    def test_lazy_data_and_aux_coord_with_an_indexed_axis(self):
+        data, data_backend = _lazy_variable("time", np.zeros(5))
+        aux, aux_backend = _lazy_variable("time", _TIMES.values)
+        da = xr.DataArray(data, coords={"time": _TIMES, "valid": aux})
+        assert temporal.check_freq(da, Freq("D"), "x") is da
+        assert data_backend.reads == 0
+        assert aux_backend.reads == 0
+
+    def test_lazy_unindexed_axis_is_refused_unread(self):
+        aux, aux_backend = _lazy_variable("s", _TIMES.values)
+        da = xr.DataArray(np.zeros(5), dims="s", coords={"valid": aux})
+        with pytest.raises(temporal.FreqError, match="no indexed datetime coordinate"):
+            temporal.check_freq(da, Freq("D"), "x")
+        assert aux_backend.reads == 0

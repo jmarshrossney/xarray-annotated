@@ -64,7 +64,9 @@ CF-convention strings such as `"umol m-2 s-1"` need [the CF registry](registry.m
 ## What "the same frequency" means
 
 The frequency is inferred from the time coordinate with `xarray.infer_freq`, so `cftime` calendars work too.
-The time axis is the array's only datetime-like coordinate; if it has two, name one with `Freq("7D", dim="time")`.
+The time axis is the array's only indexed datetime-like coordinate; if it has two, name one with `Freq("7D", dim="time")`.
+Only an indexed coordinate counts, so checking a frequency reads nothing from disk, and a scalar, 2-D or auxiliary datetime coordinate never competes with the real axis.
+An unindexed axis is a mismatch: index it with `set_index` or `set_xindex` first.
 
 **Spacing** is always compared, by meaning rather than by string:
 

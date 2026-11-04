@@ -39,7 +39,8 @@ class Freq:
     (``Freq("W-SUN", anchored=False)`` = "weekly, any weekday").
 
     Pass ``dim`` to name the time coordinate explicitly; by default the array's sole
-    datetime-like coordinate is used, and an array carrying two is ambiguous.
+    indexed datetime-like coordinate is used, and an array carrying two is ambiguous.
+    Either way it must be indexed, so that checking it reads nothing from disk.
     """
 
     _freq: str
