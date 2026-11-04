@@ -8,10 +8,12 @@ internal leaks.
 """
 
 import importlib
+import inspect
+import pathlib
 
 import pytest
 
-import xarray_annotated as xa
+import xarray_annotated as xra
 
 DOMAINS = ("units", "schema", "temporal")
 MODULES = ("xarray_annotated", *(f"xarray_annotated.{d}" for d in DOMAINS))
@@ -38,47 +40,29 @@ class TestAllIsHonest:
         assert list(mod.__all__) == sorted(set(mod.__all__))
 
 
-class TestReadersAreExportedConsistently:
-    """Every domain has a signature reader *and* a single-hint reader; a facet
-    author imitating one domain must find the same surface in the others."""
+class TestReaders:
+    """Reading is cross-domain: the root readers are the only ones."""
 
     @pytest.mark.parametrize(
-        ("domain", "name"),
-        [
-            ("units", "units_from_signature"),
-            ("schema", "schema_from_signature"),
-            ("temporal", "freq_from_signature"),
-        ],
+        "name", ["Declared", "declaration_from_hint", "declarations_from_signature"]
     )
-    def test_signature_readers(self, domain, name):
-        assert name in importlib.import_module(f"xarray_annotated.{domain}").__all__
+    def test_root_readers(self, name):
+        assert name in xra.__all__
 
-    @pytest.mark.parametrize(
-        ("domain", "name"),
-        [
-            ("units", "annotated_unit"),
-            ("schema", "annotated_schema"),
-            ("temporal", "annotated_freq"),
-        ],
-    )
-    def test_single_hint_readers(self, domain, name):
-        assert name in importlib.import_module(f"xarray_annotated.{domain}").__all__
+    @pytest.mark.parametrize("domain", DOMAINS)
+    def test_domains_export_no_readers(self, domain):
+        names = importlib.import_module(f"xarray_annotated.{domain}").__all__
+        readers = [
+            n
+            for n in names
+            if n.endswith("_from_signature") or n.startswith("annotated_")
+        ]
+        assert not readers
 
-    def test_single_hint_readers_are_usable_from_the_domain(self):
-        """The point of exporting them: a caller need not reach into a private
-        module to read one annotation."""
-        from typing import Annotated
 
-        import xarray as xr
-
-        from xarray_annotated.schema import Dims, annotated_schema
-        from xarray_annotated.temporal import Freq, annotated_freq
-        from xarray_annotated.units import Unit, annotated_unit
-
-        hint = Annotated[xr.DataArray, Unit("Pa"), Dims("time"), Freq("D")]
-        assert annotated_unit(hint) == "Pa"
-        assert annotated_schema(hint) == [Dims("time")]
-        assert annotated_freq(hint) == Freq("D")
+@pytest.mark.parametrize("name", ["unwrap_annotated", "walk_signature"])
+def test_introspection_is_not_public(name):
+    assert not hasattr(xra, name)
 
 
 class TestInternalHelpersStayInternal:
@@ -88,7 +72,7 @@ class TestInternalHelpersStayInternal:
 
     @pytest.mark.parametrize("name", ["check_dims", "check_coords", "check_dtype"])
     def test_not_reachable_from_the_domain(self, name):
-        assert not hasattr(xa.schema, name)
+        assert not hasattr(xra.schema, name)
 
     @pytest.mark.parametrize("name", ["_check_dims", "_check_coords", "_check_dtype"])
     def test_still_available_privately(self, name):
@@ -97,7 +81,61 @@ class TestInternalHelpersStayInternal:
         assert callable(getattr(_check, name))
 
     def test_public_entry_point_is_check_schema(self):
-        assert "check_schema" in xa.schema.__all__
+        assert "check_schema" in xra.schema.__all__
+
+
+class TestMarkersAtRoot:
+    """Markers are the one domain name re-exported from the root: they are
+    unique across domains and mixed in one hint."""
+
+    @pytest.mark.parametrize(
+        ("domain", "name"),
+        [
+            ("schema", "Coords"),
+            ("schema", "Dims"),
+            ("schema", "Dtype"),
+            ("temporal", "Freq"),
+            ("units", "Unit"),
+        ],
+    )
+    def test_root_marker_is_the_domain_marker(self, domain, name):
+        assert name in xra.__all__
+        domain_mod = importlib.import_module(f"xarray_annotated.{domain}")
+        assert getattr(xra, name) is getattr(domain_mod, name)
+
+    def test_only_markers_are_re_exported_from_domains(self):
+        domain_names = {
+            n
+            for d in DOMAINS
+            for n in importlib.import_module(f"xarray_annotated.{d}").__all__
+        }
+        leaked = domain_names & set(xra.__all__)
+        assert leaked == {"Coords", "Dims", "Dtype", "Freq", "Unit"}
+
+
+class TestNoGlobalBehaviourConfig:
+    """Behaviour is declared in the signature; the only global is the switch.
+
+    A per-domain ``set_policy`` or a per-axis environment variable would let a process
+    loosen checks with nothing at the definition site to show it.
+    """
+
+    @pytest.mark.parametrize("domain", DOMAINS)
+    @pytest.mark.parametrize("name", ["Policy", "get_policy", "set_policy", "policy"])
+    def test_no_domain_policy(self, domain, name):
+        assert not hasattr(importlib.import_module(f"xarray_annotated.{domain}"), name)
+
+    def test_enabled_is_the_root_switch(self):
+        assert "enabled" in xra.__all__
+
+    def test_only_one_environment_variable_is_read(self):
+        src = pathlib.Path(xra.__file__).parent
+        hits = {
+            path.relative_to(src).as_posix()
+            for path in src.rglob("*.py")
+            if "os.environ" in path.read_text()
+        }
+        assert hits == {"_config.py"}
 
 
 def test_integrations_are_never_imported():
@@ -128,4 +166,40 @@ def test_version_matches_pyproject():
 
     pyproject = Path(__file__).parent.parent / "pyproject.toml"
     expected = tomllib.loads(pyproject.read_text())["project"]["version"]
-    assert xa.__version__ == expected
+    assert xra.__version__ == expected
+
+
+class TestEveryFailedCheckRaises:
+    """A declaration holds or raises, so a passing array means a checked one.
+
+    Severity settings were removed on purpose: a softened marker reads the same as a
+    checked one to everything downstream, and `xra.enabled(False)` covers prototyping.
+    """
+
+    SEVERITIES = ("on_mismatch", "on_uninferable", "on_missing", "on_output")
+
+    @pytest.mark.parametrize(
+        "item",
+        [
+            xra.Dims,
+            xra.Coords,
+            xra.Dtype,
+            xra.Freq,
+            xra.Unit,
+            xra.schema.check_schema,
+            xra.temporal.check_freq,
+            xra.units.check_units,
+            xra.units.apply_output_units,
+        ],
+        ids=lambda item: item.__name__,
+    )
+    def test_no_severity_parameter(self, item):
+        assert not set(inspect.signature(item).parameters) & set(self.SEVERITIES)
+
+    def test_enforce_takes_only_the_function(self):
+        assert list(inspect.signature(xra.enforce).parameters) == ["func"]
+
+    def test_no_warnings_are_emitted(self):
+        src = pathlib.Path(xra.__file__).parent
+        hits = [p.name for p in src.rglob("*.py") if "warnings.warn" in p.read_text()]
+        assert hits == []

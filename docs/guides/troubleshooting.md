@@ -1,214 +1,56 @@
 # Troubleshooting
 
-Failure modes that are silent, or whose message doesn't obviously name its cause.
+## Errors
 
+| Symptom | Cause | Fix |
+|---|---|---|
+| `NameError` at decoration | Annotations are evaluated at decoration, so a `TYPE_CHECKING`-only import fails, as does a function-local alias under `from __future__ import annotations` | Import names used in annotations at run time, on every Python version |
+| `ValueError: ... is not a recognised unit`, at import | A typo, or a CF string on the default registry | Fix the typo, or [activate the CF registry](registry.md) before importing the module |
+| `ValueError: ... has no 'units' attribute` | The array has no label to check | Attach the unit where the data enters, or use [`xra.enabled(False)`](#enabled) while prototyping; no setting lets it through, because an unchecked unit looks like a checked one downstream |
+| `ValueError: ... which enforce cannot apply`, at import | A marker somewhere it cannot be checked: inside a `tuple`, `list`, `dict` or `Callable`, on a base type other than `DataArray`, or in a generic alias such as `type Generic[T] = Annotated[T, Unit("Pa")]` | Move it onto an `Annotated[xr.DataArray, ...]`, and return several arrays as a `TypedDict` or dataclass |
+| `ValueError: ... holds fields carrying ...`, at import | A parameter, a return such as a `NamedTuple`, `list[R]` or `R1 \| R2`, or a field of a return, holds a class whose fields carry markers, which `enforce` cannot check | Return one `TypedDict` or dataclass, optionally `\| None`, with its arrays as direct fields, and declare a parameter's arrays as parameters of their own |
+| `ValueError: type alias ... refers to itself`, at import | A `type` alias contains itself outside a container, such as `type R = R \| None` | Remove the self-reference |
+| `ValueError: input ... differs from declared` | The unit is compatible with the declared one but not equal to it | [Convert it](units.md#converting-an-input) where you call the function |
+| `ValueError: output ... differs from declared`, or an output with no `units` | The body returned another unit, left a stale label, or returned no label | Fix the body, or [state the unit it returns](units.md#outputs) |
+| `SchemaError`, or `FreqError: ... frequency mismatch` | The array does not match its `Dims`, `Coords`, `Dtype` or `Freq`, or its time axis is irregular | Fix the data, or correct the declaration |
+| `TypeError: ... declared a DataArray, got ...`, when called | The value is `None`, an ndarray, a `Dataset` or something else, as after `.values` in a body | Pass or return a `DataArray`, or add what the value may be to the hint, such as `\| None` |
+| `DimensionalityError` | The units cannot be converted | Fix the data or the declaration |
+| `FreqError: ... no indexed datetime coordinate`, when called | The message names a datetime coordinate and its fix where it can tell. Otherwise there is no time coordinate, as after `.mean("time")`, or it is unindexed `cftime` or undecoded | Remove the `Freq` marker, [index it](declaring.md#frequency), or decode it |
+| Checks stopped everywhere | The package is switched off | Check `XARRAY_ANNOTATED_ENABLED`, and look for an `xra.enabled(False)` block |
+
+`SchemaError` and `FreqError` are not `ValueError`s, so catching a mismatch never swallows a malformed declaration.
 
 ## A declaration is silently ignored { #a-declaration-is-silently-ignored }
 
-**Symptom.** A decorated function validates nothing. No error, no warning; units aren't
-converted and structural mismatches sail through. The parameter simply behaves as if it
-had no annotation at all.
-
-**Cause.** The declaration was aliased with a PEP 695 `type` statement:
+This looks like a declaration but declares nothing, with no error or warning:
 
 ```python
-type Pressure = Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x")]  # ❌ ignored
-
-
-@declare_units
-def f(p: Pressure) -> xr.DataArray: ...  # hPa in, hPa out — nothing happened
+Annotated[xr.DataArray, "Pa"]  # a string is a description; use Unit("Pa")
 ```
 
-A `type` alias is *lazy*. `get_type_hints(..., include_extras=True)` — how every reader in
-this package inspects a signature — hands back the alias object itself rather than the
-`Annotated` it wraps, so the markers inside are never seen.
+In a union such as `Annotated[xr.DataArray, Unit("Pa")] | Annotated[int, Unit("kg")]`, only the `DataArray` member applies.
 
-**Fix.** Use a plain assignment. It is substituted eagerly, so the markers survive and
-every decorator reads them as if they had been written out in full:
+`declarations_from_signature(f)` shows what a function actually declares.
+
+A string can describe a property that is not checked, as in `Annotated[xr.DataArray, Dims("time", "x"), "usually float64"]`.
+
+## A wrong result passes every check
+
+A body's output label is taken on trust; see [What a label cannot catch](units.md#what-a-label-cannot-catch).
+
+## Switching the package off { #enabled }
+
+A declaration that does not hold for all of a function's inputs should be corrected or removed.
+While prototyping, switch the package off:
 
 ```python
-Pressure = Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x")]  # ✅ read
+with xra.enabled(False):
+    ...
 ```
 
-This is the one failure in this package that is *completely* silent, which is why it's
-first on this page. If a decorator seems inert, check for `type` before anything else.
+Off is a total no-op, so a function declaring `Unit("Pa")` can receive `hPa`.
+Malformed declarations still raise when a function is decorated.
 
-
-## `NameError` at decoration time { #nameerror-at-decoration-time }
-
-**Symptom.** Importing a module raises `NameError` from inside a `@declare_units` /
-`@declare_schema` / `@declare_freq` decorator, often naming `xr` or another type that is
-plainly imported somewhere.
-
-**Cause.** `from __future__ import annotations` in that module. Declarations are read as
-*runtime objects* out of the `Annotated` metadata; that import stringizes annotations,
-forcing a re-`eval` that fails whenever a needed name — e.g. a `TYPE_CHECKING`-only
-`xarray` import — isn't resolvable at runtime.
-
-**Fix.** Remove `from __future__ import annotations` from modules that declare markers, and
-make sure any name used in an annotation is a real runtime import rather than a
-`TYPE_CHECKING`-only one. Python 3.14's deferred-annotation model (PEP 649/749) removes
-this constraint.
-
-
-## `ValueError: ... is not a recognised unit` { #unrecognised-unit }
-
-**Symptom.** At import, not at call time:
-
-```
-ValueError: g input 'x': declared unit 'umol m-2 s-1' is not a recognised unit
-  (...) (call use_cf_units() to enable CF/UDUNITS units like 'umol m-2 s-1')
-```
-
-**Cause.** Either a genuine typo, or — for CF-convention strings like `"umol m-2 s-1"` and
-`"g m-2 d-1"` — the default plain-pint registry, which doesn't understand UDUNITS
-spellings.
-
-**Fix.** For CF strings, install the [`[cf]` extra](../getting_started.md#installation) and
-call `use_cf_units()` once at startup, before the modules that declare those units are
-imported. See [Choosing a unit registry](registry.md) — the choice
-is process-global, so it's pint units *or* CF units for the whole codebase.
-
-This class of error is raised at *decoration* time by design, regardless of policy: a
-malformed declaration is a bug in your source, not a property of your data. The same
-applies to an invalid dtype (`ValueError: invalid dtype 'flaot64'`) or an unparseable
-offset string.
-
-
-## `UnitsWarning: ... unvalidated: no 'units' attribute` { #no-units-attribute }
-
-**Symptom.**
-
-```
-UnitsWarning: [f] input 'x' unvalidated: no 'units' attribute (declared 'Pa')
-```
-
-The array passed through unconverted.
-
-**Cause.** `@declare_units` validates by reading `da.attrs["units"]`. With nothing to read,
-it cannot confirm or convert anything. Note that xarray drops `attrs` through most
-arithmetic by default, so an array that had units upstream may well not have them here.
-
-A pint-quantified array does **not** trigger this: its unit lives in the data rather than
-in `attrs`, and is read from `da.pint.units` instead. See
-[Quantified arrays](#quantified-arrays).
-
-**Fix.** Depends on what you want the warning to mean:
-
-- stamp the unit at the point the array enters your code, so downstream checks have
-  something to work with;
-- set `xr.set_options(keep_attrs=True)` if the units are being lost to arithmetic;
-- if unlabelled input is legitimate and you're happy to trust it, quieten the axis with
-  [`on_missing="ignore"`](policy.md#units-on_missing);
-- if it should never happen, promote it with `on_missing="error"`.
-
-**Not** the same thing as a dimensional mismatch, which always raises regardless of this
-setting.
-
-
-## Pint-quantified arrays { #quantified-arrays }
-
-If you use [pint-xarray](https://pint-xarray.readthedocs.io), your arrays may hold a
-`pint.Quantity` rather than a plain ndarray, with the unit in the data and `attrs` empty.
-These are supported, but the two directions behave differently, because a `Quantity`'s unit
-travels with the values and so is always truthful, whereas an `attrs` label is not.
-
-**As an input**, the unit is read from `da.pint.units`, converted to the declaration, and
-the array handed to the function body **dequantified** with `attrs["units"]` set — the same
-shape of value a plain input produces, so bodies need no special case. A leftover
-`attrs["units"]` on a quantified array is ignored in favour of the `Quantity`.
-
-**As a return value**, the array is *converted* to the declaration rather than stamped, and
-comes back **still quantified**, with `attrs` untouched:
-
-- `on_output="stamp"` converts if needed, and raises `DimensionalityError` if it cannot.
-  This is the one situation where `stamp` can raise — for a `Quantity` a mismatch is a real
-  error, not the expected staleness that makes stamping the right default for `attrs`.
-- `on_output="strict"` raises on any unit other than the declared one.
-
-If a function must return something dequantified — to put it in a frozen dataclass, say —
-call `.pint.dequantify()` in the body.
-
-
-## `DimensionalityError` that no policy will suppress { #dimensionalityerror }
-
-**Symptom.**
-
-```
-DimensionalityError: Cannot convert from 'kilogram' ([mass])
-  to 'pascal' ([mass] / [length] / [time] ** 2)
-```
-
-…and setting `on_missing` or `on_inexact` to `"ignore"` doesn't help.
-
-**Cause.** Working as intended. The units policy governs cases where validation is
-*uncertain* — an absent unit, a lossy conversion. A dimensional mismatch is not uncertain:
-there is no reading of the call under which mass was meant to be a pressure.
-
-**Fix.** Fix the data or the declaration. If you genuinely need the call to proceed, the
-only switch that will do it is [`enabled=False`](policy.md#enabled), which disables all
-validation — read the warning there before reaching for it.
-
-
-## A forgotten conversion is not caught at the producer { #a-forgotten-conversion-is-not-caught-at-the-producer }
-
-**Symptom.** A function declares an output unit, its body omits the conversion that would
-make that true, and nothing complains. The returned array is labelled correctly and holds
-the wrong numbers.
-
-```python
-@declare_units
-def daily_carbon(
-    flux: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
-) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
-    return flux.resample(time="D").mean()  # forgot * MOLAR_FACTOR
-```
-
-**Cause.** Outputs are [stamped, not checked](policy.md#units-on_output), and stamping
-cannot help here even in principle. The correct body (`... * MOLAR_FACTOR`) and the buggy
-one leave *identical* `units` attributes, because multiplying by a float cannot update a
-string. The only thing distinguishing them is the values, which are never inspected.
-`on_output="strict"` does not close this gap — it compares labels, and the labels agree.
-
-**Fix.** Declare the quantity on whoever **consumes** it. An input declaration is checked,
-so the wrong quantity is caught at the first boundary that expects the right one:
-
-```python
-@declare_units
-def annual_budget(
-    daily: Annotated[xr.DataArray, Unit("g m-2 d-1")],
-) -> Annotated[xr.DataArray, Unit("g m-2 yr-1")]:
-    return daily.sum()
-```
-
-Two caveats on relying on that. It needs `xr.set_options(keep_attrs=True)`, or the label
-will have been dropped by arithmetic before it arrives. And it only fires when the
-intermediate array reaches the consumer *without* having been stamped by a decorator in
-between — a stamped array asserts the declared unit and will be believed.
-
-This is a real limit rather than a bug: unit metadata records what an array *claims* to be,
-and no amount of checking that claim can verify arithmetic. Declarations catch wiring
-mistakes, not algebra.
-
-
-## Validation stopped happening everywhere { #validation-stopped-happening }
-
-**Symptom.** Checks that used to fire don't, across every domain at once, in one
-environment but not another.
-
-**Cause.** The shared [`enabled`](policy.md#enabled) switch is off — most often
-`XARRAY_ANNOTATED_ENABLED` set in a deployment environment or a `.env` file, or a
-`set_policy(enabled=False)` left at import scope.
-
-**Fix.** Check the environment variable first, since it takes precedence over
-`set_policy`. Confirm what is actually active with:
-
-```python
-from xarray_annotated.units import get_policy
-
-print(get_policy())
-```
-
-If the goal was to reduce noise rather than to disable checking, prefer
-`on_mismatch="warn"` — with `enabled=False` `@declare_units` also stops converting inputs
-and stamping outputs, so arrays keep whatever units they arrived with.
+- **For a process:** set `XARRAY_ANNOTATED_ENABLED` to `0`, `false`, `no` or `off`.
+- **Precedence:** a block beats the variable in both directions, and the innermost block wins.
+- **Scope:** a block applies to the current thread or async task only, and to dask's threaded and synchronous schedulers when it surrounds `.compute()`. It does not reach a new thread or another process.

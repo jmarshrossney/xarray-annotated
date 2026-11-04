@@ -1,28 +1,25 @@
-"""Runtime unit validation and conversion.
+"""Runtime unit validation, and explicit conversion.
 
-The "usage side" of the package: given a validation `Policy` and a declared unit
-string (typically read off a signature by `_annotations`), validate an actual
-`DataArray` against it and convert it into the declared unit. Conversion is
-delegated to pint-xarray's `.pint` accessor via the active registry.
+The "usage side" of the package: given a declared unit string (typically read off a
+signature by `_annotations`), validate an actual `DataArray` against it.  Checking never
+changes values; `convert` does, where the caller says so.
+
+Every conversion is logged to the `xarray_annotated.units` logger at DEBUG.
 """
 
-import warnings
+import logging
+import math
+from typing import NoReturn
 
 import pint
+import pint_xarray  # noqa: F401  (registers the .pint accessor)
 import xarray as xr
-from pint_xarray.errors import PintExceptionGroup
 
+from .._config import resolve_enabled
 from ._annotations import Unit
-from ._config import (
-    OnInexact,
-    OnMissing,
-    OnOutput,
-    _validate_on_inexact,
-    _validate_on_missing,
-    _validate_on_output,
-    get_policy,
-)
 from ._registry import _cf_hint, get_registry
+
+_log = logging.getLogger("xarray_annotated.units")
 
 #: Upper bound on the length of a unit string we are willing to hand to pint's
 #: parser. Real units are short (``"umol m-2 s-1"`` is 12 chars); anything far
@@ -34,22 +31,31 @@ from ._registry import _cf_hint, get_registry
 #: nested numeric exponentiation), only the length-driven class.
 _MAX_UNIT_LEN = 256
 
+_ATTACH_UNIT = (
+    "Attach the unit where the data enters the pipeline "
+    "(`.assign_attrs(units=...)`), or switch checking off with "
+    "`xra.enabled(False)`."
+)
 
-class UnitsWarning(UserWarning):
-    """Emitted when a DataArray input cannot be fully unit-validated.
+_STATE_UNIT = "State the unit the values are in with `.assign_attrs(units=...)`."
 
-    Raised by `check_units` when an input has a missing or unparseable `units`
-    attribute and `on_missing` is `"warn"`, or when a value-changing conversion
-    happens under `on_inexact="warn"`.  Subclasses `UserWarning` so callers can
-    target it specifically.
 
-    Example:
-        >>> import warnings
-        >>> from xarray_annotated.units import UnitsWarning
-        >>> issubclass(UnitsWarning, UserWarning)
-        True
-        >>> warnings.filterwarnings("error", category=UnitsWarning)
+def _stamped(da: xr.DataArray, declared: str) -> xr.DataArray:
+    """A copy of `da` labelled `declared`, sharing its data but not its attrs."""
+    stamped = da.copy(deep=False)
+    stamped.attrs["units"] = declared
+    return stamped
+
+
+def _quantified_units(da: xr.DataArray) -> pint.Unit | None:
+    """Return a quantified array's own pint unit, or `None`, without loading it.
+
+    `da.pint.units` goes through `da.data`, which reads a whole lazily opened variable
+    from disk just to find that it holds no `Quantity`.  `Variable._data` is the
+    wrapper itself, so asking it reads nothing.  It is private to xarray, so
+    `TestLazyArrays` in `test_units.py` guards this.
     """
+    return getattr(da.variable._data, "units", None)
 
 
 def _quantified_label(unit: pint.Unit) -> str:
@@ -65,11 +71,11 @@ def _quantified_label(unit: pint.Unit) -> str:
     is deliberate: it keeps every comparison inside this package's registry,
     even when the array was quantified under a different one (quantities from
     two registries cannot be mixed). A unit that is undefined in the active
-    registry then fails to parse and is routed through the usual `on_missing`
-    path, exactly like any other unreadable label.
+    registry then fails to parse and is refused like any other unreadable
+    label.
 
     Args:
-        unit: The `pint.Unit` taken from `da.pint.units`.
+        unit: The `pint.Unit` taken from `_quantified_units`.
 
     Returns:
         The unit as a compact-pretty string.
@@ -107,6 +113,8 @@ def assert_valid_unit(unit: str | Unit, context: str) -> None:
     """
     if isinstance(unit, Unit):
         unit = unit.unit
+    if not isinstance(unit, str):
+        raise ValueError(f"{context}: declared unit must be a string, got {unit!r}.")
     if len(unit) > _MAX_UNIT_LEN:
         # Refuse before parsing: an over-long unit string can hang pint's parser.
         raise ValueError(
@@ -158,11 +166,12 @@ def units_compatible(a: str | Unit, b: str | Unit) -> bool:
 def units_equal(a: str | Unit, b: str | Unit) -> bool:
     """Return whether two units are the *same* unit (no conversion needed).
 
-    Compares the parsed units, so different spellings of the same unit are equal
-    (`"Pa"` == `"pascal"`, `"1"` == `"dimensionless"`) while a prefixed unit
-    differs (`"hPa"` != `"Pa"`).  This is the distinction the `on_inexact`
-    axis turns on: a value-changing conversion is one where the units are
-    compatible but *not* equal; equivalent spellings imply no value change.
+    Compares what converting would do to the values, so different spellings and
+    compositions of one unit are equal (`"Pa"` == `"pascal"` == `"N/m**2"`,
+    `"1"` == `"dimensionless"`) while a prefixed unit differs (`"hPa"` != `"Pa"`).
+    pint treats radians as dimensionless, so `"rad"` == `"1"` and `"Hz"` ==
+    `"rad/s"`.  An input must be equal to its declared unit, not merely compatible:
+    equivalent spellings imply no value change.
 
     Accepts either a bare unit string or a `Unit` marker on each side (its
     `.unit` string is used), matching `units_compatible`.
@@ -180,413 +189,302 @@ def units_equal(a: str | Unit, b: str | Unit) -> bool:
         True
         >>> units_equal(Unit("Pa"), Unit("pascal"))  # markers accepted too
         True
+        >>> units_equal("Pa", "kg/m/s**2")
+        True
         >>> units_equal("hPa", "Pa")
         False
     """
     a = a.unit if isinstance(a, Unit) else a
     b = b.unit if isinstance(b, Unit) else b
-    return get_registry().Unit(a) == get_registry().Unit(b)
+    registry = get_registry()
+    unit_a, unit_b = registry.Unit(a), registry.Unit(b)
+    if unit_a == unit_b:
+        return True
+    if not unit_a.is_compatible_with(unit_b):
+        return False
+    try:
+        # Two points, because an offset unit can agree with another at one of them.
+        return all(
+            math.isclose(
+                registry.Quantity(x, unit_a).to(unit_b).magnitude,
+                x,
+                rel_tol=1e-12,
+                abs_tol=1e-12,
+            )
+            for x in (0.0, 1.0)
+        )
+    except pint.DimensionalityError:
+        return False  # compatible by dimension, yet no conversion: degC, delta_degC
 
 
-def check_units(
-    da: xr.DataArray,
-    declared: str,
-    name: str,
-    on_missing: OnMissing | None = None,
-    on_inexact: OnInexact | None = None,
-    qualname: str | None = None,
-) -> xr.DataArray:
-    """Validate and convert an input `DataArray` to its declared unit.
+def _own_unit(
+    da: xr.DataArray, declared: str, where: str, remedy: str
+) -> tuple[str, bool]:
+    """Read the unit an array says it is in, refusing one that cannot be checked.
 
-    Returns a `DataArray` whose data is expressed in `declared` and whose
-    `units` attribute equals `declared`.
-
-    Behaviour follows the active `Policy` (`get_policy`); `on_missing` and
-    `on_inexact` override their axes for this call when given (`None` defers to
-    the policy).  If the policy is disabled the array is returned unchanged.
-
-    Three events are handled, each building on the one before:
-
-    * **No parseable unit** — the input has no `units` attribute, or one the
-      registry cannot parse (e.g. a non-CF string like `"fraction"`): follows
-      `on_missing` (`"error"` raises, `"warn"` warns and returns unchanged,
-      `"ignore"` returns unchanged silently).
-    * **Value-changing conversion** — the unit is dimensionally compatible with
-      `declared` but not the same unit (e.g. `"hPa"` where `"Pa"` is
-      declared): follows `on_inexact` (`"error"` raises, `"warn"` warns then
-      converts, `"convert"` converts silently).  Equivalent spellings
-      (`"pascal"` for `"Pa"`) imply no value change and are simply relabelled,
-      without touching the data.
-    * **Dimensional mismatch** — two parseable but incompatible units (e.g. a
-      mass where a pressure is declared): always raises
-      `pint.DimensionalityError`, regardless of policy.
+    A pint label lives in the data and cannot go stale, so it wins outright over
+    attrs. It has to: a quantified array normally has *empty* attrs (quantify moves
+    the label into the data), and when a leftover attrs label is also present,
+    quantify() refuses to reconcile the two ("Cannot attach units"), so reading attrs
+    first would crash the pipeline on exactly the arrays this exists to serve.
 
     Args:
-        da: The input `DataArray` to validate and convert.
-        declared: The expected unit string (e.g. `"Pa"`).
-        name: A label for the array, used in error/warning messages.
-        on_missing: Override the on-missing axis for this call (`None` defers
-            to the active policy).
-        on_inexact: Override the on-inexact axis for this call (`None` defers
-            to the active policy).
-        qualname: A qualifier prepended to warning messages as `[qualname]`,
-            identifying the calling site.
+        da: The array to read.
+        declared: The declared unit string, for error messages.
+        where: Names the array in error messages.
+        remedy: What to do about a missing or unreadable unit.
 
     Returns:
-        A new `DataArray` converted to `declared`, with `attrs["units"]` set
-        to `declared`.  When the input is already in `declared` the data is not
-        copied — the result is a shallow copy sharing the caller's buffer, so
-        declaring a unit an array already has costs nothing.
+        The unit as a string, and whether the array is quantified.
 
     Raises:
-        ValueError: When `on_missing="error"` and no parseable unit is found,
-            or when `on_inexact="error"` and a value-changing conversion would occur.
-        pint.DimensionalityError: When the actual unit is dimensionally
-            incompatible with `declared` (always, regardless of policy).
-
-    Examples:
-        >>> import numpy as np, xarray as xr
-        >>> from xarray_annotated.units import check_units
-        >>> da = xr.DataArray([1013.0, 1000.0], attrs={"units": "hPa"})
-        >>> out = check_units(da, "Pa", "pressure")
-        >>> out.attrs["units"]
-        'Pa'
-        >>> out.values  # 10 * 100 = 1000
-        array([101300., 100000.])
+        ValueError: If the unit is missing, over-long or unparseable.
     """
-    pol = get_policy()
-    if not pol.enabled:
-        return da
-    on_missing = (
-        pol.on_missing if on_missing is None else _validate_on_missing(on_missing)
+    quantified = _quantified_units(da)
+    have = (
+        da.attrs.get("units") if quantified is None else _quantified_label(quantified)
     )
-    on_inexact = (
-        pol.on_inexact if on_inexact is None else _validate_on_inexact(on_inexact)
-    )
-
-    prefix = f"[{qualname}] " if qualname else ""
-    quantified = da.pint.units  # None unless the data is a pint Quantity
-    if quantified is not None:
-        # A pint label lives in the data and cannot go stale, so it wins outright
-        # over attrs. It has to: a quantified array normally has *empty* attrs
-        # (quantify moves the label into the data), and when a leftover attrs
-        # label is also present, quantify() refuses to reconcile the two
-        # ("Cannot attach units"), so reading attrs here would crash the pipeline
-        # below on exactly the arrays this branch exists to serve.
-        have = _quantified_label(quantified)
-    else:
-        have = da.attrs.get("units")
     if have is None:
-        if on_missing == "error":
-            raise ValueError(
-                f"{prefix}input {name!r} has no 'units' attribute "
-                f"(declared {declared!r})"
-            )
-        if on_missing == "warn":
-            # stacklevel=2 targets a direct check_units call; via declare_units it
-            # lands on the wrapper line, still identified by the [qualname] prefix.
-            warnings.warn(
-                f"{prefix}input {name!r} unvalidated: no 'units' attribute "
-                f"(declared {declared!r})",
-                UnitsWarning,
-                stacklevel=2,
-            )
-        return da
+        raise ValueError(
+            f"{where} has no 'units' attribute (declared {declared!r}). {remedy}"
+        )
     if isinstance(have, str) and len(have) > _MAX_UNIT_LEN:
         # An over-long units attribute can hang pint's parser (DoS); refuse it
-        # *before* parsing and route it through on_missing like any other input we
-        # cannot validate. Never echo `have` in the message -- it may be huge.
-        if on_missing == "error":
-            raise ValueError(
-                f"{prefix}input {name!r} has an over-long 'units' attribute "
-                f"({len(have)} chars > {_MAX_UNIT_LEN}; declared {declared!r}); "
-                f"refusing to parse"
-            )
-        if on_missing == "warn":
-            warnings.warn(
-                f"{prefix}input {name!r} unvalidated: over-long 'units' attribute "
-                f"({len(have)} chars > {_MAX_UNIT_LEN}; declared {declared!r})",
-                UnitsWarning,
-                stacklevel=2,
-            )
-        return da
+        # *before* parsing. Never echo `have` in the message -- it may be huge.
+        raise ValueError(
+            f"{where} has an over-long 'units' attribute "
+            f"({len(have)} chars > {_MAX_UNIT_LEN}; declared {declared!r}); "
+            f"refusing to parse. {remedy}"
+        )
     try:
         get_registry().Unit(have)
     except Exception as exc:
         # A units attribute that exists but the registry cannot parse can no more be
-        # validated than a missing one; route it through the same on_missing policy
-        # rather than letting an opaque parse error escape (and break a warn run).
-        if on_missing == "error":
-            raise ValueError(
-                f"{prefix}input {name!r} has unparseable 'units' attribute {have!r} "
-                f"(declared {declared!r}): {type(exc).__name__}: {exc}"
-                f"{_cf_hint(have)}"
-            ) from exc
-        if on_missing == "warn":
-            warnings.warn(
-                f"{prefix}input {name!r} unvalidated: unparseable 'units' attribute "
-                f"{have!r} (declared {declared!r}){_cf_hint(have)}",
-                UnitsWarning,
-                stacklevel=2,
-            )
-        return da
-    if quantified is None and units_equal(have, declared):
-        # Same unit, differently spelled ("pascal" for "Pa", "1" for
-        # "dimensionless"): nothing to convert, so the quantify/convert/dequantify
-        # round-trip below would copy the entire buffer purely to rewrite a string
-        # -- and would rewrite the *coordinates'* unit spellings on the way past.
-        # A shallow copy shares the data and takes its own attrs dict, so the
-        # caller's array is left exactly as it was.
-        #
-        # Quantified inputs still go the long way round: they are contracted to
-        # come back dequantified, and only dequantify can do that.
-        relabelled = da.copy(deep=False)
-        relabelled.attrs["units"] = declared
-        return relabelled
-    if units_compatible(have, declared) and not units_equal(have, declared):
-        # Dimensionally compatible but value-changing (e.g. hPa -> Pa).
-        if on_inexact == "error":
-            raise ValueError(
-                f"{prefix}input {name!r}: unit {have!r} differs from declared "
-                f"{declared!r} and on_inexact='error' forbids value-changing conversion"
-            )
-        if on_inexact == "warn":
-            warnings.warn(
-                f"{prefix}input {name!r}: converting {have!r} -> {declared!r} "
-                f"(value-changing)",
-                UnitsWarning,
-                stacklevel=2,
-            )
-    try:
-        # quantify() is not a no-op on already-quantified data -- it raises when
-        # a leftover attrs label disagrees with the Quantity -- so skip it there.
-        source = da if quantified is not None else da.pint.quantify()
-        converted = source.pint.to(declared).pint.dequantify()
-    except PintExceptionGroup as group:
-        # pint-xarray wraps conversion failures in an ExceptionGroup; surface the
-        # underlying DimensionalityError directly for a clean, catchable error.
-        dim_errors = [
-            exc for exc in group.exceptions if isinstance(exc, pint.DimensionalityError)
-        ]
-        if dim_errors:
-            err = dim_errors[0]
-            err.add_note(f"while validating input {name!r}")
-            raise err from None
-        raise
-    # dequantify writes pint's canonical unit name (e.g. 'pascal'); restore the
-    # declared unit string so downstream re-parsing uses our spelling.
-    converted.attrs["units"] = declared
-    return converted
+        # validated than a missing one; refuse it with a message rather than letting
+        # an opaque parse error escape.
+        raise ValueError(
+            f"{where} has unparseable 'units' attribute {have!r} "
+            f"(declared {declared!r}): {type(exc).__name__}: {exc}"
+            f"{_cf_hint(have)}. {remedy}"
+        ) from exc
+    return have, quantified is not None
 
 
-def _apply_output_quantified(
-    da: xr.DataArray,
-    have: pint.Unit,
-    declared: str,
-    name: str,
-    on_output: OnOutput,
-    prefix: str,
-) -> xr.DataArray:
-    """Apply a declared unit to a *pint-quantified* return value.
-
-    See `apply_output_units` for why this path converts where the `attrs` path
-    stamps. The array stays quantified throughout: `dequantify` copies the whole
-    buffer even when it has no conversion to do, and a quantified array already
-    describes itself, so there is nothing to gain by paying for that.
-
-    Args:
-        da: The returned `DataArray`, known to hold a pint `Quantity`.
-        have: Its own unit, from `da.pint.units`.
-        declared: The declared unit string.
-        name: A label for the value, used in error messages.
-        on_output: The already-resolved on-output axis.
-        prefix: The `[qualname] ` message prefix, or `""`.
-
-    Returns:
-        `da` unchanged when it is already in `declared`; otherwise a converted
-        array (still quantified).
+def _refuse(have: str, declared: str, where: str, hint: str, note: str) -> NoReturn:
+    """Raise for a unit that is not the declared one, by whether the two convert.
 
     Raises:
-        pint.DimensionalityError: When the unit cannot be converted to
-            `declared` — under `"strict"`, or under `"stamp"` from the
-            conversion itself.
-        ValueError: Under `"strict"`, when the unit is compatible with but not
-            equal to `declared`.
+        pint.DimensionalityError: If `have` cannot be converted to `declared`.
+        ValueError: If it can, as the values would change.
     """
     try:
-        label = _quantified_label(have)
-        equal = units_equal(label, declared)
-    except Exception:
-        # A unit undefined in the active registry (the array was quantified
-        # under a different one). Unverifiable and unconvertible from here --
-        # return it untouched rather than stamping attrs onto a Quantity and
-        # creating the two-labels-at-once inconsistency this path exists to
-        # avoid.
-        return da
-    if equal:
-        return da
-    # Only *compatible* units raise here; an incompatible label falls through to the
-    # conversion below, which raises DimensionalityError for us.
-    if on_output == "strict" and units_compatible(label, declared):
-        raise ValueError(
-            f"{prefix}output {name!r}: unit {label!r} differs from declared "
-            f"{declared!r} and on_output='strict' requires them to match"
-        )
-    try:
-        return da.pint.to(declared)
-    except PintExceptionGroup as group:
-        dim_errors = [
-            exc for exc in group.exceptions if isinstance(exc, pint.DimensionalityError)
-        ]
-        if dim_errors:
-            err = dim_errors[0]
-            err.add_note(
-                f"while applying declared units to output {name!r}: the returned "
-                f"array is quantified as {label!r} but declares {declared!r}"
-            )
-            raise err from None
+        get_registry().Quantity(1.0, have).to(declared)
+    except pint.DimensionalityError as err:
+        err.add_note(note)
         raise
+    raise ValueError(
+        f"{where}: unit {have!r} differs from declared {declared!r}. {hint}"
+    )
+
+
+def _dequantified(da: xr.DataArray) -> xr.DataArray:
+    """A plain copy of a quantified array, with no packing.
+
+    Its `.encoding` may describe other values, as `.pint.to` keeps it, and that would
+    corrupt these on write.
+    """
+    plain = da.pint.dequantify()
+    plain.encoding = {}
+    return plain
+
+
+def check_units(
+    da: xr.DataArray,
+    declared: str | Unit,
+    name: str,
+    qualname: str | None = None,
+) -> xr.DataArray:
+    """Validate an input `DataArray` against its declared unit.
+
+    Values never change: a different unit raises, however it could be converted,
+    because whether a conversion is correct depends on the quantity.  Convert before
+    the call, with `convert`.  When xarray-annotated is switched off (`enabled(False)`)
+    the array is returned unchanged.
+
+    Args:
+        da: The input `DataArray` to validate.
+        declared: The expected unit string (e.g. `"Pa"`), or a `Unit` marker.
+        name: A label for the array, used in error messages.
+        qualname: A qualifier prepended to error messages as `[qualname]`,
+            identifying the calling site.
+
+    Returns:
+        A plain `DataArray` with `attrs["units"]` spelled as `declared`, sharing the
+        caller's buffer, so declaring a unit an array already has costs nothing and a
+        lazy array stays lazy.  A quantified array is dequantified, which copies it,
+        and loses its `.encoding`, as packing that described other values would
+        corrupt these on write.
+
+    Raises:
+        ValueError: When the unit is missing, over-long or unparseable, or compatible
+            with but not equal to `declared`.
+        pint.DimensionalityError: When the unit is dimensionally incompatible with
+            `declared`.
+
+    Examples:
+        >>> import xarray as xr
+        >>> from xarray_annotated.units import check_units
+        >>> da = xr.DataArray([1013.0], attrs={"units": "pascal"})
+        >>> check_units(da, "Pa", "pressure").attrs["units"]
+        'Pa'
+    """
+    if not resolve_enabled():
+        return da
+    declared = str(declared)
+    prefix = f"[{qualname}] " if qualname else ""
+    where = f"{prefix}input {name!r}"
+    have, quantified = _own_unit(da, declared, where, _ATTACH_UNIT)
+    if not units_equal(have, declared):
+        _refuse(
+            have,
+            declared,
+            where,
+            f"Converting would change the values; if that is correct for this "
+            f"quantity, pass xra.units.convert(da, {declared!r}).",
+            f"while validating input {name!r}",
+        )
+    # Same unit, perhaps spelled differently ("pascal" for "Pa"): nothing to convert.
+    return _stamped(_dequantified(da) if quantified else da, declared)
+
+
+def convert(da: xr.DataArray, unit: str | Unit) -> xr.DataArray:
+    """Convert a `DataArray` to `unit`, where you know that is correct for the data.
+
+    Pint knows whether two units are compatible, but not whether converting is right
+    for this quantity, so `enforce` never does this for you.
+
+    Only the data is converted: coordinates and their labels are left alone, so a
+    `degrees_north` label does not stop the conversion the way `.pint.quantify()` does.
+    Every conversion is logged at DEBUG on the `xarray_annotated.units` logger.
+
+    This is not a check, so `enabled(False)` does not affect it.
+
+    Args:
+        da: The array, labelled in `attrs["units"]` or quantified.
+        unit: The unit to convert to.
+
+    Returns:
+        A plain `DataArray` with `attrs["units"]` spelled as `unit`.  A converted array
+        has a new buffer and empty `.encoding`, as packing that described the old values
+        would corrupt these on write.  An array already in `unit` is treated as by
+        `check_units`.
+
+    Raises:
+        ValueError: When `unit` is not a recognised unit, or the array's own unit is
+            missing, over-long or unparseable.
+        pint.DimensionalityError: When the two units are dimensionally incompatible.
+
+    Examples:
+        >>> import xarray as xr
+        >>> from xarray_annotated.units import convert
+        >>> da = xr.DataArray([1013.0], attrs={"units": "hPa"})
+        >>> converted = convert(da, "Pa")
+        >>> converted.values, converted.attrs["units"]
+        (array([101300.]), 'Pa')
+    """
+    unit = str(unit)
+    assert_valid_unit(unit, "convert")
+    have, quantified = _own_unit(da, unit, "the array to convert", _STATE_UNIT)
+    plain = _dequantified(da) if quantified else da
+    if units_equal(have, unit):
+        return _stamped(plain, unit)
+    try:
+        data = get_registry().Quantity(plain.data, have).to(unit).magnitude
+    except pint.DimensionalityError as err:
+        err.add_note(f"while converting {da.name!r}")
+        raise
+    _log.debug("converting %r: %r -> %r", da.name, have, unit)
+    converted = _stamped(plain.copy(deep=False, data=data), unit)
+    converted.encoding = {}
+    return converted
 
 
 def apply_output_units(
     da: xr.DataArray,
-    declared: str,
+    declared: str | Unit,
     name: str,
-    on_output: OnOutput | None = None,
     qualname: str | None = None,
 ) -> xr.DataArray:
-    """Apply a declared unit to a *returned* `DataArray`, per the on-output axis.
+    """Check a *returned* `DataArray` against its declared unit.
 
-    The output counterpart to `check_units`, and deliberately **not** symmetric
-    with it: a declared output carrying an `attrs` label is *stamped*, never
-    converted.
+    A function's author controls what it returns, so an output that does not match
+    its declaration is a bug.  Nothing is converted or labelled on the author's behalf.
 
-    The reason is that xarray's `attrs` are inert under arithmetic.  A body that
-    converts by scalar multiplication — `return p * 100.0`, or `flux * F` for a
-    molar-mass factor — produces an array still labelled with its *input's* unit,
-    because multiplying by a float cannot update a string.  So for the dominant
-    idiom the returned label describes neither the values nor the declaration,
-    and converting on the strength of it would rescale correct values a second
-    time.
+    Two things can leave a body's label out of step with its values.  `attrs` are
+    inert under arithmetic, so `p * 100.0` keeps its `hPa` label; a body that really
+    changes the unit states the new one with `.assign_attrs(units=...)`.  Values are
+    never inspected, so that statement is taken on trust.  A pint-quantified array
+    carries its unit in the data, so that cannot happen to it; a body converts one
+    with `.pint.to(...)`.
 
-    Two modes follow from that:
-
-    - `"stamp"` (default) — overwrite `attrs["units"]` with `declared`, no checks.
-      The only sound default, because a stale label is the norm rather than a
-      symptom.
-    - `"strict"` — a label that is present, parseable, and not equal to
-      `declared` raises.
-
-    **`"strict"` is only meaningful for bodies that maintain their own units** —
-    pass-through and subsetting functions, or computations on pint-quantified
-    arrays.  A body doing manual scalar arithmetic will fail it *whether or not
-    it is correct*, so this is an opt-in for unit-aware code, not a general
-    verification mode.  (If a body must do manual arithmetic and you still want
-    `"strict"` elsewhere, have it drop the stale label — `attrs` cleared, or
-    `keep_attrs=False` — since an absent label is always stamped.)
-
-    **Pint-quantified returns are the exception, and are converted rather than
-    stamped.**  A `Quantity`'s unit lives in the data, so — unlike `attrs` — it
-    cannot be left behind by arithmetic; it is always a true description of the
-    values.  Converting on the strength of it is therefore sound, and stamping
-    on the strength of it would be actively wrong: writing `attrs["units"]`
-    onto a `Quantity` that disagrees produces an array labelled two ways at
-    once.  So for a quantified return:
-
-    - `"stamp"` — converts to `declared` if it is not already there, and raises
-      `pint.DimensionalityError` if it cannot.  This is the one case where
-      `"stamp"` can raise, because here a mismatch is a real error rather than
-      the expected consequence of an inert label.
-    - `"strict"` — a unit other than `declared` raises, as for `attrs`.
-
-    Either way the array is **returned still quantified**, with `attrs`
-    untouched: it already describes itself, and dequantifying it purely to
-    write a string would copy the whole buffer.
-
-    Note what no mode can do: distinguish `flux * F` from `flux` when both are
-    labelled the same.  Output *values* are never inspected, so a forgotten
-    conversion factor is not detectable here — only at a consumer that declares
-    the quantity and receives an array that was never stamped.
-
-    An absent, over-long, or unparseable label is always stamped: absence is not
-    evidence of a mismatch.
+    When xarray-annotated is switched off (`enabled(False)`) the array is returned
+    unchanged.
 
     Args:
         da: The returned `DataArray`.
-        declared: The declared unit string (e.g. `"Pa"`).
+        declared: The declared unit string (e.g. `"Pa"`), or a `Unit` marker.
         name: A label for the value, used in error messages.
-        on_output: Override the on-output axis for this call (`None` defers to
-            the active policy).
         qualname: A qualifier prepended to messages as `[qualname]`.
 
     Returns:
-        For an `attrs`-labelled or unlabelled array, `da` itself with
-        `attrs["units"]` set to `declared` (mutated in place).  For a quantified
-        array, an array in `declared` with `attrs` untouched — the same object
-        when it was already in `declared`, otherwise a converted new one.  Always
-        use the return value rather than relying on mutation.
+        For a labelled array, a shallow copy of `da` with `attrs["units"]` respelled
+        as `declared`; `da` itself is left as it was, since a body may have returned
+        the caller's own array.  For a quantified array, `da` itself, as dequantifying
+        would copy the whole buffer, or a shallow copy with empty `.encoding` if it has
+        any.  Always use the return value.
 
     Raises:
-        pint.DimensionalityError: Under `"strict"`, when the returned array's own
-            unit is dimensionally incompatible with `declared`; also under
-            `"stamp"` for a quantified array that cannot be converted.
-        ValueError: Under `"strict"`, when the returned array's unit is
-            compatible with but not equal to `declared`.
+        pint.DimensionalityError: When the unit is dimensionally incompatible with
+            `declared`.
+        ValueError: When the unit is missing or unparseable, or compatible with but
+            not equal to `declared`.
 
     Examples:
         >>> import xarray as xr
-        >>> from xarray_annotated.units._check import apply_output_units
-        >>> da = xr.DataArray([1.0])
+        >>> from xarray_annotated.units import apply_output_units
+        >>> da = xr.DataArray([1.0], attrs={"units": "pascal"})
         >>> apply_output_units(da, "Pa", "return").attrs["units"]
         'Pa'
     """
-    pol = get_policy()
-    if not pol.enabled:
+    if not resolve_enabled():
         return da
-    on_output = pol.on_output if on_output is None else _validate_on_output(on_output)
+    declared = str(declared)
     prefix = f"[{qualname}] " if qualname else ""
+    where = f"{prefix}output {name!r}"
 
-    quantified = da.pint.units
-    if quantified is not None:
-        return _apply_output_quantified(
-            da, quantified, declared, name, on_output, prefix
+    have, quantified = _own_unit(da, declared, where, _STATE_UNIT)
+    if units_equal(have, declared):
+        if not quantified:
+            return _stamped(da, declared)
+        if not da.encoding:
+            return da
+        # As for an input: `.pint.to` keeps a packing that describes the old values.
+        unpacked = da.copy(deep=False)
+        unpacked.encoding = {}
+        return unpacked
+    hint = (
+        f"Convert it in the body with .pint.to({declared!r})."
+        if quantified
+        else (
+            f"If the values really are in {declared!r} and the label is stale, state "
+            f"that in the body with .assign_attrs(units={declared!r}); otherwise the "
+            f"body returned the wrong unit."
         )
-
-    have = da.attrs.get("units")
-    if on_output == "stamp" or have is None:
-        da.attrs["units"] = declared
-        return da
-    if not isinstance(have, str) or len(have) > _MAX_UNIT_LEN:
-        # Unverifiable for the same reasons as on the input path; stamp regardless.
-        da.attrs["units"] = declared
-        return da
-    try:
-        get_registry().Unit(have)
-    except Exception:
-        da.attrs["units"] = declared
-        return da
-
-    if not units_equal(have, declared):
-        if not units_compatible(have, declared):
-            try:
-                get_registry().Quantity(1.0, have).to(declared)
-            except pint.DimensionalityError as exc:
-                raise pint.DimensionalityError(
-                    exc.units1,
-                    exc.units2,
-                    exc.dim1,
-                    exc.dim2,
-                    extra_msg=(
-                        f" ({prefix}output {name!r} is labelled {have!r} but declares "
-                        f"{declared!r}, and on_output='strict' requires them to match; "
-                        f"if the body converts by scalar arithmetic, clear its 'units' "
-                        f"attribute or use on_output='stamp')"
-                    ),
-                ) from None
-        else:
-            raise ValueError(
-                f"{prefix}output {name!r}: unit {have!r} differs from declared "
-                f"{declared!r} and on_output='strict' requires them to match"
-            )
-    da.attrs["units"] = declared
-    return da
+    )
+    _refuse(
+        have,
+        declared,
+        where,
+        hint,
+        f"{where} has unit {have!r} but declares {declared!r}. {hint}",
+    )

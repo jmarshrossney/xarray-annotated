@@ -6,13 +6,15 @@ coordinates (``Coords``), and dtype (``Dtype``).  The structural counterpart to
 ``xarray_annotated.units``, but simpler: structural validation only *asserts* (it
 never converts or mutates).
 
-Declare several at once inside ``Annotated`` and apply them with ``declare_schema``::
+Declare several at once inside ``Annotated`` and apply them with
+``xarray_annotated.enforce``:
 
     from typing import Annotated
     import xarray as xr
-    from xarray_annotated.schema import declare_schema, Dims, Dtype
+    import xarray_annotated as xra
+    from xarray_annotated import Dims, Dtype
 
-    @declare_schema
+    @xra.enforce
     def f(
         x: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64")],
     ) -> xr.DataArray: ...
@@ -22,42 +24,22 @@ from ._annotations import (
     Coords,
     Dims,
     Dtype,
-    annotated_schema,
-    schema_from_signature,
 )
 from ._check import (
     SchemaError,
-    SchemaWarning,
     assert_valid_schema,
     check_schema,
     dims_compatible,
     dtype_compatible,
 )
-from ._config import (
-    OnMismatch,
-    Policy,
-    get_policy,
-    policy,
-    set_policy,
-)
-from ._decorator import declare_schema
 
 __all__ = [
     "Coords",
     "Dims",
     "Dtype",
-    "OnMismatch",
-    "Policy",
     "SchemaError",
-    "SchemaWarning",
-    "annotated_schema",
     "assert_valid_schema",
     "check_schema",
-    "declare_schema",
     "dims_compatible",
     "dtype_compatible",
-    "get_policy",
-    "policy",
-    "schema_from_signature",
-    "set_policy",
 ]

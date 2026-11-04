@@ -35,100 +35,147 @@ The package requires Python `>=3.12`.
 Python 3.12, 3.13 and 3.14 are tested in CI.
 
 
-## A short example
+## Before and after
 
-### The problem
-
-Here is a function that converts barometric pressure to altitude.
-It assumes a unit (pascals) and says so in the docstring but doesn't check or enforce it.
+Vapour pressure deficit (VPD) measures how dry the air is, and is computed from air temperature and relative humidity.
+To try it, we need some data.
+The values are constant at 20 °C and 60% humidity, so every correct result is the same: 0.935 kPa.
 
 ```python
+import numpy as np
+import pandas as pd
 import xarray as xr
 
 
-def altitude(p: xr.DataArray) -> xr.DataArray:
-    """Barometric altitude. Assumes p is in Pa."""
-    return 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
+def hourly(value, units=None, freq="h"):
+    time = pd.date_range("2024-07-01", "2024-07-03T23:00", freq=freq)
+    return xr.DataArray(
+        np.full((time.size, 2), value),
+        dims=("time", "site"),
+        coords={"time": time, "site": ["north", "south"]},
+        attrs={"units": units} if units else {},
+    )
 
 
-p = xr.DataArray([1013.0, 1000.0], dims=["time"], attrs={"units": "hPa"})
-altitude(p)
-```
-```
-<xarray.DataArray (time: 2)> Size: 16B
-array([25876.55998663, 25921.86206292])
-Dimensions without coordinates: time
-Attributes:
-    units:    hPa
+tair = hourly(20.0, "degC")
+rh = hourly(60.0, "percent")
 ```
 
-The input units are wrong (hPa vs Pa) but the onus is on the user to check, and in reality we all know that such bugs can go unnoticed for a terrifyingly long time.
-The returned altitude is numerically wrong --- sea-level pressure has come back as 26 km --- and carries a completely bogus hPa units in `attrs`.
+Here is a function that averages VPD to daily values, with its expectations in the docstring.
+Given a temperature in kelvin, it treats 293.15 as a Celsius temperature and returns a VPD of 3411 kPa, with no error.
 
-### The fix
+```python
+def plain_daily_vpd(tair: xr.DataArray, rh: xr.DataArray) -> xr.DataArray:
+    """Daily mean vapour pressure deficit.
 
-Here we use `xarray-annotated` to declare expected properties in the signature and enforce them at run-time with minimal boilerplate (just decorators).
+    Args:
+        tair: Hourly air temperature in degC, with dims (time, site).
+        rh: Hourly relative humidity in percent, with dims (time, site).
+
+    Returns:
+        Daily mean VPD in kPa, with dims (time, site).
+    """
+    es = 0.6108 * np.exp(17.27 * tair / (tair + 237.3))
+    return (es * (1 - rh / 100)).resample(time="D").mean()
+
+
+plain_daily_vpd(hourly(293.15, "K"), rh).round(3)  # 3411.424
+```
+
+Here is the same function with those expectations declared in the signature:
 
 ```python
 from typing import Annotated
-import xarray as xr
-from xarray_annotated.schema import declare_schema, Dims
-from xarray_annotated.units import declare_units, Unit
+
+import xarray_annotated as xra
+from xarray_annotated import Dims, Freq, Unit
 
 
-@declare_units
-@declare_schema
-def altitude(
-    p: Annotated[xr.DataArray, Dims("time"), Unit("Pa")],
-) -> Annotated[xr.DataArray, Dims("time"), Unit("m")]:
-    """Barometric altitude."""
-    return 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
+@xra.enforce  # (1)!
+def daily_vpd(
+    tair: Annotated[
+        xr.DataArray,
+        Dims("time", "site"),  # (2)!
+        Unit("degC"),  # (3)!
+        Freq("h"),  # (4)!
+    ],
+    rh: Annotated[xr.DataArray, Dims("time", "site"), Unit("percent"), Freq("h")],
+) -> Annotated[xr.DataArray, Dims("time", "site"), Unit("kPa"), Freq("D")]:  # (5)!
+    """Daily mean vapour pressure deficit."""
+    es = 0.6108 * np.exp(17.27 * tair / (tair + 237.3))
+    vpd = (es * (1 - rh / 100)).resample(time="D").mean()
+    return vpd.assign_attrs(units="kPa")  # (6)!
+```
 
+1.  `enforce` reads the declarations from the signature and checks them on every call.
+2.  These dimensions must be present, in any order, and no others.
+3.  The body always sees `degC`. A different unit such as `K` raises, even though it could be converted.
+4.  The `time` coordinate must be hourly.
+5.  The return value is checked too, and has to match.
+6.  xarray would otherwise leave a misleading label on the result, so the body states its unit: see [Output units](guides/units.md#outputs).
 
-altitude(p)
+### Temperature in kelvin
+
+The annotated function refuses the input, because `K` is not the declared `degC`:
+
+<!-- docs-test: raises ValueError -->
+```python
+daily_vpd(hourly(293.15, "K"), rh)
 ```
 ```
-<xarray.DataArray (time: 2)> Size: 16B
-array([  2.08162886, 110.90398059])
-Dimensions without coordinates: time
+ValueError: [daily_vpd] input 'tair': unit 'K' differs from declared 'degC'.
+  Converting would change the values; if that is correct for this quantity,
+  pass xra.units.convert(da, 'degC').
+```
+
+Temperature is safe to convert here, so [convert it](guides/units.md#converting-an-input) and try again:
+
+```python
+daily_vpd(xra.units.convert(hourly(293.15, "K"), "degC"), rh).round(3)
+```
+```
+<xarray.DataArray (time: 3, site: 2)> Size: 48B
+array([[0.935, 0.935],
+       [0.935, 0.935],
+       [0.935, 0.935]])
+Coordinates:
+  * time     (time) datetime64[us] 24B 2024-07-01 2024-07-02 2024-07-03
+  * site     (site) <U5 40B 'north' 'south'
 Attributes:
-    units:    m
+    units:    kPa
 ```
 
-Now the outputs are physical and carry the correct units attribute.
-The `hPa` input was converted to `Pa` before the body ran, and the result was stamped with the unit the signature promised.
-The docstring no longer needs to say "assumes Pa", because the signature does --- and unlike the docstring, it is actually enforced.
+### Humidity with no units
 
-### The catch
+Here `rh` is a fraction rather than a percentage, and nothing says so.
+The plain function returns 2.324 instead of 0.935, and labels the result `degC`, the only `units` attribute xarray could find.
+The annotated function refuses to guess:
 
-This would have failed gracefully had we passed an array whose units were _dimensionally_ wrong,
-
+<!-- docs-test: raises ValueError -->
 ```python
-altitude(xr.DataArray([1.0, 2.0], dims=["time"], attrs={"units": "kg"}))
+daily_vpd(tair, hourly(0.6))
 ```
 ```
-DimensionalityError: Cannot convert from 'kilogram' ([mass])
-  to 'pascal' ([mass] / [length] / [time] ** 2)
+ValueError: [daily_vpd] input 'rh' has no 'units' attribute (declared 'percent').
+  Attach the unit where the data enters the pipeline (`.assign_attrs(units=...)`),
+  or switch checking off with `xra.enabled(False)`.
 ```
 
-or with an extra dimension,
+A unit that is dimensionally wrong, such as `tair` labelled `m`, raises `DimensionalityError`.
 
+### Data at the wrong frequency
+
+This 3-hourly data gives a plausible answer, and with constant values even the right one, but the function was written for hourly data.
+Whether that matters depends on the analysis, and the annotated function makes it a decision rather than an accident:
+
+<!-- docs-test: raises FreqError -->
 ```python
-altitude(xr.DataArray([[1013.0, 1000.0]], dims=["run", "time"], attrs={"units": "hPa"}))
+daily_vpd(hourly(20.0, "degC", freq="3h"), hourly(60.0, "percent", freq="3h"))
 ```
 ```
-SchemaError: [altitude] 'p' dims mismatch: expected ('time',) in any order, got ('run', 'time')
+FreqError: [daily_vpd] 'tair' frequency mismatch on 'time': expected 'h', got '3h'
 ```
 
-Whether a schema violation raises, warns or is ignored is set by a [policy](guides/policy.md).
+A violation always raises; to check nothing while prototyping, [switch the package off](guides/troubleshooting.md#enabled).
 
-## Where to go next
-
-- How-to guides:
-    - **[Declaring properties](guides/declaring.md)** --- the full set of markers (dims, coords, dtype, units, frequency), what each one considers a match, and how to combine them.
-    - **[Configuring validation](guides/policy.md)** --- raise, warn or ignore; scoping overrides to a block or a function; turning validation off in production.
-    - **[Choosing a unit registry](guides/registry.md)** --- needed only if you use CF-convention unit strings such as `"umol m-2 s-1"`.
-    - **[Reading and writing declarations](guides/tooling.md)** --- inspecting declarations programmatically, and generating documentation from them.
-    - **[Troubleshooting](guides/troubleshooting.md)** --- common errors and what they mean.
-- **[A worked pipeline](example.md)** --- the same ideas applied end-to-end, as a runnable notebook.
-- **[API reference](api/package.md)** --- every marker, decorator and exception, generated from the source.
+Next, see [Declaring properties](guides/declaring.md) for every marker, including [how to shorten long signatures](guides/declaring.md#reusing-a-declaration), or the [worked example](example.md) for an end-to-end pipeline.

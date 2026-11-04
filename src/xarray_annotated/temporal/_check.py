@@ -20,16 +20,14 @@ That last clause is the whole point.  pandas silently defaults an anchor the use
 not spell (`to_offset("W").freqstr == "W-SUN"`), so anchoredness is read off the *raw
 declared string* — a `"-"` in it — never off the normalised offset.  `Freq("W")` thus
 means "weekly, any weekday" (a deliberate divergence from pandas), while `Freq("W-SUN")`
-means Sundays and will not accept a `W-WED` axis.  A marker's `anchored=` keyword
-overrides that inference either way.
+means Sundays and will not accept a `W-WED` axis.
 
 Known limitation: `Day` is DST-aware in pandas while `24h` is not, so treating them as
 the same spacing is an approximation for timezone-aware axes.
 """
 
-import warnings
-
 import numpy as np
+import pandas as pd
 import xarray as xr
 from pandas.tseries.frequencies import to_offset
 from pandas.tseries.offsets import (
@@ -44,25 +42,16 @@ from pandas.tseries.offsets import (
     YearBegin,
     YearEnd,
 )
+from xarray.indexes import PandasIndex
 
+from .._config import resolve_enabled
 from ._annotations import Freq
-from ._config import (
-    OnMismatch,
-    OnUninferable,
-    _validate_on_mismatch,
-    _validate_on_uninferable,
-    get_policy,
-)
 
 _NANOS_PER_DAY = 86_400_000_000_000
 
 
-class FreqWarning(UserWarning):
-    """Warning issued for a frequency mismatch or an uninferable time axis."""
-
-
 class FreqError(Exception):
-    """Raised for a frequency mismatch under ``on_mismatch="error"``.
+    """Raised for a frequency mismatch.
 
     Deliberately **not** a ``ValueError``: a mismatch (the *data* fails the
     declaration) is a distinct event from a malformed *declaration* (an unparseable
@@ -88,6 +77,8 @@ def assert_valid_freq(marker: Freq, context: str) -> None:
     """
     if marker.dim is not None and not marker.dim:
         raise ValueError(f"{context}: Freq dim must be a non-empty string.")
+    if not isinstance(marker.freq, str):
+        raise ValueError(f"{context}: frequency must be a string, got {marker.freq!r}.")
     try:
         to_offset(marker.freq)
     except ValueError as exc:
@@ -131,7 +122,10 @@ def _anchor(off: BaseOffset) -> int | None:
     if isinstance(off, Week):
         return off.weekday  # type: ignore[attr-defined]
     if isinstance(off, (QuarterEnd, QuarterBegin)):
-        return off.startingMonth  # type: ignore[attr-defined]
+        # `QE-MAR` and `QE-DEC` are the same four dates, and `infer_freq` only ever
+        # names one month of the three, even for `2QE`, which is why `2QE-MAR` and
+        # `2QE-JUN` cannot be told apart here.
+        return off.startingMonth % 3  # type: ignore[attr-defined]
     if isinstance(off, (YearEnd, YearBegin)):
         return off.month
     return None
@@ -141,14 +135,10 @@ def _phase(marker: Freq) -> tuple[str | None, int | None]:
     """The comparable phase of a declaration: `(convention, anchor-or-None)`.
 
     The anchor is `None` — meaning *undetermined*, so it is not compared — unless the
-    declaration determines it: either the raw string spells it out (`"W-WED"`) or the
-    marker forces the question with `anchored=`.
+    raw string spells it out (`"W-WED"`).
     """
     off = to_offset(marker.freq)
-    anchored = marker.anchored
-    if anchored is None:
-        anchored = "-" in marker.freq
-    return _convention(off), _anchor(off) if anchored else None
+    return _convention(off), _anchor(off) if "-" in marker.freq else None
 
 
 def freq_compatible(a: Freq, b: Freq) -> bool:
@@ -192,10 +182,44 @@ def freq_compatible(a: Freq, b: Freq) -> bool:
 
 
 def _is_datetime_like(da: xr.DataArray, name: str) -> bool:
-    """Whether a coordinate carries timestamps — numpy datetimes or cftime ones."""
-    if np.issubdtype(da.coords[name].dtype, np.datetime64):
-        return True
-    return isinstance(da.indexes.get(name), xr.CFTimeIndex)
+    """Whether a coordinate is an indexed time axis, numpy datetimes or cftime ones.
+
+    Only a `PandasIndex` qualifies, as it is in memory where a custom index may leave
+    its coordinate lazy.  `da.indexes` is avoided: it casts every index to pandas, and
+    raises on a custom one.
+    """
+    index = da.xindexes.get(name)
+    if not isinstance(index, PandasIndex):
+        return False
+    is_numpy = np.issubdtype(da.coords[name].dtype, np.datetime64)
+    return is_numpy or isinstance(index.index, xr.CFTimeIndex)
+
+
+def _why_not_axis(da: xr.DataArray, name: str) -> str | None:
+    """Why a numpy datetime coordinate is not a time axis, and how to make it one.
+
+    Decided from its dtype, shape and index, so nothing is read.  That leaves cftime
+    unidentified, as an unindexed one has dtype `object` until it is read.
+
+    Returns:
+        The reason, or `None` for a coordinate this cannot say anything about.
+    """
+    coord = da.coords[name]
+    index = da.xindexes.get(name)
+    if not np.issubdtype(coord.dtype, np.datetime64) or isinstance(index, PandasIndex):
+        return None
+    if coord.ndim == 0:
+        return (
+            f"{name!r} is a scalar, so keep its dimension with .expand_dims({name!r})"
+        )
+    if coord.ndim > 1:
+        return f"{name!r} is {coord.ndim}-D, and a time axis must be 1-D"
+    if index is not None:
+        return (
+            f"{name!r} has a {type(index).__name__}, not a pandas index, so replace it "
+            f"with .drop_indexes({name!r}).set_xindex({name!r})"
+        )
+    return f"{name!r} has no index, so add one with .set_xindex({name!r})"
 
 
 def _locate_axis(da: xr.DataArray, marker: Freq) -> tuple[str | None, str]:
@@ -205,122 +229,153 @@ def _locate_axis(da: xr.DataArray, marker: Freq) -> tuple[str | None, str]:
     unambiguous answer — which is itself a mismatch (the declaration says the array
     has a time axis; it does not, or it has two).
     """
-    candidates = [str(name) for name in da.coords if _is_datetime_like(da, str(name))]
+    names = [str(name) for name in da.coords]
+    candidates = [name for name in names if _is_datetime_like(da, name)]
     if marker.dim is not None:
         if marker.dim not in candidates:
+            reason = _why_not_axis(da, marker.dim) if marker.dim in names else None
             return None, (
-                f"declared {marker!r} but {marker.dim!r} is not a datetime "
-                f"coordinate; datetime coords: {candidates}"
+                f"declared {marker!r} but {marker.dim!r} is not an indexed datetime "
+                f"coordinate: {reason or f'indexed datetime coords: {candidates}'}"
             )
         return marker.dim, ""
     if not candidates:
-        return None, f"declared {marker!r} but the array has no datetime coordinate"
+        reasons = [r for name in names if (r := _why_not_axis(da, name))]
+        return None, (
+            f"declared {marker!r} but the array has no indexed datetime coordinate"
+            + (
+                f": {'; '.join(reasons)}"
+                if reasons
+                else "; unindexed cftime and undecoded times look like this too"
+            )
+        )
     if len(candidates) > 1:
         return None, (
-            f"declared {marker!r} but the time axis is ambiguous: datetime coords "
-            f"{candidates}; name one with Freq(..., dim=...)"
+            f"declared {marker!r} but the time axis is ambiguous: indexed datetime "
+            f"coords {candidates}; name one with Freq(..., dim=...)"
         )
     return candidates[0], ""
 
 
 def _infer(coord: xr.DataArray) -> str | None:
-    """The frequency of a time coordinate, or `None` if it has none.
+    """The frequency of a time coordinate of 3+ points, or `None` if it has none.
 
     `xarray.infer_freq` (not pandas') so a `CFTimeIndex` — a 360-day or noleap
-    calendar — works too.  It *raises* on fewer than three points and *returns* `None`
-    on irregular spacing; both mean the same thing here: uninferable.
+    calendar — works too.  It returns `None` on irregular spacing.
     """
-    try:
-        return xr.infer_freq(coord)
-    except ValueError:
+    # Type comes from pd.infer_freq's stub, but xarray sets
+    # future.infer_freq_returns_offset=False, so it is always str | None.
+    return xr.infer_freq(coord)  # pyright: ignore[reportReturnType]
+
+
+def _on_declared_weekday(marker: Freq, coord: xr.DataArray) -> bool:
+    """Whether a weekly axis falls on the weekday its declaration spells, if any."""
+    _, anchor = _phase(marker)
+    if anchor is None or not isinstance(to_offset(marker.freq), Week):
+        return True
+    return coord.dt.dayofweek.values[0] == anchor
+
+
+def _two_points_conform(marker: Freq, coord: xr.DataArray) -> bool:
+    """Whether two timestamps can be consecutive on the declared time axis.
+
+    `xarray.infer_freq` needs three points, but two already have a spacing and a phase,
+    so they are compared under the same model as `freq_compatible`.  Business days and
+    custom offsets have no reduction to compare, so they pass.
+    """
+    offset = to_offset(marker.freq)
+    kind, spacing = _spacing(offset)
+    if kind == "opaque":
+        return True
+    if kind == "fixed":
+        times = coord.to_index()
+        step = pd.Timedelta(times[1] - times[0])
+        if step != pd.Timedelta(spacing, "ns"):  # pyright: ignore[reportArgumentType]
+            return False
+        return _on_declared_weekday(marker, coord)
+
+    convention, anchor = _phase(marker)
+    years, months = coord.dt.year.values, coord.dt.month.values
+    if 12 * (years[1] - years[0]) + months[1] - months[0] != spacing:
+        return False
+    time_of_day = (coord - coord.dt.floor("D")).values
+    if time_of_day[0] != time_of_day[1]:
+        return False
+    expected_day = coord.dt.days_in_month.values if convention == "end" else 1
+    if not (coord.dt.day.values == expected_day).all():
+        return False
+    if anchor is None:
+        return True
+    is_quarterly = isinstance(offset, (QuarterEnd, QuarterBegin))
+    return (months[0] % 3 if is_quarterly else months[0]) == anchor
+
+
+def _mismatch(marker: Freq, coord: xr.DataArray) -> str | None:
+    """How a time axis contradicts a declaration, or `None` if it does not.
+
+    An axis of zero or one point has no spacing, so nothing can contradict it.
+    """
+    if coord.size < 2:
         return None
-
-
-def _report(ok: bool, severity: OnMismatch | OnUninferable, message: str) -> None:
-    """Act on a check result under the resolved severity."""
-    if ok or severity == "ignore":
-        return
-    if severity == "error":
-        raise FreqError(message)
-    # stacklevel=3 targets the declare_freq call path (user -> wrapper ->
-    # check_freq -> _report); one frame too far for a direct check_freq call.
-    warnings.warn(message, FreqWarning, stacklevel=3)
+    if coord.size == 2:
+        if _two_points_conform(marker, coord):
+            return None
+        first, second = coord.to_index()
+        return f"{first} then {second}"
+    inferred = _infer(coord)
+    if inferred is None:
+        return "irregular spacing"
+    if not freq_compatible(marker, Freq(inferred)):
+        return repr(inferred)
+    # On a cftime axis `infer_freq` says `7D` where pandas says `W-WED`.
+    return (
+        None if _on_declared_weekday(marker, coord) else f"{inferred!r} on another day"
+    )
 
 
 def check_freq(
     da: xr.DataArray,
-    declared: Freq | list[Freq],
+    declared: Freq,
     name: str,
-    on_mismatch: OnMismatch | None = None,
-    on_uninferable: OnUninferable | None = None,
     qualname: str | None = None,
 ) -> xr.DataArray:
     """Validate `da`'s time axis against its declared frequency; return it unchanged.
 
-    Locates the declared time coordinate (the array's sole datetime-like coordinate,
-    unless the marker names one), infers its frequency with `xarray.infer_freq`, and
-    compares that with the declaration via `freq_compatible`.  Because pandas always
+    Locates the time coordinate, reading nothing from disk (see
+    `docs/guides/declaring.md` for which coordinates count), and compares it with the
+    declaration via `freq_compatible`, using `xarray.infer_freq`.  Because pandas always
     hands back a fully-anchored string (`"W-WED"`, never `"7D"`), the *declaration*
     alone decides how strict the comparison is — `Freq("7D")` accepts any weekday,
     `Freq("W-SUN")` accepts only Sundays.
 
-    Two events, two axes.  A frequency that contradicts the declaration is a
-    **mismatch**, as is an array with no (or an ambiguous) time axis.  An axis whose
-    frequency cannot be inferred at all — fewer than three points, or irregular
-    spacing — is **uninferable**: the declaration was not violated, it was never
-    tested, and by default that warns rather than raises.
-
-    Severity resolves per marker as: the marker's own `on_mismatch` override, else the
-    `on_mismatch` argument, else the policy default.  When the master switch is off
-    (`enabled=False`) this is a total no-op.
+    An array with no (or an ambiguous) time axis is a mismatch, and so is irregular
+    spacing, which no declared frequency describes.  Two points are compared directly,
+    as `infer_freq` needs three, and an axis of zero or one point always passes.  When
+    xarray-annotated is switched off (`enabled(False)`) this is a total no-op.
 
     Args:
         da: The DataArray to validate.
-        declared: A single `Freq` or a list of them declared for `da`.
+        declared: The `Freq` declared for `da`.
         name: The parameter/field name, for error messages.
-        on_mismatch: Per-call default severity for a mismatch, overriding the policy
-            default but overridden by a marker's own `on_mismatch`.
-        on_uninferable: Per-call severity for an uninferable axis, overriding the
-            policy default.
         qualname: Optional qualified function name, prefixed to messages.
 
     Returns:
         `da`, unchanged (validation never mutates).
 
     Raises:
-        FreqError: On a mismatch when the effective severity is ``"error"``.
+        FreqError: On a mismatch.
     """
-    pol = get_policy()
-    if not pol.enabled:
+    if not resolve_enabled():
         return da
-    if on_mismatch is not None:
-        on_mismatch = _validate_on_mismatch(on_mismatch)
-    if on_uninferable is not None:
-        on_uninferable = _validate_on_uninferable(on_uninferable)
 
-    markers = [declared] if isinstance(declared, Freq) else declared
-    uninferable = on_uninferable or pol.on_uninferable
     prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
-    for marker in markers:
-        severity = marker.on_mismatch or on_mismatch or pol.on_mismatch
-        dim, detail = _locate_axis(da, marker)
-        if dim is None:
-            _report(False, severity, f"{prefix} {detail}")
-            continue
-        inferred = _infer(da[dim])
-        if inferred is None:
-            _report(
-                False,
-                uninferable,
-                f"{prefix} frequency of {dim!r} is uninferable (fewer than three "
-                f"points, or irregular spacing), so {marker!r} was not checked",
-            )
-            continue
-        ok = freq_compatible(marker, Freq(inferred))
-        _report(
-            ok,
-            severity,
-            f"{prefix} frequency mismatch on {dim!r}: expected {marker.freq!r}, "
-            f"got {inferred!r}",
+    dim, detail = _locate_axis(da, declared)
+    if dim is None:
+        raise FreqError(f"{prefix} {detail}")
+    got = _mismatch(declared, da[dim])
+    if got is not None:
+        raise FreqError(
+            f"{prefix} frequency mismatch on {dim!r}: expected {declared.freq!r}, "
+            f"got {got}"
         )
     return da

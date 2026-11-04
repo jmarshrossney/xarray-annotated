@@ -1,21 +1,20 @@
 """Tests for the top-level ``annotate`` declaration writer.
 
-``annotate`` is the inverse of the ``*_from_signature`` readers: what it writes
+``annotate`` is the inverse of ``declarations_from_signature``: what it writes
 onto a function's annotations must read back identically.  The round-trip tests
 below assert exactly that, which is the writer's whole contract (it lets a codegen
-path stamp a contract onto a generated function and have ``declare_units`` /
-``declare_schema`` pick it up unchanged).
+path stamp a contract onto a generated function and have ``enforce`` pick it
+up unchanged).
 """
 
 from typing import Annotated, get_args, get_origin
 
 import xarray as xr
 
-import xarray_annotated
-from xarray_annotated import _annotations, annotate, unwrap_annotated, walk_signature
-from xarray_annotated.schema import Coords, Dims, Dtype, schema_from_signature
-from xarray_annotated.temporal import Freq, freq_from_signature
-from xarray_annotated.units import Unit, units_from_signature
+from xarray_annotated import Declared, annotate, declarations_from_signature
+from xarray_annotated.schema import Coords, Dims, Dtype
+from xarray_annotated.temporal import Freq
+from xarray_annotated.units import Unit
 
 
 def _return_hint(hint):
@@ -56,12 +55,12 @@ class TestMarkers:
         hint = annotate(
             unit=Unit("degC"),
             dims=Dims("t", ordered=True),
-            freq=Freq("W", anchored=True),
+            freq=Freq("W", dim="time"),
         )
         assert get_args(hint)[1:] == (
             Unit("degC"),
             Dims("t", ordered=True),
-            Freq("W", anchored=True),
+            Freq("W", dim="time"),
         )
 
     def test_only_given_facets_contribute(self):
@@ -69,23 +68,8 @@ class TestMarkers:
         assert get_args(annotate(freq="ME"))[1:] == (Freq("ME"),)
 
 
-class TestTopLevelKernelExports:
-    def test_unwrap_annotated_is_the_kernel_helper(self):
-        # The domain-agnostic helper is reachable from the package root, not only
-        # via a private module (which downstream had to copy verbatim).
-        assert unwrap_annotated is _annotations.unwrap_annotated
-        assert xarray_annotated.unwrap_annotated is _annotations.unwrap_annotated
-
-    def test_walk_signature_is_the_kernel_driver(self):
-        assert walk_signature is _annotations.walk_signature
-
-    def test_unwrap_annotated_sees_base_through_markers(self):
-        assert unwrap_annotated(annotate(unit="Pa", dims=("x",))) is xr.DataArray
-        assert unwrap_annotated(xr.DataArray) is xr.DataArray
-
-
 class TestRoundTrip:
-    def test_reads_back_through_signature_readers(self):
+    def test_reads_back_through_signature_reader(self):
         hint = annotate(
             unit="Pa",
             dims=("time",),
@@ -94,10 +78,18 @@ class TestRoundTrip:
             freq="7D",
         )
         fn = _return_hint(hint)
-        assert units_from_signature(fn)[1] == "Pa"
-        assert schema_from_signature(fn)[1] == [
-            Dims("time"),
-            Dtype("float64"),
-            Coords("time"),
-        ]
-        assert freq_from_signature(fn)[1] == Freq("7D")
+        assert declarations_from_signature(fn)[1] == Declared(
+            unit=Unit("Pa"),
+            dims=Dims("time"),
+            dtype=Dtype("float64"),
+            coords=Coords("time"),
+            freq=Freq("7D"),
+        )
+
+
+class TestBareStringNames:
+    def test_dims_string_is_one_name(self):
+        assert Dims("time") in get_args(annotate(dims="time"))
+
+    def test_coords_string_is_one_name(self):
+        assert Coords("time") in get_args(annotate(coords="time"))

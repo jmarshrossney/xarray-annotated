@@ -1,253 +1,65 @@
 # Reading and writing declarations (advanced)
 
-!!! note "You probably don't need this page"
-
-    `@declare_schema`, `@declare_units` and `@declare_freq` are the recommended entry
-    point, and most users need nothing else. Everything below is for *building tooling* on
-    top of the declarations — skip it unless you are.
-
-The primitives the decorators are built from are public too, for code that needs to
-validate an array by hand, or to *inspect* declarations without calling anything —
-build-time graph checks, documentation generation, code generation, custom consumers.
-
-This is the API that makes a declaration useful to something other than the function it
-sits on.
-
+The building blocks of `@xra.enforce` are public, for validating an array by hand or for building tools on top of declarations.
 
 ## Validating by hand
 
-Use these where a decorator doesn't fit: inside a loop, at a boundary you don't own, or
-on an array that arrived from somewhere other than a parameter.
+| Function | Use |
+|---|---|
+| [`check_schema`][xarray_annotated.schema.check_schema], [`check_freq`][xarray_annotated.temporal.check_freq] | Validate one array; it is returned unchanged |
+| [`check_units`][xarray_annotated.units.check_units] | Validate one input; never changes values |
+| [`apply_output_units`][xarray_annotated.units.apply_output_units] | Check one output against a declaration; always use the return value |
 
-### `check_schema`
+## Checking declarations with no array
 
-Validates a single array against a marker or list of markers and returns it
-**unchanged** (or raises `SchemaError`):
+| Function | Use |
+|---|---|
+| [`assert_valid_unit`][xarray_annotated.units.assert_valid_unit], [`assert_valid_schema`][xarray_annotated.schema.assert_valid_schema], [`assert_valid_freq`][xarray_annotated.temporal.assert_valid_freq] | Raise `ValueError` on a malformed declaration |
+| [`units_compatible`][xarray_annotated.units.units_compatible], [`units_equal`][xarray_annotated.units.units_equal] | Compare two units |
+| [`dims_compatible`][xarray_annotated.schema.dims_compatible], [`dtype_compatible`][xarray_annotated.schema.dtype_compatible], [`freq_compatible`][xarray_annotated.temporal.freq_compatible] | Whether two markers can describe the same array |
 
-```python
-from xarray_annotated.schema import check_schema, Dims
+To check a graph at assembly time, read each node's inputs and outputs with `declarations_from_signature` and compare them pairwise with these.
 
-check_schema(da, Dims("time", "x"), name="da", on_mismatch=None, qualname=None)
-```
-
-`on_mismatch` defaults to the [active policy](policy.md#schema-on_mismatch) when `None`;
-`name` labels the array in messages; it is a total no-op when the policy is disabled.
-
-### `check_units`
-
-Validates *and converts* a single array:
-
-```python
-from xarray_annotated.units import check_units
-
-check_units(da, declared, name, on_missing=None, on_inexact=None, qualname=None)
-```
-
-Given an input `da`, `check_units`:
-
-1. reads `da.attrs["units"]`;
-2. if present and parseable, converts `da` to `declared` and re-stamps
-   `attrs["units"] = declared` on the result;
-3. if missing or unparseable, follows the [`on_missing`](policy.md#units-on_missing) axis;
-4. if present but **dimensionally incompatible** with `declared` (e.g. `"kg"` where
-   `"Pa"` is declared), raises `pint.DimensionalityError` naming the offending
-   variable — always, regardless of policy.
-
-`on_missing` and `on_inexact` may be passed per call; each defaults to the active policy
-when `None`.
-
-### `apply_output_units`
-
-The output counterpart, and deliberately not symmetric — it *stamps* rather than converts:
-
-```python
-from xarray_annotated.units import apply_output_units
-
-apply_output_units(da, declared, name, on_output=None, qualname=None)
-```
-
-Sets `attrs["units"] = declared` on `da` and returns it. Under
-[`on_output="strict"`](policy.md#units-on_output) a label that is present, parseable, and
-different from `declared` raises instead. An absent, over-long, or unparseable label is
-always stamped — absence is not evidence of a mismatch.
-
-Reach for this when you are applying a declaration you read off a signature yourself.
-**Always use the return value.** For an `attrs`-labelled array it stamps in place and hands
-back the same object, but a [pint-quantified](troubleshooting.md#quantified-arrays) one is
-converted rather than stamped, so what comes back may be a new array.
-
-### `check_freq`
-
-Validates a single array's time axis and returns it **unchanged** (or raises
-`FreqError`), taking the same shape of arguments:
-
-```python
-from xarray_annotated.temporal import check_freq, Freq
-
-check_freq(
-    da, Freq("7D"), name="da", on_mismatch=None, on_uninferable=None, qualname=None
-)
-```
-
-### Checking a declaration itself
-
-`assert_valid_unit(unit, context)` / `assert_valid_schema(marker, context)` /
-`assert_valid_freq(marker, context)` provide the same fail-fast declaration checks the
-decorators run at import — useful if you are building markers dynamically and want the
-typo caught where it was made.
-
-
-## Reading declarations off a signature
-
-These extract a function's declared properties without calling it — the single source
-that both the decorators and any static checker consume, so a declaration is never
-written twice.
-
-### `units_from_signature`
+## Reading declarations
 
 ```python
 from typing import Annotated, TypedDict
+
 import xarray as xr
-from xarray_annotated.units import units_from_signature
+from xarray_annotated import Dims, Dtype, Unit, declarations_from_signature
 
 
 class Output(TypedDict):
-    gpp: Annotated[xr.DataArray, "g m-2 d-1"]
-    lue: Annotated[xr.DataArray, "g MJ-1"]
-
-
-def node(
-    temp: Annotated[xr.DataArray, "degC"],
-    plain: xr.DataArray,
-) -> Output: ...
-
-
-inputs, outputs = units_from_signature(node)
-# inputs  == {"temp": "degC"}
-# outputs == {"gpp": "g m-2 d-1", "lue": "g MJ-1"}
-```
-
-Only parameters — or fields of a `TypedDict`/`dataclass` return type — with a
-unit-annotated `DataArray` contribute; a plain `xr.DataArray` hint with no unit is
-ignored. A bare `Annotated[DataArray, unit]` return annotation yields a single unit
-string rather than a dict.
-
-### `schema_from_signature`
-
-Mirrors it, returning the *list* of markers on each parameter/field (since a hint may
-declare several):
-
-```python
-from typing import Annotated
-import xarray as xr
-from xarray_annotated.schema import schema_from_signature, Dims, Dtype
-
-
-def node(
-    x: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64")],
-    plain: xr.DataArray,
-) -> Annotated[xr.DataArray, Dims("time", "x")]: ...
-
-
-inputs, output = schema_from_signature(node)
-# inputs == {"x": [Dims("time", "x"), Dtype("float64")]}
-# output == [Dims("time", "x")]
-```
-
-`TypedDict`/`dataclass` returns are read per-field, exactly as for units.
-`freq_from_signature` does the same for the `Freq` marker (one marker, or `None`, per
-parameter).
-
-### Reading a single hint
-
-Each domain also exposes the per-annotation reader underneath its signature reader, for
-when you already hold one hint and don't want to reach into a private module:
-
-```python
-from typing import Annotated
-import xarray as xr
-from xarray_annotated.units import Unit, annotated_unit
-from xarray_annotated.schema import Dims, annotated_schema
-from xarray_annotated.temporal import Freq, annotated_freq
-
-hint = Annotated[xr.DataArray, Unit("Pa"), Dims("time"), Freq("D")]
-
-annotated_unit(hint)  # "Pa"        (normalises the bare-string shorthand too)
-annotated_schema(hint)  # [Dims("time")]
-annotated_freq(hint)  # Freq("D")
-```
-
-Each returns `None` when the hint declares nothing for that domain, isn't `Annotated`, or
-annotates a non-`DataArray` base type. A wrapper exposing the wrapped class as
-`array_type` — such as a jaxtyping array type — counts as a `DataArray` base type; see
-[Using with jaxtyping](jaxtyping.md). These are the building blocks the `*_from_signature`
-readers are driven from, alongside `walk_signature` and `unwrap_annotated` at the package
-root — the combination a third-party facet author needs to write their own reader.
-
-### Cross-domain reader: `declarations_from_signature` { #cross-domain-reader-declarations_from_signature }
-
-`declarations_from_signature` (from the package root) reads *all* declared facets — unit, dims,
-dtype, coords, and freq — into a single uniform `Declared` value per parameter. This is the
-read-side counterpart to `annotate` (below), and their round-trip is exact:
-
-```python
-from typing import Annotated
-import xarray as xr
-from xarray_annotated import declarations_from_signature
-from xarray_annotated.schema import Dims, Dtype
-from xarray_annotated.units import Unit
+    gpp: Annotated[xr.DataArray, Unit("g m-2 d-1")]
+    diagnostic: xr.DataArray
 
 
 def node(
     x: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64"), Unit("degC")],
-) -> Annotated[xr.DataArray, Dims("time", "x")]: ...
+    plain: xr.DataArray,
+) -> Output: ...
 
 
 inputs, output = declarations_from_signature(node)
-# inputs == {"x": Declared(dims=Dims("time", "x"), dtype=Dtype("float64"), unit=Unit("degC"))}
-# output == Declared(dims=Dims("time", "x"))
+# inputs == {"x": Declared(unit=Unit("degC"), dims=Dims("time", "x"), dtype=Dtype("float64"))}
+# output == {"gpp": Declared(unit=Unit("g m-2 d-1"))}
 ```
 
-A bare-string unit shorthand is normalised to a `Unit` marker on read, so `.unit.unit` always
-recovers the string. Parameters with no declared facet are omitted entirely.
+- **Omitted:** parameters and fields with no declaration.
+- **Return shape:** a dict for a `TypedDict` or dataclass, including one written `R | None` or `R[int]`, one [`Declared`][xarray_annotated.Declared] for a single array, otherwise `None`.
+- **Slots:** each slot of a `Declared` holds a marker or `None`, and `.schema` lists the structural markers.
+- **One hint:** use [`declaration_from_hint`][xarray_annotated.declaration_from_hint].
 
-This is the reader to use when checking a *graph* rather than a call: read each node's
-declared inputs and outputs, compare them pairwise, and fail at assembly time rather than
-at run time. `freq_compatible` (see
-[What "the same frequency" means](declaring.md#what-the-same-frequency-means)) performs
-the frequency half of that comparison with no array in hand.
+## Writing declarations
 
-
-## Writing annotations programmatically: `annotate`
-
-`annotate` (from the package root) is the inverse of the readers: given facet values it returns a
-real `Annotated` hint — useful for code generation or tools that build function signatures
-dynamically:
+[`annotate`][xarray_annotated.annotate] is the inverse: it builds a real `Annotated` hint, from raw values or markers.
 
 ```python
-from typing import Annotated, get_args, get_origin
-import xarray as xr
 from xarray_annotated import annotate
 
 hint = annotate(unit="Pa", dims=("time", "x"), dtype="float64", freq="7D")
 # Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x"), Dtype("float64"), Freq("7D")]
-
-annotate() is xr.DataArray  # no-op when no facets given
 ```
 
-Each facet accepts either a raw value or an already-built marker, so a caller holding a mix can
-pass both without unwrapping:
-
-```python
-from xarray_annotated.units import Unit
-
-annotate(unit=Unit("degC"), dims=("time", "x"))
-```
-
-Assign the result to a function's `__annotations__` and the `@declare_units` /
-`@declare_schema` / `@declare_freq` decorators read it back exactly as if it were
-hand-written.
-
-The first positional argument is the base type, which defaults to `xr.DataArray`. Pass a
-jaxtyping array type there to keep dtype/shape checking on the generated hint —
-`annotate(Float[xr.DataArray, "time x"], unit="Pa")` round-trips unchanged.
+Assign the result to a function's `__annotations__` and `@xra.enforce` reads it as if it were hand-written.
+The first positional argument is the base type, so a jaxtyping array type can be passed there.

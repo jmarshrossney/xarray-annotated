@@ -4,8 +4,8 @@ build-backend = "uv_build"
 
 [project]
 name = "xarray-annotated"
-version = "0.6.0"
-description = "Run-time validation of xarray DataArray properties (units, dims/coords/dtype) declared via typing.Annotated"
+version = "0.7.0"
+description = "Run-time validation of xarray DataArray structure, units and frequency, declared via typing.Annotated"
 authors = [
     { name = "jmarshrossney", email = "17361029+jmarshrossney@users.noreply.github.com" }
 ]
@@ -55,10 +55,13 @@ dev = [
 # test-only: there is nothing for a user to install to "enable" the integration, so this
 # is deliberately a dependency group and not an optional-dependency extra (contrast
 # `cf`, which is an extra because `units._registry` really does import cf_xarray).
-# `tests/test_jaxtyping.py` skips itself when they are absent.
+# `tests/test_jaxtyping.py`, `test_dask.py` and `test_netcdf.py` skip themselves when
+# they are absent.
 integrations = [
     "beartype>=0.22.9",
+    "dask>=2026.8.0",
     "jaxtyping>=0.3.11",
+    "netcdf4>=1.7.5.1.post1",
 ]
 docs = [
     "marimo>=0.23.11",

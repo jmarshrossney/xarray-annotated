@@ -1,63 +1,33 @@
-"""Shared configuration kernel for xarray-annotated.
+"""The package-wide master switch, the only global that changes how checks behave.
 
-Machinery common to every annotation-validation domain (currently `units` and
-`schema`), so the domains never drift on how a policy axis resolves:
+Behaviour is never configured globally, so that how a function validates can be read
+off its signature.  What remains global is whether xarray-annotated does anything at
+all.  The unit registry is process-wide too, but it decides which units parse, rather
+than what a check does with them.
 
-- `_resolve` — the shared precedence for one axis: environment variable (parsed),
-  then a process override, then a module default.
-- the **`enabled`** master switch — package-wide (it gates *every* domain, not just
-  one), so it lives here rather than in any single domain. Each domain's `Policy`
-  carries an `enabled` field but resolves it through `resolve_enabled` / the
-  override accessors below, so toggling it in one domain toggles it everywhere.
-- `_Unset` / `_UNSET` — the sentinel that lets a `set_policy` keyword distinguish
-  "argument omitted" from "explicitly set to `None`" (which *clears* an override).
-
-Domain-specific axes (units' `on_missing` / `on_inexact`, schema's `on_mismatch`)
-stay in the respective domain's `_config.py`; only the genuinely shared pieces
-live here.
+The switch resolves on every call as: an `enabled(...)` block, then the
+`XARRAY_ANNOTATED_ENABLED` environment variable, then on.  Code beats the
+environment in both directions, so `enabled(True)` restores checking in a process
+started with the variable set to false.
 """
 
 import os
-from collections.abc import Callable
+from collections.abc import Generator
+from contextlib import contextmanager
+from contextvars import ContextVar
 
-#: Master switch default. Validation is on unless explicitly disabled.
-DEFAULT_ENABLED: bool = True
+import numpy as np
 
-#: Master switch is package-wide (gates every annotation-validation domain), so it
-#: is deliberately un-namespaced; each domain's behavioural knobs are namespaced.
+__all__ = ["ENABLED_ENV_VAR", "enabled", "resolve_enabled"]
+
 ENABLED_ENV_VAR = "XARRAY_ANNOTATED_ENABLED"
 
-#: String values (lower-cased) accepted for the boolean `enabled` env var.
 _TRUTHY: frozenset[str] = frozenset({"1", "true", "yes", "on"})
 _FALSEY: frozenset[str] = frozenset({"0", "false", "no", "off"})
 
-#: Process-wide override for the master switch, shared across all domains.
-_process_enabled: bool | None = None
-
-
-class _Unset:
-    """Sentinel distinguishing 'argument omitted' from 'explicitly set to None'."""
-
-    def __repr__(self) -> str:
-        return "<unset>"
-
-
-_UNSET = _Unset()
-
-
-def _resolve[T](
-    env_var: str,
-    process_value: T | None,
-    default: T,
-    parse: Callable[[str], T],
-) -> T:
-    """Resolve one axis: env var (parsed) → process override → default."""
-    env = os.environ.get(env_var)
-    if env:
-        return parse(env)
-    if process_value is not None:
-        return process_value
-    return default
+_override: ContextVar[bool | None] = ContextVar(
+    "xarray_annotated_enabled", default=None
+)
 
 
 def _parse_enabled_env(value: str) -> bool:
@@ -73,26 +43,58 @@ def _parse_enabled_env(value: str) -> bool:
 
 
 def resolve_enabled() -> bool:
-    """Resolve the package-wide master switch (env → process override → default)."""
-    return _resolve(
-        ENABLED_ENV_VAR, _process_enabled, DEFAULT_ENABLED, _parse_enabled_env
-    )
+    """Return whether xarray-annotated is active for this call.
 
+    Returns:
+        The innermost `enabled(...)` value if inside one, else the parsed
+        `XARRAY_ANNOTATED_ENABLED`, else `True`.
 
-def get_enabled_override() -> bool | None:
-    """Return the current process override for the master switch (`None` if unset).
-
-    Used by each domain's `policy` context manager to save/restore the shared
-    switch around a temporary override.
+    Raises:
+        ValueError: If the environment variable holds an unrecognised value.
     """
-    return _process_enabled
+    override = _override.get()
+    if override is not None:
+        return override
+    env = os.environ.get(ENABLED_ENV_VAR)
+    if env:
+        return _parse_enabled_env(env)
+    return True
 
 
-def set_enabled_override(value: bool | None) -> None:
-    """Set (or, with `None`, clear) the process override for the master switch.
+@contextmanager
+def enabled(value: bool | np.bool_) -> Generator[None]:
+    """Switch xarray-annotated on or off for a block.
 
-    Shared by every domain's `set_policy`, so disabling validation in one domain
-    disables it package-wide.
+    Off means no checks, so a body declaring `"Pa"` can receive `"hPa"`.  Declarations
+    are still validated when a function is decorated.
+
+    The block beats `XARRAY_ANNOTATED_ENABLED` in both directions, and is
+    scoped to the current thread or async task.  The variable accepts `1`,
+    `true`, `yes` or `on` and `0`, `false`, `no` or `off`, in any case; anything
+    else raises `ValueError` when a checked function is called.
+
+    Args:
+        value: `False` to switch off, `True` to switch on.
+
+    Raises:
+        TypeError: If `value` is not a bool, as `bool("false")` would leave checks on.
+
+    Examples:
+        >>> from typing import Annotated
+        >>> import xarray as xr
+        >>> import xarray_annotated as xra
+        >>> @xra.enforce
+        ... def f(p: Annotated[xr.DataArray, xra.Unit("Pa")]):
+        ...     return p
+        >>> hpa = xr.DataArray([1.0], attrs={"units": "hPa"})
+        >>> with xra.enabled(False):
+        ...     f(hpa).attrs["units"]
+        'hPa'
     """
-    global _process_enabled
-    _process_enabled = None if value is None else bool(value)
+    if not isinstance(value, bool | np.bool_):
+        raise TypeError(f"enabled takes a bool, not {type(value).__name__}.")
+    token = _override.set(bool(value))
+    try:
+        yield
+    finally:
+        _override.reset(token)

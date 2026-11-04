@@ -6,7 +6,7 @@
 #     "numpy==2.5.1",
 #     "pint==0.25.3",
 #     "xarray==2026.7.0",
-#     "xarray-annotated==0.5.0",
+#     "xarray-annotated==0.7.0",
 # ]
 #
 # [tool.uv.sources]
@@ -15,7 +15,7 @@
 
 import marimo
 
-__generated_with = "0.23.16"
+__generated_with = "0.25.2"
 app = marimo.App(app_title="xarray-annotated: a worked example")
 
 
@@ -74,34 +74,18 @@ def _(mo):
 
 @app.cell
 def _():
-    import warnings
     from typing import Annotated, TypedDict
 
     import numpy as np
     import xarray as xr
 
-    from xarray_annotated.schema import (
-        Coords,
-        Dims,
-        Dtype,
-        declare_schema,
-    )
-    from xarray_annotated.temporal import Freq, declare_freq
-    from xarray_annotated.units import Unit, declare_units, use_cf_units
+    import xarray_annotated as xra
+    from xarray_annotated import Coords, Dims, Dtype, Freq, Unit
+    from xarray_annotated.units import use_cf_units
 
-    # Catch an annoying warning from cf-xarray when matplotlib not available.
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore", message="Import(s) unavailable to set up matplotlib support"
-        )
-
-        # Flux data is spelled the CF/UDUNITS way ("umol m-2 s-1"), which plain pint
-        # cannot parse. This is a one-time, process-wide choice.
-        use_cf_units()
-
-    # xarray drops `attrs` through arithmetic by default, which would throw away the
-    # unit metadata this pipeline depends on. Keep it.
-    xr.set_options(keep_attrs=True)
+    # Flux data is spelled the CF/UDUNITS way ("umol m-2 s-1"), which plain pint
+    # cannot parse. This is a one-time, process-wide choice.
+    use_cf_units()
 
     # Molar mass of carbon, g mol-1.
     M_C = 12.011
@@ -120,11 +104,9 @@ def _():
         TypedDict,
         UMOL_S_TO_G_D,
         Unit,
-        declare_freq,
-        declare_schema,
-        declare_units,
         np,
         xr,
+        xra,
     )
 
 
@@ -390,7 +372,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     compare_with_satellite,
     daily_mean,
@@ -467,22 +449,8 @@ def _(mo):
 
 
 @app.cell
-def _(
-    Annotated,
-    Coords,
-    Dims,
-    Dtype,
-    Freq,
-    TypedDict,
-    Unit,
-    declare_freq,
-    declare_schema,
-    declare_units,
-    xr,
-):
-    @declare_units
-    @declare_schema
-    @declare_freq
+def _(Annotated, Coords, Dims, Dtype, Freq, TypedDict, Unit, xr, xra):
+    @xra.enforce
     def screen_quality_declared(
         flux: Annotated[
             xr.DataArray,
@@ -508,7 +476,7 @@ def _(
         gpp: Annotated[xr.DataArray, Dims("time"), Unit("umol m-2 s-1")]
         reco: Annotated[xr.DataArray, Dims("time"), Unit("umol m-2 s-1")]
 
-    @declare_units
+    @xra.enforce
     def partition_fluxes_declared(
         nee: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
         tair: Annotated[xr.DataArray, Unit("degC")],  # (6)
@@ -516,25 +484,25 @@ def _(
     ) -> Partitioned:
         """Partition NEE into GPP and respiration via a Q10 model."""
         reco = 2.60 * 2.0 ** ((tair - 10.0) / 10.0)
+        reco = reco.assign_attrs(units="umol m-2 s-1")  # otherwise labelled degC
         gpp = (reco - nee).where(ppfd > 5.0, 0.0)  # no photosynthesis in the dark
         return {"gpp": gpp, "reco": reco}
 
-    @declare_freq
+    @xra.enforce
     def daily_mean_declared(
         flux: Annotated[xr.DataArray, Freq("30min")],
     ) -> Annotated[xr.DataArray, Freq("D")]:  # (7)
         """Mean half-hourly flux within each day."""
         return flux.resample(time="D").mean()
 
-    @declare_freq
+    @xra.enforce
     def weekly_mean_declared(
         daily: Annotated[xr.DataArray, Freq("D")],
     ) -> Annotated[xr.DataArray, Freq("W-SUN")]:  # (8)
         """Mean daily flux within each week ending on a Sunday."""
         return daily.resample(time="W-SUN").mean()
 
-    @declare_units
-    @declare_freq
+    @xra.enforce
     def compare_with_satellite_declared(
         modelled: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")],  # (9)
         observed: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")],  # (10)
@@ -555,7 +523,7 @@ def _(
 @app.cell(hide_code=True)
 def _(mo):
     mo.md("""
-    1. `Dims` is about shape; `Coords` is about labels. An export can have a `time`
+    1. `Dims` is about names; `Coords` is about labels. An export can have a `time`
        dimension and no `time` coordinate — common when a file is read with the index
        column mislabelled, and otherwise survives until something calls `.resample`,
        several stages away.
@@ -567,8 +535,10 @@ def _(mo):
     4. `float64` out, not `int8`: gaps become NaN, and an integer array cannot hold NaN.
     5. Two outputs need somewhere to hang declarations, so the tuple became a `TypedDict`,
        validated field by field.
-    6. The docstring's *"assumes tair in degC"*, made real. Kelvin is now converted at the
-       boundary instead of blowing up the Q10 exponent inside the body.
+    6. The docstring's *"assumes tair in degC"*, made real. Kelvin now raises at the
+       boundary instead of blowing up the Q10 exponent inside the body. Nothing converts
+       on its own: it would be right for a temperature, but the same rule would turn a
+       daily rate into an annual total. See [Units](guides/units.md#converting-an-input).
     7. Aggregation changes the frequency and nothing else, so this stage declares a
        frequency and says nothing at all about units — it means whatever it is handed, and
        the silence is the statement.
@@ -587,14 +557,14 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md("""
-    Two of the three bugs from the bug hunt cannot recur:
+    The bugs from the bug hunt cannot recur:
 
-    - `tair` can be in either Kelvin or degrees C --- either way it is converted at the
-      boundary (by `pint`) thanks to the `Unit("degC")` annotation.
+    - `tair` must be in degrees C, so the logger's Kelvin has to be converted where the
+      pipeline calls the function, by `xra.units.convert`.
     - The weekly anchor is declared on both the producer and the consumer.
 
     Beyond those, the checks reject inputs that never belonged in this pipeline
-    at all, such as an export with a `time` dimension but no `time` coordinate,
+    at all, such as an export with a `time` dimension but no `time` coordinate, or
     data from an hourly site.
 
     Let's run it.
@@ -610,10 +580,12 @@ def _(
     sat_gpp,
     screen_quality_declared,
     weekly_mean_declared,
+    xra,
 ):
     def run_pipeline_declared(nee_raw, qc, tair, ppfd):
         nee = screen_quality_declared(nee_raw, qc)
-        fluxes = partition_fluxes_declared(nee, tair, ppfd)
+        tair_degc = xra.units.convert(tair, "degC")
+        fluxes = partition_fluxes_declared(nee, tair_degc, ppfd)
 
         # Product 1: the annual carbon budget.
         nee_annual = float(daily_mean_declared(nee).sum())
@@ -659,13 +631,13 @@ def _(mo):
 
 
 @app.cell
-def _(Annotated, UMOL_S_TO_G_D, Unit, declare_units, xr):
-    @declare_units
+def _(Annotated, UMOL_S_TO_G_D, Unit, xr, xra):
+    @xra.enforce
     def to_mass_flux(
         flux: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
     ) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
         """Umol CO2 m-2 s-1 -> g C m-2 d-1, via the molar mass of carbon."""
-        return flux * UMOL_S_TO_G_D
+        return (flux * UMOL_S_TO_G_D).assign_attrs(units="g m-2 d-1")
 
     return (to_mass_flux,)
 
@@ -689,10 +661,12 @@ def _(
     screen_quality_declared,
     to_mass_flux,
     weekly_mean_declared,
+    xra,
 ):
     def run_pipeline_final(nee_raw, qc, tair, ppfd):
         nee = screen_quality_declared(nee_raw, qc)
-        fluxes = partition_fluxes_declared(nee, tair, ppfd)
+        tair_degc = xra.units.convert(tair, "degC")
+        fluxes = partition_fluxes_declared(nee, tair_degc, ppfd)
 
         nee_daily = daily_mean_declared(to_mass_flux(nee))
         gpp_daily = daily_mean_declared(to_mass_flux(fluxes["gpp"]))
@@ -752,13 +726,6 @@ def _(mo):
 
     The fourth is the one that matters most since a 3.6% error in a flux budget does not
     obviously look like an error.
-
-    Although this is quite powerful, there are a few gaps and sharp edges that are worth
-    understanding before you lean on them. See the guides for more info.
-
-    - [Declaring properties](guides/declaring.md)
-    - [Configuring validation](guides/policy.md)
-    - [Troubleshooting](guides/troubleshooting.md)
     """)
     return
 

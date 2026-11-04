@@ -22,15 +22,11 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from xarray_annotated import annotate, units
+import xarray_annotated as xra
+from xarray_annotated import Declared, annotate, declarations_from_signature
 from xarray_annotated._annotations import _is_dataarray_type
-from xarray_annotated.schema import (
-    Dims,
-    SchemaError,
-    declare_schema,
-    schema_from_signature,
-)
-from xarray_annotated.units import Unit, units_from_signature
+from xarray_annotated.schema import Dims, SchemaError
+from xarray_annotated.units import Unit
 
 jaxtyping = pytest.importorskip("jaxtyping")
 
@@ -42,6 +38,9 @@ Float = jaxtyping.Float
 #: binding it here puts the subscript in expression position, where it type-checks
 #: cleanly.  Purely a static-analysis accommodation — the runtime object is identical.
 FloatDA = Float[xr.DataArray, "time x"]
+
+type FloatAlias = FloatDA
+type PascalAlias = Annotated[FloatDA, Unit("Pa")]
 
 
 def _da(dims=("time", "x"), dtype="float64", unit=None, fill=1.0):
@@ -78,38 +77,74 @@ class TestIsDataArrayType:
 
 
 class TestReaders:
-    """Every domain's reader is gated on the same helper, so all three unblock."""
+    """Every facet is gated on the same helper, so all of them unblock."""
 
-    def test_units_reader_sees_declaration(self):
-        def f(x: Annotated[FloatDA, Unit("Pa")]): ...
+    def test_reader_sees_declaration(self):
+        def f(x: Annotated[FloatDA, Unit("Pa"), Dims("time", "x")]): ...
 
-        assert units_from_signature(f)[0] == {"x": "Pa"}
-
-    def test_schema_reader_sees_declaration(self):
-        def f(x: Annotated[FloatDA, Dims("time", "x")]): ...
-
-        assert schema_from_signature(f)[0] == {"x": [Dims("time", "x")]}
+        assert declarations_from_signature(f)[0] == {
+            "x": Declared(unit=Unit("Pa"), dims=Dims("time", "x"))
+        }
 
     def test_return_declaration_is_read(self):
         def f() -> Annotated[FloatDA, Unit("Pa")]: ...
 
-        assert units_from_signature(f)[1] == "Pa"
+        assert declarations_from_signature(f)[1] == Declared(unit=Unit("Pa"))
+
+
+class TestTypeAliases:
+    @pytest.mark.parametrize(
+        "hint",
+        [Annotated[FloatAlias, Unit("Pa")], PascalAlias, Annotated[PascalAlias, "doc"]],
+    )
+    def test_reader_sees_through_an_alias(self, hint):
+        assert xra.declaration_from_hint(hint) == Declared(unit=Unit("Pa"))
+
+    def test_markers_merge_through_an_alias(self):
+        assert xra.declaration_from_hint(
+            Annotated[PascalAlias, Dims("time", "x")]
+        ) == Declared(unit=Unit("Pa"), dims=Dims("time", "x"))
+
+    @staticmethod
+    def _stack():
+        beartype = pytest.importorskip("beartype").beartype
+
+        @jaxtyping.jaxtyped(typechecker=beartype)
+        @xra.enforce
+        def f(
+            x: Annotated[PascalAlias, Dims("time", "x")],
+        ) -> PascalAlias:
+            return x
+
+        return f
+
+    def test_full_stack_accepts_good_input(self):
+        out = self._stack()(_da(unit="Pa"))
+        assert out.attrs["units"] == "Pa"
+
+    def test_full_stack_catches_wrong_dtype(self):
+        with pytest.raises(jaxtyping.TypeCheckError):
+            self._stack()(_da(dtype="int64", unit="Pa"))
+
+    def test_full_stack_catches_wrong_dim_names(self):
+        with pytest.raises(SchemaError):
+            self._stack()(_da(dims=("time", "y"), unit="Pa"))
 
 
 class TestDecorators:
-    def test_units_are_converted(self):
-        @units.declare_units
+    def test_units_are_checked(self):
+        @xra.enforce
         def f(
             x: Annotated[FloatDA, Unit("Pa")],
         ) -> Annotated[FloatDA, Unit("Pa")]:
             return x
 
-        out = f(_da(unit="hPa", fill=1.0))
-        assert out.attrs["units"] == "Pa"
-        assert out.values[0, 0] == pytest.approx(100.0)
+        assert f(_da(unit="pascal", fill=1.0)).attrs["units"] == "Pa"
+        with pytest.raises(ValueError, match="'hPa' differs"):
+            f(_da(unit="hPa", fill=1.0))
 
     def test_schema_mismatch_still_raises(self):
-        @declare_schema
+        @xra.enforce
         def f(x: Annotated[FloatDA, Dims("time", "x")]): ...
 
         with pytest.raises(SchemaError):
@@ -129,7 +164,7 @@ class TestFullStack:
     """The stack documented in ``docs/guides/jaxtyping.md``, pinned end to end.
 
     ``jaxtyped`` must be **outermost** so it sees the original call, before
-    ``declare_units`` has converted anything; the size-symbol binding it provides is
+    ``enforce`` has touched anything; the size-symbol binding it provides is
     what makes ``"time x"`` mean *the same sizes across arguments*.
     """
 
@@ -138,8 +173,7 @@ class TestFullStack:
         beartype = pytest.importorskip("beartype").beartype
 
         @jaxtyping.jaxtyped(typechecker=beartype)
-        @units.declare_units
-        @declare_schema
+        @xra.enforce
         def f(
             x: Annotated[FloatDA, Unit("Pa"), Dims("time", "x")],
             y: Annotated[FloatDA, Unit("Pa"), Dims("time", "x")],
@@ -148,8 +182,8 @@ class TestFullStack:
 
         return f
 
-    def test_units_converted_under_full_stack(self):
-        out = self._stack()(_da(unit="hPa", fill=1.0), _da(unit="Pa", fill=1.0))
+    def test_units_checked_under_full_stack(self):
+        out = self._stack()(_da(unit="pascal", fill=1.0), _da(unit="Pa", fill=1.0))
         assert out.attrs["units"] == "Pa"
 
     def test_wrong_dtype_caught_by_jaxtyping(self):
@@ -177,8 +211,9 @@ class TestWriterRoundTrip:
 
         fn.__annotations__["return"] = hint
 
-        assert units_from_signature(fn)[1] == "Pa"
-        assert schema_from_signature(fn)[1] == [Dims("time", "x")]
+        assert declarations_from_signature(fn)[1] == Declared(
+            unit=Unit("Pa"), dims=Dims("time", "x")
+        )
 
     def test_default_base_is_unchanged(self):
         """The writer never invents a jaxtyping base; the caller passes one."""
