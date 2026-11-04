@@ -23,7 +23,7 @@ from ._annotations import Coords, Dims, Dtype, SchemaMarker
 #: Dtype names meaning any dtype of that kind.  numpy reads each as one dtype, whose
 #: kind is the one meant: `np.dtype("float")` is `float64`, of kind `f`.
 _KIND_NAMES = frozenset(
-    {"float", "int", "uint", "complex", "str", "datetime64", "timedelta64"}
+    {"float", "int", "uint", "complex", "str", "bytes", "datetime64", "timedelta64"}
 )
 
 

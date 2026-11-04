@@ -132,6 +132,7 @@ class TestCheckDtype:
             ("uint", "uint8"),
             ("complex", "complex64"),
             ("str", "U5"),
+            ("bytes", "S3"),
             ("datetime64", "datetime64[ns]"),
             ("timedelta64", "timedelta64[s]"),
         ],

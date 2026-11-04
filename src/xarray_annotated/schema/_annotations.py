@@ -96,8 +96,8 @@ class Dtype:
     means what it reads.  A name with no width means any dtype of that kind:
     ``Dtype("float")`` passes ``float32`` and ``float64``, and ``Dtype("int")`` passes
     any signed integer, unlike ``np.dtype("float")``, which is ``float64``.  The names
-    are ``float``, ``int``, ``uint``, ``complex``, ``str``, ``datetime64`` and
-    ``timedelta64``.
+    are ``float``, ``int``, ``uint``, ``complex``, ``str``, ``bytes``, ``datetime64``
+    and ``timedelta64``.
     """
 
     _dtype: str
