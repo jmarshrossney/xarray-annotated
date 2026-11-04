@@ -25,7 +25,7 @@ import dataclasses
 import functools
 import inspect
 from collections.abc import Callable
-from typing import Any, TypeAliasType, get_args
+from typing import Any, TypeAliasType, get_args, get_origin
 
 import xarray as xr
 
@@ -64,6 +64,8 @@ def _markers_in(hint: Any) -> list[Any]:
     if isinstance(hint, TypeAliasType):
         hint = hint.__value__
     found = []
+    if isinstance(origin := get_origin(hint), TypeAliasType):
+        found.extend(_markers_in(origin))
     for arg in get_args(hint):
         if isinstance(arg, Unit | Dims | Dtype | Coords | Freq):
             found.append(arg)

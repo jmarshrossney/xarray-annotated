@@ -360,6 +360,9 @@ _PA = Annotated[xr.DataArray, Unit("Pa")]
 type _Alias = _PA
 type _OptionalAlias = _PA | None
 type _StrayAlias = list[_PA]
+type _StrayGeneric[T] = Annotated[T, Unit("Pa")]
+type _StrayGenericAlias = _StrayGeneric[xr.DataArray]
+type _Generic[T] = list[T]
 
 
 class _Fields(TypedDict):
@@ -395,6 +398,10 @@ class TestStrayMarkers:
             Annotated[int, Unit("Pa")] | None,  # pyright: ignore[reportOperatorIssue]
             Callable[[_PA], _PA],
             _StrayAlias,
+            _StrayGeneric[xr.DataArray],
+            _StrayGeneric[xr.DataArray] | None,
+            _StrayGenericAlias,
+            _Generic[_PA],
         ],
     )
     @pytest.mark.parametrize("side", ["param", "ret"])
@@ -416,7 +423,14 @@ class TestStrayMarkers:
 
     @pytest.mark.parametrize(
         "hint",
-        [xr.DataArray, int, Annotated[xr.DataArray, "Pa"], Annotated[int, "Pa"], _PA],
+        [
+            xr.DataArray,
+            int,
+            Annotated[xr.DataArray, "Pa"],
+            Annotated[int, "Pa"],
+            _PA,
+            _Generic[int],
+        ],
     )
     def test_hints_without_stray_markers_pass(self, hint):
         xra.enforce(_annotated(param=hint))

@@ -7,7 +7,7 @@
 | `NameError` at decoration | Annotations are evaluated at decoration, so a `TYPE_CHECKING`-only import fails, as does a function-local alias under `from __future__ import annotations` | Import names used in annotations at run time, on every Python version |
 | `ValueError: ... is not a recognised unit`, at import | A typo, or a CF string on the default registry | Fix the typo, or [activate the CF registry](registry.md) before importing the module |
 | `ValueError: ... has no 'units' attribute` | The array has no label to check | Attach the unit where the data enters, or use [`xra.enabled(False)`](policy.md#enabled) while prototyping; no setting lets it through, because an unchecked unit looks like a checked one downstream |
-| `ValueError: ... which enforce cannot apply`, at import | A marker somewhere it cannot be checked: inside a `tuple`, `list`, `dict` or `Callable`, or on a base type other than `DataArray` | Move it onto an `Annotated[xr.DataArray, ...]`, and return several arrays as a `TypedDict` or dataclass |
+| `ValueError: ... which enforce cannot apply`, at import | A marker somewhere it cannot be checked: inside a `tuple`, `list`, `dict` or `Callable`, on a base type other than `DataArray`, or in a generic alias such as `type Generic[T] = Annotated[T, Unit("Pa")]` | Move it onto an `Annotated[xr.DataArray, ...]`, and return several arrays as a `TypedDict` or dataclass |
 | `DimensionalityError` | The units cannot be converted, and `convert=True` does not change that | Fix the data or the declaration |
 | Checks stopped everywhere | The package is switched off | Check `XARRAY_ANNOTATED_ENABLED`, and look for an `xra.enabled(False)` block |
 
@@ -16,11 +16,10 @@ For quantified outputs, see [`on_output`](policy.md#units-on_output).
 
 ## A declaration is silently ignored { #a-declaration-is-silently-ignored }
 
-These look like declarations but declare nothing, with no error or warning:
+This looks like a declaration but declares nothing, with no error or warning:
 
 ```python
 Annotated[xr.DataArray, "Pa"]  # a string is a description; use Unit("Pa")
-type Generic[T] = Annotated[T, Unit("Pa")]  # a generic alias is not read
 ```
 
 A `TypedDict` used as a parameter type is not read field by field, and in a union such as `Annotated[xr.DataArray, Unit("Pa")] | Annotated[int, Unit("kg")]` only the `DataArray` member applies.
