@@ -20,8 +20,7 @@ That last clause is the whole point.  pandas silently defaults an anchor the use
 not spell (`to_offset("W").freqstr == "W-SUN"`), so anchoredness is read off the *raw
 declared string* — a `"-"` in it — never off the normalised offset.  `Freq("W")` thus
 means "weekly, any weekday" (a deliberate divergence from pandas), while `Freq("W-SUN")`
-means Sundays and will not accept a `W-WED` axis.  A marker's `anchored=` keyword
-overrides that inference either way.
+means Sundays and will not accept a `W-WED` axis.
 
 Known limitation: `Day` is DST-aware in pandas while `24h` is not, so treating them as
 the same spacing is an approximation for timezone-aware axes.
@@ -134,14 +133,10 @@ def _phase(marker: Freq) -> tuple[str | None, int | None]:
     """The comparable phase of a declaration: `(convention, anchor-or-None)`.
 
     The anchor is `None` — meaning *undetermined*, so it is not compared — unless the
-    declaration determines it: either the raw string spells it out (`"W-WED"`) or the
-    marker forces the question with `anchored=`.
+    raw string spells it out (`"W-WED"`).
     """
     off = to_offset(marker.freq)
-    anchored = marker.anchored
-    if anchored is None:
-        anchored = "-" in marker.freq
-    return _convention(off), _anchor(off) if anchored else None
+    return _convention(off), _anchor(off) if "-" in marker.freq else None
 
 
 def freq_compatible(a: Freq, b: Freq) -> bool:

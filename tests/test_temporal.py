@@ -51,9 +51,7 @@ class TestFreqMarker:
         f = Freq("7D")
         assert f.freq == "7D"
         assert f.dim is None
-        assert f.anchored is None
-        assert Freq("W", dim="time", anchored=True).dim == "time"
-        assert Freq("W", anchored=True).anchored is True
+        assert Freq("W", dim="time").dim == "time"
 
     def test_keeps_the_raw_spelling(self):
         # Never normalised: "W" must not become "W-SUN" (that is where
@@ -64,9 +62,9 @@ class TestFreqMarker:
         markers = [
             Freq("7D"),
             Freq("W-WED", dim="time"),
-            Freq("W", anchored=True),
-            Freq("ME", anchored=False),
-            Freq("QE-MAR", dim="t", anchored=True),
+            Freq("W"),
+            Freq("ME"),
+            Freq("QE-MAR", dim="t"),
         ]
         for marker in markers:
             assert eval(repr(marker)) == marker
@@ -74,13 +72,13 @@ class TestFreqMarker:
     def test_equality_includes_all_fields(self):
         assert Freq("7D") == Freq("7D")
         assert Freq("7D") != Freq("W-WED")
-        assert Freq("W") != Freq("W", anchored=True)
+        assert Freq("W") != Freq("W", dim="time")
         assert Freq("W") != Freq("W", dim="time")
         assert Freq("7D") != "7D"  # not equal to a bare string
         assert Freq("7D") != Dims("time")  # nor to another domain's marker
 
     def test_hashable_in_annotations(self):
-        assert hash(Freq("W", anchored=True)) == hash(Freq("W", anchored=True))
+        assert hash(Freq("W", dim="t")) == hash(Freq("W", dim="t"))
         assert {Freq("7D"), Freq("W-WED")}
         assert hash(Annotated[xr.DataArray, Freq("7D")])
 
@@ -96,8 +94,6 @@ COMPATIBILITY_TABLE = [
     (Freq("7D"), Freq("W-SUN"), True),
     (Freq("W-SUN"), Freq("W-WED"), False),  # the resample-phase footgun
     (Freq("W"), Freq("W-WED"), True),  # "W" spelled without an anchor => unanchored
-    (Freq("W-SUN", anchored=False), Freq("W-WED"), True),  # comparison suppressed
-    (Freq("W", anchored=True), Freq("W-WED"), False),  # forced to pandas' W-SUN
     (Freq("D"), Freq("24h"), True),  # same fixed spacing
     (Freq("D"), Freq("7D"), False),
     (Freq("ME"), Freq("MS"), False),  # convention is always compared
@@ -110,12 +106,15 @@ COMPATIBILITY_TABLE = [
     (Freq("YE"), Freq("12ME"), True),
     (Freq("ME"), Freq("30D"), False),  # "months" and "fixed" never compare equal
     (Freq("2W-WED"), Freq("14D"), True),  # multiples carried through
-    # Beyond the plan's table: the year anchor behaves like the quarter one, and a
-    # fixed-spacing offset has no anchor to force even under `anchored=True`.
+    # The year anchor behaves like the quarter one.
     (Freq("YE-JUN"), Freq("YE-DEC"), False),
     (Freq("YE"), Freq("YE-DEC"), True),
-    (Freq("D", anchored=True), Freq("24h"), True),
 ]
+
+
+def test_the_spelling_alone_says_whether_an_anchor_matters():
+    with pytest.raises(TypeError, match="anchored"):
+        Freq("W", anchored=True)  # type: ignore[call-arg]
 
 
 class TestFreqCompatible:
@@ -156,7 +155,7 @@ class TestAssertValidFreq:
     def test_valid_declarations_pass(self):
         temporal.assert_valid_freq(Freq("7D"), "ctx")
         temporal.assert_valid_freq(Freq("W-WED", dim="time"), "ctx")
-        temporal.assert_valid_freq(Freq("QE-MAR", anchored=True), "ctx")
+        temporal.assert_valid_freq(Freq("QE-MAR"), "ctx")
 
 
 # ---------------------------------------------------------------------------

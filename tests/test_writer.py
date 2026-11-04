@@ -63,12 +63,12 @@ class TestMarkers:
         hint = annotate(
             unit=Unit("degC"),
             dims=Dims("t", ordered=True),
-            freq=Freq("W", anchored=True),
+            freq=Freq("W", dim="time"),
         )
         assert get_args(hint)[1:] == (
             Unit("degC"),
             Dims("t", ordered=True),
-            Freq("W", anchored=True),
+            Freq("W", dim="time"),
         )
 
     def test_only_given_facets_contribute(self):

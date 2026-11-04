@@ -30,7 +30,7 @@ def weekly_mean(
 | `Coords(*names)` | These coordinates are present (extras are fine) | |
 | `Dtype(dtype)` | The array has this dtype, in either byte order; `Dtype("float")` means any float, as do `int`, `uint`, `complex`, `str`, `datetime64` and `timedelta64` for their own kinds | |
 | `Unit(unit)` | The array is in this unit, however it is spelled | |
-| `Freq(freq)` | [The time axis](#which-coordinate-is-the-time-axis) has this spacing, and this phase [where spelled](#what-the-same-frequency-means) | `dim=`, `anchored=` |
+| `Freq(freq)` | [The time axis](#which-coordinate-is-the-time-axis) has this spacing, and this phase [where spelled](#what-the-same-frequency-means) | `dim=` |
 
 ## Rules
 
@@ -114,7 +114,6 @@ Freq("W-SUN")  # weekly, Sundays only
 ```
 
 Unlike pandas, an unspelled anchor means "any" rather than a default.
-`anchored=` overrides this either way: `Freq("W", anchored=True)` means Sundays, pandas' default, and `Freq("W-SUN", anchored=False)` means any weekday.
 
 A quarterly anchor names four dates rather than one month, so `"QE-MAR"` and `"QE-DEC"` are the same, while `"QE-MAR"` and `"QE-NOV"` conflict.
 

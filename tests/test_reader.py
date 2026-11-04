@@ -263,7 +263,7 @@ class TestRoundTripWithAnnotate:
             Dims("x", ordered=True),
             Dtype("i4"),
             Coords("x"),
-            Freq("W-SUN", anchored=True),
+            Freq("W-SUN", dim="time"),
         )
         hint = annotate(
             unit=d.unit, dims=d.dims, dtype=d.dtype, coords=d.coords, freq=d.freq
