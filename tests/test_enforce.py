@@ -29,7 +29,7 @@ import xarray as xr
 
 import xarray_annotated as xra
 from xarray_annotated import Declared, schema, units
-from xarray_annotated.schema import Dims, Dtype, SchemaError
+from xarray_annotated.schema import Coords, Dims, Dtype, SchemaError
 from xarray_annotated.temporal import Freq
 from xarray_annotated.units import Unit
 
@@ -891,3 +891,32 @@ class TestRecordParameters:
         def f(x: TestRecordParameters._Data): ...
 
         assert xra.declarations_from_signature(f) == ({}, None)
+
+
+class TestMalformedMarkers:
+    """A malformed declaration raises `ValueError`, naming its site, at decoration."""
+
+    @pytest.mark.parametrize(
+        "marker",
+        [
+            Unit(5),  # type: ignore[arg-type]
+            Unit(None),  # type: ignore[arg-type]
+            Freq(5),  # type: ignore[arg-type]
+            Freq(None),  # type: ignore[arg-type]
+            Dims(5),  # type: ignore[arg-type]
+            Coords(5),  # type: ignore[arg-type]
+            Dtype(5),  # type: ignore[arg-type]
+        ],
+        ids=repr,
+    )
+    @pytest.mark.parametrize("side", ["input", "output"])
+    def test_a_non_string_argument_raises(self, marker, side):
+        hint = Annotated[xr.DataArray, marker]
+
+        def takes(p: hint): ...  # pyright: ignore[reportInvalidTypeForm]
+
+        def returns() -> hint: ...  # pyright: ignore[reportInvalidTypeForm]
+
+        f, match = (takes, "input 'p'") if side == "input" else (returns, "output")
+        with pytest.raises(ValueError, match=match):
+            xra.enforce(f)

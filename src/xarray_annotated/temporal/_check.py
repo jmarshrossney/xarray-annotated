@@ -77,6 +77,8 @@ def assert_valid_freq(marker: Freq, context: str) -> None:
     """
     if marker.dim is not None and not marker.dim:
         raise ValueError(f"{context}: Freq dim must be a non-empty string.")
+    if not isinstance(marker.freq, str):
+        raise ValueError(f"{context}: frequency must be a string, got {marker.freq!r}.")
     try:
         to_offset(marker.freq)
     except ValueError as exc:

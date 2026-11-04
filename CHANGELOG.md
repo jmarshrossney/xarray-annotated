@@ -28,7 +28,7 @@ A declaration now either holds or raises, and how a function validates can be re
 
 - **`TypeError`, on a call:** a declared value that is not a `DataArray`, such as `None`, an ndarray or a `Dataset`, unless its hint allows it with `| None` or another type. So does a return that is not the declared `TypedDict` or dataclass, or lacks a required `TypedDict` field.
 - **`FreqError`, on a call:** an unindexed time axis, a custom index on it, a scalar time, or an irregular or two-point axis that contradicts the declaration. An axis `Freq` could not infer used to pass with a warning.
-- **`ValueError`, at decoration:** a marker `enforce` cannot apply, such as inside a `tuple`, on a `Dataset` or in a generic alias; a return or parameter holding a class whose fields carry markers, other than one `TypedDict` or dataclass return; a declared `*args` or `**kwargs`; a second marker of one kind on a hint; and a `type` alias that refers to itself.
+- **`ValueError`, at decoration:** a non-string `Unit` or `Freq` argument; a marker `enforce` cannot apply, such as inside a `tuple`, on a `Dataset` or in a generic alias; a return or parameter holding a class whose fields carry markers, other than one `TypedDict` or dataclass return; a declared `*args` or `**kwargs`; a second marker of one kind on a hint; and a `type` alias that refers to itself.
 
 ### Fixed
 

@@ -113,6 +113,8 @@ def assert_valid_unit(unit: str | Unit, context: str) -> None:
     """
     if isinstance(unit, Unit):
         unit = unit.unit
+    if not isinstance(unit, str):
+        raise ValueError(f"{context}: declared unit must be a string, got {unit!r}.")
     if len(unit) > _MAX_UNIT_LEN:
         # Refuse before parsing: an over-long unit string can hang pint's parser.
         raise ValueError(
