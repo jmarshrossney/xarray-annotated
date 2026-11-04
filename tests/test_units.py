@@ -10,6 +10,8 @@ import numpy as np
 import pint
 import pytest
 import xarray as xr
+from xarray.backends import BackendArray
+from xarray.core import indexing
 
 import xarray_annotated as xra
 from xarray_annotated import Unit, units
@@ -494,3 +496,73 @@ class TestUnitsEqualIsPhysical:
         da = xr.DataArray([1.0], attrs={"units": "N/m**2"})
         out = units.apply_output_units(da, "Pa", "return")
         assert out.attrs["units"] == "Pa"
+
+
+class _CountingBackend(BackendArray):
+    """A lazily read array that counts how often the backend is read."""
+
+    def __init__(self, values):
+        self.values = np.asarray(values)
+        self.shape = self.values.shape
+        self.dtype = self.values.dtype
+        self.reads = 0
+
+    def __getitem__(self, key):
+        return indexing.explicit_indexing_adapter(
+            key, self.shape, indexing.IndexingSupport.BASIC, self._read
+        )
+
+    def _read(self, key):
+        self.reads += 1
+        return self.values[key]
+
+
+def _lazy(cache, unit="Pa"):
+    backend = _CountingBackend([1.0, 2.0, 3.0])
+    data = indexing.CopyOnWriteArray(
+        indexing.LazilyIndexedArray(backend)  # pyright: ignore[reportArgumentType]
+    )
+    if cache:
+        data = indexing.MemoryCachedArray(data)
+    variable = xr.Variable(("x",), data, attrs={"units": unit})
+    return xr.DataArray(variable), backend
+
+
+@pytest.mark.parametrize("cache", [True, False], ids=["cache", "no-cache"])
+class TestLazyArrays:
+    """Asking whether an array is quantified must not read it from disk."""
+
+    def test_check_units_reads_nothing(self, cache):
+        da, backend = _lazy(cache)
+        units.check_units(da, "Pa", "p")
+        assert backend.reads == 0
+
+    def test_apply_output_units_reads_nothing(self, cache):
+        da, backend = _lazy(cache)
+        units.apply_output_units(da, "Pa", "p")
+        assert backend.reads == 0
+
+    def test_enforce_reads_nothing_and_stays_lazy(self, cache):
+        @xra.enforce
+        def f(
+            p: Annotated[xr.DataArray, Unit("Pa")],
+        ) -> Annotated[xr.DataArray, Unit("Pa")]:
+            return p
+
+        da, backend = _lazy(cache)
+        out = f(da)
+        assert backend.reads == 0
+        assert not out.variable._in_memory
+        assert not da.variable._in_memory
+
+    def test_converting_reads_the_values(self, cache):
+        da, backend = _lazy(cache, "hPa")
+        out = units.check_units(da, Unit("Pa", convert=True), "p")
+        assert backend.reads == 1
+        np.testing.assert_allclose(out.values, [100.0, 200.0, 300.0])
+
+    def test_finds_a_quantified_unit(self, cache):
+        quantified = _quantified([[1.0]], "hPa")
+        assert _check._quantified_units(quantified) == quantified.pint.units
+        da, _ = _lazy(cache)
+        assert _check._quantified_units(da) is None

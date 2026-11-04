@@ -48,6 +48,17 @@ def _stamped(da: xr.DataArray, declared: str) -> xr.DataArray:
     return stamped
 
 
+def _quantified_units(da: xr.DataArray) -> pint.Unit | None:
+    """Return a quantified array's own pint unit, or `None`, without loading it.
+
+    `da.pint.units` goes through `da.data`, which reads a whole lazily opened variable
+    from disk just to find that it holds no `Quantity`.  `Variable._data` is the
+    wrapper itself, so asking it reads nothing.  It is private to xarray, so
+    `TestLazyArrays` in `test_units.py` guards this.
+    """
+    return getattr(da.variable._data, "units", None)
+
+
 def _quantified_label(unit: pint.Unit) -> str:
     """Render a quantified array's own pint unit as a unit string.
 
@@ -65,7 +76,7 @@ def _quantified_label(unit: pint.Unit) -> str:
     label.
 
     Args:
-        unit: The `pint.Unit` taken from `da.pint.units`.
+        unit: The `pint.Unit` taken from `_quantified_units`.
 
     Returns:
         The unit as a compact-pretty string.
@@ -230,7 +241,7 @@ def _own_unit(
     Raises:
         ValueError: If the unit is missing, over-long or unparseable.
     """
-    quantified = da.pint.units
+    quantified = _quantified_units(da)
     have = (
         da.attrs.get("units") if quantified is None else _quantified_label(quantified)
     )
@@ -304,7 +315,8 @@ def check_units(
         A new `DataArray` converted to `declared`, with `attrs["units"]` set
         to `declared`.  When the input is already in `declared` the data is not
         copied — the result is a shallow copy sharing the caller's buffer, so
-        declaring a unit an array already has costs nothing.
+        declaring a unit an array already has costs nothing, and a lazy array stays
+        lazy.
 
     Raises:
         ValueError: When no parseable unit is found, or when a value-changing
