@@ -21,6 +21,7 @@ different behaviour should build its own consumer from those.
 """
 
 import contextlib
+import copy
 import dataclasses
 import functools
 import inspect
@@ -159,21 +160,25 @@ def _refuse_unread_fields(hint: Any) -> None:
 
 
 def _with_fields(result: Any, changes: dict[str, xr.DataArray]) -> Any:
-    """Write applied outputs back onto a dataclass return value.
+    """Write applied outputs onto a shallow copy of a dict or dataclass return value.
 
     Written only once every field has passed, so a failed check leaves `result` as
-    it was.  A frozen dataclass cannot take the write, so it is rebuilt instead,
-    which runs its `__post_init__` again.
+    it was, and onto a copy, since a body may return the caller's own object.  The
+    arrays are not copied.  A frozen dataclass takes the write the way its own
+    `__init__` does, so `__post_init__` does not run again.
 
     Returns:
-        `result`, or its frozen replacement.
+        `result` when nothing changed, otherwise its updated copy.
     """
-    try:
-        for name, value in changes.items():
-            setattr(result, name, value)
-    except dataclasses.FrozenInstanceError:
-        return dataclasses.replace(result, **changes)
-    return result
+    if not changes:
+        return result
+    updated = copy.copy(result)
+    for name, value in changes.items():
+        if isinstance(updated, dict):
+            updated[name] = value
+        else:
+            object.__setattr__(updated, name, value)
+    return updated
 
 
 def enforce(
@@ -303,19 +308,17 @@ def enforce(
         def _outputs(result: Any) -> Any:
             if isinstance(output, Declared):
                 return _apply_output(result, output, "return")
-            if isinstance(output, dict):
-                if isinstance(result, dict):
-                    for name, decl in output.items():
-                        if name in result:
-                            result[name] = _apply_output(result[name], decl, name)
-                elif dataclasses.is_dataclass(result):
-                    changes = {}
-                    for name, decl in output.items():
-                        value = getattr(result, name, None)
-                        applied = _apply_output(value, decl, name)
-                        if applied is not value:
-                            changes[name] = applied
-                    return _with_fields(result, changes)
+            is_dict = isinstance(result, dict)
+            if isinstance(output, dict) and (
+                is_dict or dataclasses.is_dataclass(result)
+            ):
+                changes = {}
+                for name, decl in output.items():
+                    value = result.get(name) if is_dict else getattr(result, name, None)
+                    applied = _apply_output(value, decl, name)
+                    if applied is not value:
+                        changes[name] = applied
+                return _with_fields(result, changes)
             return result
 
         def _inputs(args: Any, kwargs: Any) -> tuple[Any, Any]:

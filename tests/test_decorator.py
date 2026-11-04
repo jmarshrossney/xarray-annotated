@@ -587,7 +587,7 @@ class TestQuantifiedThroughDecorator:
 
         assert f().gpp.pint.units is not None
 
-    def test_frozen_dataclass_with_a_respelling_is_rebuilt(self):
+    def test_frozen_dataclass_takes_a_respelling(self):
         @dataclass(frozen=True)
         class Out:
             gpp: Annotated[xr.DataArray, Unit("Pa")]

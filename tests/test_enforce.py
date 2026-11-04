@@ -10,7 +10,7 @@ import asyncio
 import inspect
 import typing
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass, field
 from typing import (
     Annotated,
     Concatenate,
@@ -646,3 +646,135 @@ class TestReturnContainers:
         for hint in (_Tuple, list[_Record], _Record | _Record2):
             _, output = xra.declarations_from_signature(_annotated(ret=hint))
             assert output is None
+
+
+class _Respelled(TypedDict):
+    a: _PA
+    b: _PA
+
+
+@dataclass
+class _RespelledRecord:
+    a: _PA
+    b: _PA
+
+
+def _pascal() -> xr.DataArray:
+    return xr.DataArray([1.0], attrs={"units": "pascal"})
+
+
+def _pa() -> xr.DataArray:
+    return xr.DataArray([1.0], attrs={"units": "Pa"})
+
+
+class TestOutputWriteBack:
+    """A return container is never changed in place, and its arrays are not copied."""
+
+    def _identity(self, hint):
+        return xra.enforce(_annotated(ret=hint))
+
+    def test_failed_dict_check_leaves_the_dict_as_it_was(self):
+        d = {"a": _pascal(), "b": _kg()}
+        before = d["a"]
+        with pytest.raises(pint.DimensionalityError):
+            self._identity(_Respelled)(d)
+        assert d["a"] is before
+        assert d["a"].attrs["units"] == "pascal"
+
+    def test_failed_dataclass_check_leaves_it_as_it_was(self):
+        r = _RespelledRecord(_pascal(), _kg())
+        before = r.a
+        with pytest.raises(pint.DimensionalityError):
+            self._identity(_RespelledRecord)(r)
+        assert r.a is before
+
+    def test_passing_dict_leaves_the_callers_dict_alone(self):
+        d = {"a": _pascal(), "b": _pa(), "extra": 1}
+        before = d["a"]
+        out = self._identity(_Respelled)(d)
+        assert d["a"] is before
+        assert d["a"].attrs["units"] == "pascal"
+        assert out["a"].attrs["units"] == "Pa"
+        assert out["extra"] == 1
+
+    def test_passing_dataclass_leaves_the_callers_object_alone(self):
+        r = _RespelledRecord(_pascal(), _pa())
+        before = r.a
+        out = self._identity(_RespelledRecord)(r)
+        assert r.a is before
+        assert out.a.attrs["units"] == "Pa"
+        assert type(out) is _RespelledRecord
+
+    def test_nothing_to_write_returns_the_same_object(self):
+        @dataclass
+        class Plain:
+            n: Annotated[xr.DataArray | int, Unit("Pa")]
+
+        r = Plain(1)
+        assert self._identity(Plain)(r) is r
+
+    @pytest.mark.parametrize(
+        ("hint", "make", "read"),
+        [
+            (
+                _Respelled,
+                lambda a, b: {"a": a, "b": b},
+                lambda out: out["a"],
+            ),
+            (
+                _RespelledRecord,
+                lambda a, b: _RespelledRecord(a, b),
+                lambda out: out.a,
+            ),
+        ],
+        ids=["dict", "dataclass"],
+    )
+    def test_arrays_are_not_copied(self, hint, make, read):
+        a = _pascal()
+        out = self._identity(hint)(make(a, _pa()))
+        assert np.shares_memory(read(out).values, a.values)
+
+    @pytest.mark.parametrize(
+        "options", [{"frozen": True}, {"frozen": True, "slots": True}], ids=str
+    )
+    def test_frozen_dataclass(self, options):
+        @dataclass(**options)
+        class Out:
+            a: _PA
+
+        r = Out(_pascal())
+        out = self._identity(Out)(r)
+        assert out.a.attrs["units"] == "Pa"
+        assert r.a.attrs["units"] == "pascal"
+
+    def test_frozen_dataclass_with_an_initvar(self):
+        @dataclass(frozen=True)
+        class Out:
+            a: _PA
+            scale: InitVar[float]
+
+        out = self._identity(Out)(Out(_pascal(), 2.0))
+        assert out.a.attrs["units"] == "Pa"
+
+    def test_frozen_dataclass_with_an_init_false_field(self):
+        @dataclass(frozen=True)
+        class Out:
+            a: _PA = field(init=False)
+
+            def __post_init__(self):
+                object.__setattr__(self, "a", _pascal())
+
+        assert self._identity(Out)(Out()).a.attrs["units"] == "Pa"
+
+    def test_post_init_does_not_run_again(self):
+        calls = []
+
+        @dataclass(frozen=True)
+        class Out:
+            a: _PA
+
+            def __post_init__(self):
+                calls.append(1)
+
+        self._identity(Out)(Out(_pascal()))
+        assert len(calls) == 1
