@@ -63,7 +63,7 @@ def to_pascals(
 
 `assign_attrs` can silence a wrong body as easily as a right one, so this makes the author state the unit but does not verify it.
 To trust a function's body without stating the unit, use `@xra.enforce(units_on_output="stamp")`.
-This default is a stopgap: see [the open issue](https://github.com/jmarshrossney/xarray-annotated/issues/ISSUE_NUMBER).
+This default is a stopgap: see [the open issue](https://github.com/jmarshrossney/xarray-annotated/issues/26).
 
 A quantified array's unit lives in the data and cannot go stale, so it is never stamped.
 A different unit raises unless the declaration says `convert=True`, as for an input, and the result stays quantified.

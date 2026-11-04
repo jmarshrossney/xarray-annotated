@@ -7,7 +7,7 @@ You have two ways to get the conversion, and the first is usually the better one
 - **[Opt in on the declaration](#opting-in)** with `convert=True`, so that the function converts whatever compatible unit it is given.
 
 Conversion from a declaration is a deliberately limited feature, and it may change or go away.
-The open questions are in [this GitHub issue](https://github.com/jmarshrossney/xarray-annotated/issues/ISSUE_NUMBER), and your experience of using it is welcome there.
+The open questions are in [this GitHub issue](https://github.com/jmarshrossney/xarray-annotated/issues/26), and your experience of using it is welcome there.
 
 ## Converting explicitly with pint
 
