@@ -10,9 +10,7 @@ property is a domain subpackage, imported explicitly:
 * ``xarray_annotated.temporal`` — the frequency (and phase) of a time axis;
   validate-only.
 
-One decorator, ``enforce``, applies every facet declared on a signature, in the
-one correct order (units are converted before structure and frequency are
-checked):
+One decorator, ``enforce``, applies every facet declared on a signature, units first:
 
     import xarray_annotated as xra
     from xarray_annotated import Dims, Freq, Unit

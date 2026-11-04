@@ -486,7 +486,7 @@ def _(Annotated, Coords, Dims, Dtype, Freq, TypedDict, Unit, xr, xra):
     @xra.enforce
     def partition_fluxes_declared(
         nee: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
-        tair: Annotated[xr.DataArray, Unit("degC", convert=True)],  # (6)
+        tair: Annotated[xr.DataArray, Unit("degC")],  # (6)
         ppfd: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
     ) -> Partitioned:
         """Partition NEE into GPP and respiration via a Q10 model."""
@@ -542,11 +542,10 @@ def _(mo):
     4. `float64` out, not `int8`: gaps become NaN, and an integer array cannot hold NaN.
     5. Two outputs need somewhere to hang declarations, so the tuple became a `TypedDict`,
        validated field by field.
-    6. The docstring's *"assumes tair in degC"*, made real. Kelvin is now converted at the
-       boundary instead of blowing up the Q10 exponent inside the body. Conversion is
-       opt-in (`convert=True`): it is right for a temperature, but a declaration without
-       it refuses to turn an annual total into a daily rate. See
-       [Converting units](guides/conversion.md) for the risks.
+    6. The docstring's *"assumes tair in degC"*, made real. Kelvin now raises at the
+       boundary instead of blowing up the Q10 exponent inside the body. Nothing converts
+       on its own: it would be right for a temperature, but the same rule would turn a
+       daily rate into an annual total. See [Converting units](guides/conversion.md).
     7. Aggregation changes the frequency and nothing else, so this stage declares a
        frequency and says nothing at all about units — it means whatever it is handed, and
        the silence is the statement.
@@ -567,8 +566,8 @@ def _(mo):
     mo.md("""
     The bugs from the bug hunt cannot recur:
 
-    - `tair` can be in either Kelvin or degrees C --- either way it is converted at the
-      boundary (by `pint`) thanks to the `Unit("degC", convert=True)` annotation.
+    - `tair` must be in degrees C, so the logger's Kelvin has to be converted where the
+      pipeline calls the function, by `xra.units.convert`.
     - The weekly anchor is declared on both the producer and the consumer.
 
     Beyond those, the checks reject inputs that never belonged in this pipeline
@@ -588,10 +587,12 @@ def _(
     sat_gpp,
     screen_quality_declared,
     weekly_mean_declared,
+    xra,
 ):
     def run_pipeline_declared(nee_raw, qc, tair, ppfd):
         nee = screen_quality_declared(nee_raw, qc)
-        fluxes = partition_fluxes_declared(nee, tair, ppfd)
+        tair_degc = xra.units.convert(tair, "degC")
+        fluxes = partition_fluxes_declared(nee, tair_degc, ppfd)
 
         # Product 1: the annual carbon budget.
         nee_annual = float(daily_mean_declared(nee).sum())
@@ -667,10 +668,12 @@ def _(
     screen_quality_declared,
     to_mass_flux,
     weekly_mean_declared,
+    xra,
 ):
     def run_pipeline_final(nee_raw, qc, tair, ppfd):
         nee = screen_quality_declared(nee_raw, qc)
-        fluxes = partition_fluxes_declared(nee, tair, ppfd)
+        tair_degc = xra.units.convert(tair, "degC")
+        fluxes = partition_fluxes_declared(nee, tair_degc, ppfd)
 
         nee_daily = daily_mean_declared(to_mass_flux(nee))
         gpp_daily = daily_mean_declared(to_mass_flux(fluxes["gpp"]))

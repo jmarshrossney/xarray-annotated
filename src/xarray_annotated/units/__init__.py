@@ -9,6 +9,7 @@ from ._check import (
     apply_output_units,
     assert_valid_unit,
     check_units,
+    convert,
     units_compatible,
     units_equal,
 )
@@ -23,6 +24,7 @@ __all__ = [
     "apply_output_units",
     "assert_valid_unit",
     "check_units",
+    "convert",
     "get_registry",
     "set_registry",
     "units_compatible",

@@ -1,20 +1,19 @@
-"""Runtime unit validation and conversion.
+"""Runtime unit validation, and explicit conversion.
 
-The "usage side" of the package: given a declared unit string (typically read
-off a signature by `_annotations`), validate an actual `DataArray` against it
-and, where the declaration opts in, convert it into the declared unit.
-Conversion goes through the active registry: pint directly for an `attrs`-labelled
-array, pint-xarray's `.pint` accessor for a quantified one.
+The "usage side" of the package: given a declared unit string (typically read off a
+signature by `_annotations`), validate an actual `DataArray` against it.  Checking never
+changes values; `convert` does, where the caller says so.
 
 Every conversion is logged to the `xarray_annotated.units` logger at DEBUG.
 """
 
 import logging
 import math
+from typing import NoReturn
 
 import pint
+import pint_xarray  # noqa: F401  (registers the .pint accessor)
 import xarray as xr
-from pint_xarray.errors import PintExceptionGroup
 
 from .._config import resolve_enabled
 from ._annotations import Unit
@@ -169,10 +168,8 @@ def units_equal(a: str | Unit, b: str | Unit) -> bool:
     compositions of one unit are equal (`"Pa"` == `"pascal"` == `"N/m**2"`,
     `"1"` == `"dimensionless"`) while a prefixed unit differs (`"hPa"` != `"Pa"`).
     pint treats radians as dimensionless, so `"rad"` == `"1"` and `"Hz"` ==
-    `"rad/s"`.  This is the distinction `convert` turns
-    on: a value-changing conversion is one where the units are compatible but
-    *not* equal, and needs opting into; equivalent spellings imply no value
-    change.
+    `"rad/s"`.  An input must be equal to its declared unit, not merely compatible:
+    equivalent spellings imply no value change.
 
     Accepts either a bare unit string or a `Unit` marker on each side (its
     `.unit` string is used), matching `units_compatible`.
@@ -271,136 +268,142 @@ def _own_unit(
     return have, quantified is not None
 
 
+def _refuse(have: str, declared: str, where: str, hint: str, note: str) -> NoReturn:
+    """Raise for a unit that is not the declared one, by whether the two convert.
+
+    Raises:
+        pint.DimensionalityError: If `have` cannot be converted to `declared`.
+        ValueError: If it can, as the values would change.
+    """
+    try:
+        get_registry().Quantity(1.0, have).to(declared)
+    except pint.DimensionalityError as err:
+        err.add_note(note)
+        raise
+    raise ValueError(
+        f"{where}: unit {have!r} differs from declared {declared!r}. {hint}"
+    )
+
+
+def _dequantified(da: xr.DataArray) -> xr.DataArray:
+    """A plain copy of a quantified array, with no packing.
+
+    Its `.encoding` may describe other values, as `.pint.to` keeps it, and that would
+    corrupt these on write.
+    """
+    plain = da.pint.dequantify()
+    plain.encoding = {}
+    return plain
+
+
 def check_units(
     da: xr.DataArray,
     declared: str | Unit,
     name: str,
     qualname: str | None = None,
 ) -> xr.DataArray:
-    """Validate and convert an input `DataArray` to its declared unit.
+    """Validate an input `DataArray` against its declared unit.
 
-    Returns a `DataArray` whose data is expressed in `declared` and whose
-    `units` attribute equals `declared`.
-
-    A value-changing conversion happens only when the declaration opts in, by
-    passing `Unit(..., convert=True)` as `declared`; a plain string never
-    converts.  When xarray-annotated is switched off
-    (`enabled(False)`) the array is returned unchanged.
-
-    Three events are handled, each building on the one before:
-
-    * **No parseable unit** — the input has no `units` attribute, or one the
-      registry cannot parse (e.g. a CF string like `"umol m-2 s-1"` without
-      `use_cf_units()`): always raises `ValueError`.  The declaration cannot be
-      checked, so the unit should be attached where the data enters.
-    * **Value-changing conversion** — the unit is dimensionally compatible with
-      `declared` but not the same unit (e.g. `"hPa"` where `"Pa"` is
-      declared): converted when opted into, otherwise raises `ValueError`.
-      Equivalent spellings
-      (`"pascal"` for `"Pa"`) imply no value change and are simply relabelled,
-      without touching the data.
-    * **Dimensional mismatch** — two parseable but incompatible units (e.g. a
-      mass where a pressure is declared): always raises
-      `pint.DimensionalityError`, whether or not conversion is opted into.
+    Values never change: a different unit raises, however it could be converted,
+    because whether a conversion is correct depends on the quantity.  Convert before
+    the call, with `convert`.  When xarray-annotated is switched off (`enabled(False)`)
+    the array is returned unchanged.
 
     Args:
-        da: The input `DataArray` to validate and convert.
-        declared: The expected unit string (e.g. `"Pa"`), or a `Unit` marker,
-            whose `convert` then applies.
-        name: A label for the array, used in error/warning messages.
+        da: The input `DataArray` to validate.
+        declared: The expected unit string (e.g. `"Pa"`), or a `Unit` marker.
+        name: A label for the array, used in error messages.
         qualname: A qualifier prepended to error messages as `[qualname]`,
             identifying the calling site.
 
     Returns:
-        A new `DataArray` converted to `declared`, with `attrs["units"]` set
-        to `declared`.  When the input is already in `declared` the data is not
-        copied — the result is a shallow copy sharing the caller's buffer, so
-        declaring a unit an array already has costs nothing, and a lazy array stays
-        lazy.  A converted or quantified array has empty `.encoding`, since packing
-        that described other values would corrupt these on write.
+        A plain `DataArray` with `attrs["units"]` spelled as `declared`, sharing the
+        caller's buffer, so declaring a unit an array already has costs nothing and a
+        lazy array stays lazy.  A quantified array is dequantified, which copies it,
+        and loses its `.encoding`, as packing that described other values would
+        corrupt these on write.
 
     Raises:
-        ValueError: When no parseable unit is found, or when a value-changing
-            conversion would occur without `convert`.
-        pint.DimensionalityError: When the actual unit is dimensionally
-            incompatible with `declared`.
+        ValueError: When the unit is missing, over-long or unparseable, or compatible
+            with but not equal to `declared`.
+        pint.DimensionalityError: When the unit is dimensionally incompatible with
+            `declared`.
 
     Examples:
-        >>> import numpy as np, xarray as xr
-        >>> from xarray_annotated.units import Unit, check_units
-        >>> da = xr.DataArray([1013.0, 1000.0], attrs={"units": "hPa"})
-        >>> out = check_units(da, Unit("Pa", convert=True), "pressure")
-        >>> out.attrs["units"]
+        >>> import xarray as xr
+        >>> from xarray_annotated.units import check_units
+        >>> da = xr.DataArray([1013.0], attrs={"units": "pascal"})
+        >>> check_units(da, "Pa", "pressure").attrs["units"]
         'Pa'
-        >>> out.values
-        array([101300., 100000.])
     """
     if not resolve_enabled():
         return da
-    convert = isinstance(declared, Unit) and declared.convert
     declared = str(declared)
-
     prefix = f"[{qualname}] " if qualname else ""
     where = f"{prefix}input {name!r}"
     have, quantified = _own_unit(da, declared, where, _ATTACH_UNIT)
-    if not quantified and units_equal(have, declared):
-        # Same unit, differently spelled ("pascal" for "Pa", "1" for
-        # "dimensionless"): nothing to convert, so the conversion below would copy
-        # the entire buffer purely to rewrite a string.
-        # A shallow copy shares the data and takes its own attrs dict, so the
-        # caller's array is left exactly as it was.
-        #
-        # Quantified inputs still go the long way round: they are contracted to
-        # come back dequantified, and only dequantify can do that.
-        return _stamped(da, declared)
-    if units_compatible(have, declared) and not units_equal(have, declared):
-        # Dimensionally compatible but value-changing (e.g. hPa -> Pa).  Whether
-        # that is correct depends on the quantity (an annual total is not a daily
-        # mean), so it is only done when the declaration opts in.
-        if not convert:
-            raise ValueError(
-                f"{where}: unit {have!r} differs from declared "
-                f"{declared!r}. Converting would change the values; if that is "
-                f"correct for this quantity, pass "
-                f".pint.quantify().pint.to({declared!r}) or declare "
-                f"Unit({declared!r}, convert=True)."
-            )
-        _log.debug(
-            "%sinput %r: converting %r -> %r (value-changing, convert=True)",
-            prefix,
-            name,
+    if not units_equal(have, declared):
+        _refuse(
             have,
             declared,
+            where,
+            f"Converting would change the values; if that is correct for this "
+            f"quantity, pass xra.units.convert(da, {declared!r}).",
+            f"while validating input {name!r}",
         )
+    # Same unit, perhaps spelled differently ("pascal" for "Pa"): nothing to convert.
+    return _stamped(_dequantified(da) if quantified else da, declared)
+
+
+def convert(da: xr.DataArray, unit: str | Unit) -> xr.DataArray:
+    """Convert a `DataArray` to `unit`, where you know that is correct for the data.
+
+    Pint knows whether two units are compatible, but not whether converting is right
+    for this quantity, so `enforce` never does this for you.
+
+    Only the data is converted: coordinates and their labels are left alone, so a
+    `degrees_north` label does not stop the conversion the way `.pint.quantify()` does.
+    Every conversion is logged at DEBUG on the `xarray_annotated.units` logger.
+
+    This is not a check, so `enabled(False)` does not affect it.
+
+    Args:
+        da: The array, labelled in `attrs["units"]` or quantified.
+        unit: The unit to convert to.
+
+    Returns:
+        A plain `DataArray` with `attrs["units"]` spelled as `unit`.  A converted array
+        has a new buffer and empty `.encoding`, as packing that described the old values
+        would corrupt these on write.  An array already in `unit` is treated as by
+        `check_units`.
+
+    Raises:
+        ValueError: When `unit` is not a recognised unit, or the array's own unit is
+            missing, over-long or unparseable.
+        pint.DimensionalityError: When the two units are dimensionally incompatible.
+
+    Examples:
+        >>> import xarray as xr
+        >>> from xarray_annotated.units import convert
+        >>> da = xr.DataArray([1013.0], attrs={"units": "hPa"})
+        >>> converted = convert(da, "Pa")
+        >>> converted.values, converted.attrs["units"]
+        (array([101300.]), 'Pa')
+    """
+    unit = str(unit)
+    assert_valid_unit(unit, "convert")
+    have, quantified = _own_unit(da, unit, "the array to convert", _STATE_UNIT)
+    plain = _dequantified(da) if quantified else da
+    if units_equal(have, unit):
+        return _stamped(plain, unit)
     try:
-        if quantified:
-            converted = da.pint.to(declared).pint.dequantify()
-        else:
-            # Only the data has a declared unit. quantify() would also parse the
-            # coords' labels, so "degrees_north" could abort this conversion.
-            data = get_registry().Quantity(da.data, have).to(declared).magnitude
-            converted = da.copy(deep=False, data=data)
+        data = get_registry().Quantity(plain.data, have).to(unit).magnitude
     except pint.DimensionalityError as err:
-        err.add_note(f"while validating input {name!r}")
+        err.add_note(f"while converting {da.name!r}")
         raise
-    except PintExceptionGroup as group:
-        # pint-xarray wraps conversion failures in an ExceptionGroup; surface the
-        # underlying DimensionalityError directly for a clean, catchable error.
-        dim_errors = [
-            exc for exc in group.exceptions if isinstance(exc, pint.DimensionalityError)
-        ]
-        if dim_errors:
-            err = dim_errors[0]
-            err.add_note(f"while validating input {name!r}")
-            raise err from None
-        raise
-    # dequantify writes pint's canonical unit name (e.g. 'pascal'), and the plain
-    # path still holds the old label; stamp the declared spelling over either.
-    converted.attrs["units"] = declared
-    if quantified or not units_equal(have, declared):
-        # The packing may describe other values, and would corrupt these on write.
-        # A quantified array may have been converted already: `.pint.to` keeps it.
-        converted.encoding = {}
+    _log.debug("converting %r: %r -> %r", da.name, have, unit)
+    converted = _stamped(plain.copy(deep=False, data=data), unit)
+    converted.encoding = {}
     return converted
 
 
@@ -413,9 +416,7 @@ def apply_output_units(
     """Check a *returned* `DataArray` against its declared unit.
 
     A function's author controls what it returns, so an output that does not match
-    its declaration is a bug.  Nothing is converted or labelled on the author's
-    behalf, and `convert` does not apply here: a marker with `convert=True` can be
-    shared with an input, and a mismatch still raises.
+    its declaration is a bug.  Nothing is converted or labelled on the author's behalf.
 
     Two things can leave a body's label out of step with its values.  `attrs` are
     inert under arithmetic, so `p * 100.0` keeps its `hPa` label; a body that really
@@ -478,11 +479,10 @@ def apply_output_units(
             f"body returned the wrong unit."
         )
     )
-    try:
-        get_registry().Quantity(1.0, have).to(declared)
-    except pint.DimensionalityError as err:
-        err.add_note(f"{where} has unit {have!r} but declares {declared!r}. {hint}")
-        raise
-    raise ValueError(
-        f"{where}: unit {have!r} differs from declared {declared!r}. {hint}"
+    _refuse(
+        have,
+        declared,
+        where,
+        hint,
+        f"{where} has unit {have!r} but declares {declared!r}. {hint}",
     )

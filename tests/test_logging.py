@@ -1,18 +1,17 @@
 """The audit trail: every non-trivial action is logged.
 
-DEBUG marks every conversion, which is always opted into.  A failed check raises, so
-it has nothing to log.
+DEBUG marks every conversion, which is always asked for.  A failed check raises, so it
+has nothing to log.
 """
 
 import logging
-from typing import Annotated
 
 import pint_xarray  # noqa: F401  (registers the .pint accessor)
 import pytest
 import xarray as xr
 
 import xarray_annotated as xra
-from xarray_annotated import Dims, Unit, schema, units
+from xarray_annotated import Dims, schema, units
 
 UNITS = "xarray_annotated.units"
 
@@ -32,39 +31,32 @@ def audit(caplog):
     return caplog
 
 
-class TestInputConversion:
-    def test_marker_opted_in_conversion_is_debug(self, audit):
-        units.check_units(_da(), Unit("Pa", convert=True), "p")
+class TestConversion:
+    def test_conversion_is_debug(self, audit):
+        units.convert(_da(), "Pa")
         [(level, msg)] = _records(audit, UNITS)
         assert level == logging.DEBUG
         assert "'hPa' -> 'Pa'" in msg
 
-    def test_conversion_through_enforce_is_debug(self, audit):
-        @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)]): ...
-
-        f(_da())
-        [(level, _)] = _records(audit, UNITS)
-        assert level == logging.DEBUG
-
-    def test_quantified_input_conversion_is_logged(self, audit):
-        units.check_units(_da().pint.quantify(), Unit("Pa", convert=True), "p")
+    def test_quantified_conversion_is_logged(self, audit):
+        units.convert(_da().pint.quantify(), "Pa")
         [(level, _)] = _records(audit, UNITS)
         assert level == logging.DEBUG
 
     def test_same_unit_respelling_is_not_logged(self, audit):
-        units.check_units(_da("pascal"), "Pa", "p")
+        units.convert(_da("pascal"), "Pa")
         assert _records(audit, UNITS) == []
 
-    def test_refused_conversion_is_not_logged(self, audit):
-        with pytest.raises(ValueError, match="convert=True"):
+    def test_a_check_is_not_logged(self, audit):
+        units.check_units(_da("pascal"), "Pa", "p")
+        with pytest.raises(ValueError, match=r"units\.convert"):
             units.check_units(_da(), "Pa", "p")
         assert _records(audit, UNITS) == []
 
-    def test_message_carries_qualname(self, audit):
-        units.check_units(_da(), Unit("Pa", convert=True), "p", qualname="mod.f")
+    def test_message_carries_the_array_name(self, audit):
+        units.convert(_da().rename("pressure"), "Pa")
         [(_, msg)] = _records(audit, UNITS)
-        assert msg.startswith("[mod.f] input 'p'")
+        assert "'pressure'" in msg
 
 
 class TestUnreadableInputs:
@@ -102,12 +94,12 @@ class TestOutputs:
 class TestQuietByDefault:
     def test_nothing_reaches_a_warning_level_handler(self, caplog):
         caplog.set_level(logging.WARNING, logger="xarray_annotated")
-        units.check_units(_da(), Unit("Pa", convert=True), "p")
+        units.convert(_da(), "Pa")
         units.apply_output_units(_da("pascal"), "Pa", "return")
         assert caplog.records == []
 
     def test_switched_off_logs_nothing(self, audit):
         with xra.enabled(False):
-            units.check_units(_da(), Unit("Pa", convert=True), "p")
+            units.check_units(_da(), "Pa", "p")
             schema.check_schema(_da(), Dims("time"), "p")
         assert audit.records == []

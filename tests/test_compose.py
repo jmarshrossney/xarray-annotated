@@ -108,31 +108,18 @@ class TestComposeSchemaMarkers:
 class TestComposeDecorators:
     """Units and structure declared together."""
 
-    def test_dims_and_units_converts_and_validates(self):
-        # recommended form: the Unit marker alongside a schema marker
-        @xra.enforce
-        def f(
-            x: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa", convert=True)],
-        ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
-            return x
-
-        out = f(_da(("time", "x"), unit="hPa", fill=10.0))
-        assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, np.full(out.shape, 1000.0))
-
-    def test_same_unit_respelling_needs_no_conversion(self):
+    def test_same_unit_respelling_passes(self):
         @xra.enforce
         def f(
             x: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")],
         ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
             return x
 
-        # With no opt-in to conversion only a same-unit spelling passes; it is
-        # relabelled with the values untouched.
+        # Only a same-unit spelling passes; it is relabelled with the values untouched.
         out = f(_da(("time", "x"), unit="pascal", fill=10.0))
         assert out.attrs["units"] == "Pa"
         np.testing.assert_allclose(out.values, np.full(out.shape, 10.0))
-        with pytest.raises(ValueError, match="convert=True"):
+        with pytest.raises(ValueError, match=r"units\.convert"):
             f(_da(("time", "x"), unit="hPa", fill=10.0))
 
     def test_dims_mismatch_raises_with_valid_units(self):
@@ -142,7 +129,7 @@ class TestComposeDecorators:
         ) -> xr.DataArray:
             return x
 
-        # units convert cleanly (Pa -> Pa), then inner schema rejects the dims
+        # the unit is fine, then the schema check rejects the dims
         with pytest.raises(schema.SchemaError, match="dims mismatch"):
             f(_da(("time",), unit="Pa", fill=1.0))
 
@@ -165,14 +152,14 @@ class TestComposeDecorators:
                 Dims("time", "x"),
                 Coords("time"),
                 Dtype("float64"),
-                Unit("Pa", convert=True),
+                Unit("Pa"),
             ],
         ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
             return x
 
-        out = f(_da(("time", "x"), coords=("time",), unit="hPa", fill=10.0))
+        out = f(_da(("time", "x"), coords=("time",), unit="pascal", fill=10.0))
         assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, np.full(out.shape, 1000.0))
+        np.testing.assert_allclose(out.values, np.full(out.shape, 10.0))
 
     def test_output_checked_and_validated(self):
         @xra.enforce
@@ -231,13 +218,13 @@ class TestComposeAllThreeDomains:
         out = f(_timeseries(unit="kg", fill=1.0))
         assert out.attrs["units"] == "kg"
 
-    def test_units_convert_before_freq_check(self):
+    def test_units_respelled_alongside_freq_check(self):
         @xra.enforce
         def f(
-            x: Annotated[xr.DataArray, Unit("Pa", convert=True), Freq("7D")],
+            x: Annotated[xr.DataArray, Unit("Pa"), Freq("7D")],
         ) -> Annotated[xr.DataArray, Unit("Pa"), Freq("7D")]:
             return x
 
-        out = f(_timeseries(unit="hPa", fill=10.0))
+        out = f(_timeseries(unit="pascal", fill=10.0))
         assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, np.full(out.shape, 1000.0))
+        np.testing.assert_allclose(out.values, np.full(out.shape, 10.0))

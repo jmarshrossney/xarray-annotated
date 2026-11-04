@@ -108,12 +108,6 @@ class TestSingleHint:
         hint = Annotated[xr.DataArray | None, Unit("Pa"), Freq("D")]
         assert declaration_from_hint(hint) == Declared(unit=Unit("Pa"), freq=Freq("D"))
 
-    def test_keeps_unit_overrides(self):
-        marker = Unit("Pa", convert=True)
-        declared = declaration_from_hint(Annotated[xr.DataArray, marker])
-        assert declared is not None
-        assert declared.unit == marker
-
     @pytest.mark.parametrize(
         "hint",
         [

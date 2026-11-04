@@ -29,7 +29,7 @@ def weekly_mean(
 | `Dims(*names)` | The array has exactly these dims, in any order | `ordered=True` pins the order |
 | `Coords(*names)` | These coordinates are present (extras are fine) | |
 | `Dtype(dtype)` | The numpy kind matches: `float32` passes `Dtype("float64")`, `uint8` fails `Dtype("int32")` | `exact=True` requires the precise dtype |
-| `Unit(unit)` | The array is in this unit, however it is spelled | `convert=True` |
+| `Unit(unit)` | The array is in this unit, however it is spelled | |
 | `Freq(freq)` | [The time axis](#which-coordinate-is-the-time-axis) has this spacing, and this phase [where spelled](#what-the-same-frequency-means) | `dim=`, `anchored=` |
 
 ## Rules
@@ -42,15 +42,15 @@ def weekly_mean(
 - **One of each:** a second marker of the same kind on one hint raises `ValueError`, so write `Coords("time", "lat")`.
 - **Nowhere else:** a marker `enforce` cannot apply raises `ValueError`, such as inside a `tuple[...]` return or on `Annotated[xr.Dataset, ...]`.
 - **Fail fast:** a malformed declaration (a typo'd unit, an unparseable dtype or frequency) raises `ValueError` when the function is decorated.
-- **Units first:** input units are checked (and converted, if opted into) before other markers, and output units are checked before theirs, so checks see what the body and the caller see.
-- **Only `Unit` changes an array:** the other markers just check it.
+- **Units first:** units are checked before other markers, on both sides.
+- **Values never change:** `Unit` only respells a label as declared, and the other markers just check.
 
 A few hints are silently not declarations; see [Troubleshooting](troubleshooting.md#a-declaration-is-silently-ignored).
 
 ## Units
 
 **Inputs are checked.**
-A different unit in the same dimension (`"hPa"` where `"Pa"` is declared) raises unless [the declaration opts in to converting it](conversion.md), and a dimensionally wrong, missing or unparseable unit always raises.
+Any other unit raises: one in the same dimension (`"hPa"` where `"Pa"` is declared), so that [you decide whether to convert it](conversion.md), and a dimensionally wrong, missing or unparseable one.
 
 **Outputs must already match.**
 A return with a different unit, or none, raises, and nothing is converted or labelled for you; see [Output units](policy.md#units-outputs).

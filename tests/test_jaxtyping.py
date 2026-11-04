@@ -132,16 +132,16 @@ class TestTypeAliases:
 
 
 class TestDecorators:
-    def test_units_are_converted(self):
+    def test_units_are_checked(self):
         @xra.enforce
         def f(
-            x: Annotated[FloatDA, Unit("Pa", convert=True)],
+            x: Annotated[FloatDA, Unit("Pa")],
         ) -> Annotated[FloatDA, Unit("Pa")]:
             return x
 
-        out = f(_da(unit="hPa", fill=1.0))
-        assert out.attrs["units"] == "Pa"
-        assert out.values[0, 0] == pytest.approx(100.0)
+        assert f(_da(unit="pascal", fill=1.0)).attrs["units"] == "Pa"
+        with pytest.raises(ValueError, match="'hPa' differs"):
+            f(_da(unit="hPa", fill=1.0))
 
     def test_schema_mismatch_still_raises(self):
         @xra.enforce
@@ -164,7 +164,7 @@ class TestFullStack:
     """The stack documented in ``docs/guides/jaxtyping.md``, pinned end to end.
 
     ``jaxtyped`` must be **outermost** so it sees the original call, before
-    ``enforce`` has converted anything; the size-symbol binding it provides is
+    ``enforce`` has touched anything; the size-symbol binding it provides is
     what makes ``"time x"`` mean *the same sizes across arguments*.
     """
 
@@ -175,15 +175,15 @@ class TestFullStack:
         @jaxtyping.jaxtyped(typechecker=beartype)
         @xra.enforce
         def f(
-            x: Annotated[FloatDA, Unit("Pa", convert=True), Dims("time", "x")],
+            x: Annotated[FloatDA, Unit("Pa"), Dims("time", "x")],
             y: Annotated[FloatDA, Unit("Pa"), Dims("time", "x")],
         ) -> Annotated[FloatDA, Unit("Pa")]:
             return x + y
 
         return f
 
-    def test_units_converted_under_full_stack(self):
-        out = self._stack()(_da(unit="hPa", fill=1.0), _da(unit="Pa", fill=1.0))
+    def test_units_checked_under_full_stack(self):
+        out = self._stack()(_da(unit="pascal", fill=1.0), _da(unit="Pa", fill=1.0))
         assert out.attrs["units"] == "Pa"
 
     def test_wrong_dtype_caught_by_jaxtyping(self):

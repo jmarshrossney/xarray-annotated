@@ -4,7 +4,7 @@ The single cross-domain decorator.  It reads a function's
 `Annotated[DataArray, ...]` hints once, at decoration time, and on every call
 applies each declared facet in a fixed order:
 
-1. **inputs** — units are converted (and restamped) *first*, so the structural
+1. **inputs** — units are checked (and respelled as declared) *first*, so the structural
    and temporal checks then see the array the function body will see;
 2. the function runs;
 3. **outputs** — the declared unit is checked *first*, then structure and frequency,
@@ -192,23 +192,20 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
 
     On each call the wrapper:
 
-    1. converts every declared input to its unit (`check_units`), then validates
-       its structure (`check_schema`) and frequency (`check_freq`) on the
-       converted array;
+    1. checks every declared input against its unit (`check_units`), then validates
+       its structure (`check_schema`) and frequency (`check_freq`);
     2. runs the wrapped function;
     3. checks each declared output against its unit (`apply_output_units`), then
        validates structure and frequency on the value returned to the caller.
 
     Only `DataArray` values are touched; anything else passes through.  When
     xarray-annotated is switched off (`xra.enabled(False)` or
-    `XARRAY_ANNOTATED_ENABLED=false`) the wrapper is a total no-op: inputs are
-    not converted and outputs are not checked.  Every declaration is validated
-    **at decoration time**, so a malformed unit, marker or offset string fails
-    at import even when switched off.
+    `XARRAY_ANNOTATED_ENABLED=false`) the wrapper is a total no-op.  Every declaration
+    is validated **at decoration time**, so a malformed unit, marker or offset string
+    fails at import even when switched off.
 
-    There are no options: a conversion is allowed on the marker it applies to
-    (`Unit("Pa", convert=True)`), and every other failed check raises.  Applied bare,
-    as `@xra.enforce`.
+    There are no options: every failed check raises, and values never change.  Applied
+    bare, as `@xra.enforce`.
 
     On an `async def`, the checks run when the coroutine is awaited, and outputs
     are applied to the awaited result.
@@ -231,12 +228,12 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
         >>> import xarray_annotated as xra
         >>> from xarray_annotated import Dims, Unit
         >>> @xra.enforce
-        ... def to_pa(
-        ...     p: Annotated[xr.DataArray, Unit("Pa", convert=True), Dims("x")],
+        ... def double(
+        ...     p: Annotated[xr.DataArray, Unit("Pa"), Dims("x")],
         ... ) -> Annotated[xr.DataArray, Unit("Pa")]:
-        ...     return p
-        >>> to_pa(xr.DataArray([1.0], dims="x", attrs={"units": "hPa"})).values
-        array([100.])
+        ...     return p * 2
+        >>> double(xr.DataArray([1.0], dims="x", attrs={"units": "Pa"})).values
+        array([2.])
     """
     walk_signature(func, _refuse_stray_markers)
     inputs, output = declarations_from_signature(func)
@@ -301,7 +298,7 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
             return args, kwargs
         bound = sig.bind_partial(*args, **kwargs)
         # bind_partial omits parameters left at their default; apply
-        # them so a declared default is checked (and converted) too.
+        # them so a declared default is checked too.
         bound.apply_defaults()
         for name, val in list(bound.arguments.items()):
             decl = inputs.get(name)

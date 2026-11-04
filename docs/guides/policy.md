@@ -1,13 +1,13 @@
 # Configuring validation
 
 A value either matches its declaration or raises, so an array that got through was checked.
-The one setting on a declaration is `convert`, and `xra.enabled` [switches the package off](#enabled) while prototyping.
+`xra.enabled` [switches the package off](#enabled) while prototyping.
 
 | Event | Result | Setting |
 |---|---|---|
 | Structure mismatch | `SchemaError` | none |
 | Frequency mismatch, irregular time axis, or no unambiguous time axis | `FreqError` | none |
-| Compatible but different input unit | `ValueError` | [`convert=True`](conversion.md#opting-in) on the marker |
+| Compatible but different input unit | `ValueError` | none; [convert it first](conversion.md) |
 | Dimensionally wrong input unit | `DimensionalityError` | none |
 | Missing, unparseable or over-long input unit | `ValueError` | none |
 | [Output unit that does not match](#units-outputs) | Depends on the unit | none |
@@ -34,7 +34,6 @@ Nothing is converted or labelled on the author's behalf.
 | No unit, or an unparseable or over-long one | `ValueError` |
 | Not a `DataArray` | Passed through |
 
-`convert` does not apply to outputs, so one marker can be shared with an input.
 A quantified result stays quantified, and a body converts one itself with `.pint.to(...)`.
 
 A label that differs from the declaration could mean two things, and the package cannot tell them apart:
@@ -59,18 +58,17 @@ A better approach is an open question in [this GitHub issue](https://github.com/
 ## Wrapping a library that returns bare arrays { #wrapping-a-library }
 
 A wrapper's output declaration is a claim about someone else's convention, and a bare array raises until the wrapper makes that claim.
-Attach the unit the library documents, and let pint do any conversion:
+Attach the unit the library documents, and convert it if you need to:
 
 ```python
 @xra.enforce
 def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
     raw = some_library.gpp(ppfd.values)  # documented as ug m-2 s-1
     out = xr.DataArray(raw, dims=ppfd.dims, coords=ppfd.coords)
-    return out.assign_attrs(units="ug m-2 s-1").pint.quantify().pint.to("g m-2 d-1")
+    return xra.units.convert(out.assign_attrs(units="ug m-2 s-1"), "g m-2 d-1")
 ```
 
 Here that is a factor of 0.0864.
-`.pint.quantify()` also [reads the labels on coordinates](conversion.md#quantify-reads-coordinates).
 
 ## Switching the package off { #enabled }
 
@@ -79,21 +77,9 @@ with xra.enabled(False):
     ...
 ```
 
-Off is a total no-op: no checks and no conversion, so a function declaring `Unit("Pa")` can receive `hPa`.
+Off is a total no-op, so a function declaring `Unit("Pa")` can receive `hPa`.
 Malformed declarations still raise when a function is decorated.
 
 - **For a process:** set `XARRAY_ANNOTATED_ENABLED` to `0`, `false`, `no` or `off`.
 - **Precedence:** a block beats the variable in both directions, and the innermost block wins.
 - **Scope:** a block applies to the current thread or async task only.
-
-## Logging { #auditing }
-
-Each conversion under `convert=True` is logged at `DEBUG` to `xarray_annotated.units`, on every call.
-Nothing is logged at `WARNING` or above, so this is silent by default.
-
-```python
-import logging
-
-logging.basicConfig()
-logging.getLogger("xarray_annotated").setLevel(logging.DEBUG)
-```

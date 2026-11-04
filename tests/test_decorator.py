@@ -28,16 +28,16 @@ def _da(values, unit=None):
 
 
 class TestBareDecorator:
-    def test_converts_input_and_checks_output(self):
+    def test_checks_input_and_output(self):
         @xra.enforce
         def f(
-            p: Annotated[xr.DataArray, Unit("Pa", convert=True)],
+            p: Annotated[xr.DataArray, Unit("Pa")],
         ) -> Annotated[xr.DataArray, Unit("Pa")]:
             return p
 
-        out = f(_da([[10.0, 20.0]], unit="hPa"))
+        out = f(_da([[10.0, 20.0]], unit="pascal"))
         assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, [[1000.0, 2000.0]])
+        np.testing.assert_allclose(out.values, [[10.0, 20.0]])
 
     def test_checks_typeddict_outputs(self):
         class Out(TypedDict):
@@ -76,11 +76,10 @@ class TestBareDecorator:
 
     def test_input_passed_by_keyword(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)]) -> xr.DataArray:
+        def f(p: Annotated[xr.DataArray, Unit("Pa")]) -> xr.DataArray:
             return p
 
-        out = f(p=_da([[10.0]], unit="hPa"))
-        np.testing.assert_allclose(out.values, [[1000.0]])
+        assert f(p=_da([[10.0]], unit="pascal")).attrs["units"] == "Pa"
 
     def test_optional_dataarray_none_is_skipped(self):
         @xra.enforce
@@ -92,44 +91,38 @@ class TestBareDecorator:
 
 
 class TestDefaults:
-    def test_declared_default_is_converted(self):
+    def test_declared_default_is_checked(self):
         @xra.enforce
         def f(
-            p: Annotated[xr.DataArray, Unit("Pa", convert=True)] = _da(
-                [[10.0]], unit="hPa"
-            ),
+            p: Annotated[xr.DataArray, Unit("Pa")] = _da([[10.0]], unit="hPa"),
         ) -> xr.DataArray:
             return p
 
-        out = f()  # p left at its default; must still be converted
-        assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, [[1000.0]])
+        with pytest.raises(ValueError, match="'hPa' differs"):
+            f()  # p left at its default; must still be checked
 
     def test_default_object_is_not_mutated(self):
-        default = _da([[10.0]], unit="hPa")
+        default = _da([[10.0]], unit="pascal")
 
         @xra.enforce
-        def f(
-            p: Annotated[xr.DataArray, Unit("Pa", convert=True)] = default,
-        ) -> xr.DataArray:
+        def f(p: Annotated[xr.DataArray, Unit("Pa")] = default) -> xr.DataArray:
             return p
 
-        f()
-        assert default.attrs["units"] == "hPa"
-        np.testing.assert_allclose(default.values, [[10.0]])
-        np.testing.assert_allclose(f().values, [[1000.0]])  # second call unaffected
+        assert f().attrs["units"] == "Pa"
+        assert default.attrs["units"] == "pascal"
+        assert f().attrs["units"] == "Pa"  # second call unaffected
 
     def test_varargs_and_kwargs_survive_apply_defaults(self):
         @xra.enforce
         def f(
-            p: Annotated[xr.DataArray, Unit("Pa", convert=True)], *rest: int, **kw: int
+            p: Annotated[xr.DataArray, Unit("Pa")], *rest: int, **kw: int
         ) -> xr.DataArray:
             assert rest == (1, 2)
             assert kw == {"z": 3}
             return p
 
-        out = f(_da([[10.0]], unit="hPa"), 1, 2, z=3)
-        np.testing.assert_allclose(out.values, [[1000.0]])
+        out = f(_da([[10.0]], unit="pascal"), 1, 2, z=3)
+        np.testing.assert_allclose(out.values, [[10.0]])
 
 
 class TestFailFast:
@@ -186,29 +179,30 @@ class TestMissingUnits:
         np.testing.assert_allclose(out.values, [[10.0]])
 
 
-class TestConversionIsOptIn:
+class TestDifferentUnitIsRefused:
     def test_refused_by_default(self):
         @xra.enforce
         def f(p: Annotated[xr.DataArray, Unit("Pa")]) -> xr.DataArray:
             return p
 
-        with pytest.raises(ValueError, match=r"Unit\('Pa', convert=True\)"):
+        with pytest.raises(ValueError, match=r"units\.convert\(da, 'Pa'\)"):
             f(_da([[10.0]], unit="hPa"))
 
-    def test_equivalent_spelling_needs_no_opt_in(self):
+    def test_explicit_conversion_passes(self):
+        @xra.enforce
+        def f(p: Annotated[xr.DataArray, Unit("Pa")]) -> xr.DataArray:
+            return p
+
+        hpa = _da([[10.0]], unit="hPa")
+        np.testing.assert_allclose(f(units.convert(hpa, "Pa")).values, [[1000.0]])
+
+    def test_equivalent_spelling_passes(self):
         @xra.enforce
         def f(p: Annotated[xr.DataArray, Unit("Pa")]) -> xr.DataArray:
             return p
 
         out = f(_da([[10.0]], unit="pascal"))
         np.testing.assert_allclose(out.values, [[10.0]])
-
-    def test_opted_in_converts(self):
-        @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)]) -> xr.DataArray:
-            return p
-
-        np.testing.assert_allclose(f(_da([[10.0]], unit="hPa")).values, [[1000.0]])
 
     def test_no_enforce_keyword(self):
         with pytest.raises(TypeError, match="units_on_inexact"):
@@ -336,37 +330,13 @@ class TestOutputs:
     def test_a_unit_preserving_body_passes(self):
         @xra.enforce
         def f(
-            p: Annotated[xr.DataArray, Unit("Pa", convert=True)],
+            p: Annotated[xr.DataArray, Unit("Pa")],
         ) -> Annotated[xr.DataArray, Unit("Pa")]:
             return p.isel(pixel=slice(0, 1))
 
-        out = f(_da([[10.0, 20.0]], unit="hPa"))
+        out = f(_da([[10.0, 20.0]], unit="Pa"))
         assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, [[1000.0]])
-
-    # -- convert does not apply -----------------------------------------------
-
-    @pytest.mark.parametrize(
-        "make", [lambda: _da([[1.0]], "hPa"), lambda: _quantified([[1.0]], "hPa")]
-    )
-    def test_convert_does_not_apply_to_an_output(self, make):
-        @xra.enforce
-        def f() -> Annotated[xr.DataArray, Unit("Pa", convert=True)]:
-            return make()
-
-        with pytest.raises(ValueError, match="'hPa' differs"):
-            f()
-
-    def test_one_marker_can_serve_both_sides(self):
-        marker = Unit("Pa", convert=True)
-
-        @xra.enforce
-        def f(p: Annotated[xr.DataArray, marker]) -> Annotated[xr.DataArray, marker]:
-            return p
-
-        out = f(_da([[1.0]], unit="hPa"))
-        assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, [[100.0]])
+        np.testing.assert_allclose(out.values, [[10.0]])
 
     # -- container returns --------------------------------------------------
 
@@ -495,9 +465,7 @@ class TestQuantifiedOutputs:
         da = _quantified([[1.0]], "pascal")
         assert units.apply_output_units(da, "Pa", "return") is da
 
-    @pytest.mark.parametrize(
-        "declared", ["Pa", Unit("Pa"), Unit("Pa", convert=True)], ids=repr
-    )
+    @pytest.mark.parametrize("declared", ["Pa", Unit("Pa")], ids=repr)
     def test_a_different_unit_raises_with_the_fix(self, declared):
         with pytest.raises(ValueError, match=r"'hPa' differs.*pint\.to\('Pa'\)"):
             units.apply_output_units(_quantified([[1.0]], "hPa"), declared, "return")
@@ -538,10 +506,10 @@ class TestQuantifiedOutputs:
 class TestQuantifiedThroughDecorator:
     def test_quantified_input_end_to_end(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)]) -> xr.DataArray:
+        def f(p: Annotated[xr.DataArray, Unit("Pa")]) -> xr.DataArray:
             return p
 
-        out = f(_quantified([[1.0]], "hPa"))
+        out = f(_quantified([[1.0]], "hPa").pint.to("Pa"))
         np.testing.assert_allclose(out.values, [[100.0]])
 
     def test_respelled_output_is_written_back_for_single_return(self):

@@ -16,7 +16,7 @@ def _resolve() -> bool:
 
 @xra.enforce
 def _to_pa(
-    p: Annotated[xr.DataArray, Unit("Pa", convert=True)],
+    p: Annotated[xr.DataArray, Unit("Pa")],
 ) -> Annotated[xr.DataArray, Unit("Pa")]:
     return p
 
@@ -80,16 +80,17 @@ class TestResolution:
 
 
 class TestOffIsTotal:
-    def test_on_converts(self):
-        assert float(_to_pa(_hpa()).values[0]) == 100.0
+    def test_on_checks(self):
+        with pytest.raises(ValueError, match="'hPa' differs"):
+            _to_pa(_hpa())
 
-    def test_off_skips_conversion(self):
+    def test_off_skips_checks(self):
         with xra.enabled(False):
             out = _to_pa(_hpa())
         assert float(out.values[0]) == 1.0
         assert out.attrs["units"] == "hPa"
 
-    def test_env_off_skips_conversion(self, monkeypatch):
+    def test_env_off_skips_checks(self, monkeypatch):
         monkeypatch.setenv(_config.ENABLED_ENV_VAR, "off")
         assert _to_pa(_hpa()).attrs["units"] == "hPa"
 

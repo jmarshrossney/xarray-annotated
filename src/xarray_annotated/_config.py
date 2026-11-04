@@ -1,8 +1,8 @@
 """The package-wide master switch, the only global setting.
 
-Behaviour (`convert`) is declared on markers, never configured globally, so that how
-a function validates can be read off its signature.  What remains global is
-whether xarray-annotated does anything at all.
+Behaviour is never configured globally, so that how a function validates can be read
+off its signature.  What remains global is whether xarray-annotated does anything at
+all.
 
 The switch resolves on every call as: an `enabled(...)` block, then the
 `XARRAY_ANNOTATED_ENABLED` environment variable, then on.  Code beats the
@@ -62,9 +62,8 @@ def resolve_enabled() -> bool:
 def enabled(value: bool) -> Generator[None]:
     """Switch xarray-annotated on or off for a block.
 
-    Off means the package does nothing: no checks, no input conversion and no
-    output checks, so a body declaring `"Pa"` can receive `"hPa"`.
-    Declarations are still validated when a function is decorated.
+    Off means no checks, so a body declaring `"Pa"` can receive `"hPa"`.  Declarations
+    are still validated when a function is decorated.
 
     The block beats `XARRAY_ANNOTATED_ENABLED` in both directions, and is
     scoped to the current thread or async task.  The variable accepts `1`,
@@ -79,14 +78,12 @@ def enabled(value: bool) -> Generator[None]:
         >>> import xarray as xr
         >>> import xarray_annotated as xra
         >>> @xra.enforce
-        ... def to_pa(p: Annotated[xr.DataArray, xra.Unit("Pa", convert=True)]):
+        ... def f(p: Annotated[xr.DataArray, xra.Unit("Pa")]):
         ...     return p
         >>> hpa = xr.DataArray([1.0], attrs={"units": "hPa"})
-        >>> to_pa(hpa).values
-        array([100.])
         >>> with xra.enabled(False):
-        ...     to_pa(hpa).values
-        array([1.])
+        ...     f(hpa).attrs["units"]
+        'hPa'
     """
     token = _override.set(bool(value))
     try:

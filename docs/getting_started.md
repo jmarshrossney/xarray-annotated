@@ -148,14 +148,13 @@ The annotated function refuses the input, because `K` is not the declared `degC`
     ```
     ValueError: [daily_vpd] input 'tair': unit 'K' differs from declared 'degC'.
       Converting would change the values; if that is correct for this quantity,
-      pass .pint.quantify().pint.to('degC') or declare Unit('degC', convert=True).
+      pass xra.units.convert(da, 'degC').
     ```
 
-    Temperature is safe to convert here, so convert it with pint and try again:
+    Temperature is safe to convert here, so convert it and try again:
 
     ```python
-    tair_k = hourly(293.15, "K")
-    daily_vpd(tair_k.pint.quantify().pint.to("degC"), rh).round(3)
+    daily_vpd(xra.units.convert(hourly(293.15, "K"), "degC"), rh).round(3)
     ```
     ```
     <xarray.DataArray (time: 3, site: 2)> Size: 48B
@@ -168,8 +167,6 @@ The annotated function refuses the input, because `K` is not the declared `degC`
     Attributes:
         units:    kPa
     ```
-
-A declaration can also [opt in to converting](guides/conversion.md#opting-in) inputs itself, but it is off by default, because a compatible unit is not always the right one.
 
 ### Humidity with no units
 
@@ -206,7 +203,7 @@ The annotated function refuses to guess.
       or switch checking off with `xra.enabled(False)`.
     ```
 
-A unit that is dimensionally wrong, such as `tair` labelled `m`, raises `DimensionalityError` whatever the declaration says.
+A unit that is dimensionally wrong, such as `tair` labelled `m`, raises `DimensionalityError`.
 
 ### Data at the wrong frequency
 

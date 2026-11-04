@@ -10,9 +10,9 @@
 | `ValueError: ... which enforce cannot apply`, at import | A marker somewhere it cannot be checked: inside a `tuple`, `list`, `dict` or `Callable`, on a base type other than `DataArray`, or in a generic alias such as `type Generic[T] = Annotated[T, Unit("Pa")]` | Move it onto an `Annotated[xr.DataArray, ...]`, and return several arrays as a `TypedDict` or dataclass |
 | `ValueError: return hint ... holds fields carrying ...`, at import | A return such as a `NamedTuple`, `list[R]` or `R1 \| R2`, or a field of a return, holds a class whose fields carry markers, which `enforce` cannot check | Return one `TypedDict` or dataclass, optionally `\| None`, with its arrays as direct fields |
 | `ValueError: type alias ... refers to itself`, at import | A `type` alias contains itself outside a container, such as `type R = R \| None` | Remove the self-reference |
-| `ValueError: input ... differs from declared` | The unit is compatible with the declared one but not equal to it | [Convert it, or opt in on the declaration](conversion.md) |
+| `ValueError: input ... differs from declared` | The unit is compatible with the declared one but not equal to it | [Convert it](conversion.md) where you call the function |
 | `ValueError: output ... differs from declared`, or an output with no `units` | The body returned another unit, left a stale label, or returned no label | Fix the body, or [state the unit it returns](policy.md#units-outputs) |
-| `DimensionalityError` | The units cannot be converted, and `convert=True` does not change that | Fix the data or the declaration |
+| `DimensionalityError` | The units cannot be converted | Fix the data or the declaration |
 | `FreqError: ... no indexed datetime coordinate`, when called | The message names a datetime coordinate and its fix where it can tell. Otherwise there is no time coordinate, as after `.mean("time")`, or it is unindexed `cftime` or undecoded | Remove the `Freq` marker, [index it](declaring.md#which-coordinate-is-the-time-axis), or decode it |
 | Checks stopped everywhere | The package is switched off | Check `XARRAY_ANNOTATED_ENABLED`, and look for an `xra.enabled(False)` block |
 

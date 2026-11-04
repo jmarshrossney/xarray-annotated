@@ -43,15 +43,14 @@ def _int_da(unit: str | None = "hPa") -> xr.DataArray:
 
 
 class TestOrdering:
-    def test_input_units_converted_before_schema_check(self):
-        # An int64 hPa array converts to float64 Pa; Dtype must see the result.
+    def test_input_units_checked_before_schema_check(self):
+        # Both are wrong, and the unit is reported.
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True), Dtype("float64")]):
+        def f(p: Annotated[xr.DataArray, Unit("Pa"), Dtype("float64")]):
             return p
 
-        out = f(_int_da())
-        assert out.dtype == np.float64
-        np.testing.assert_allclose(out.values, [0.0, 100.0, 200.0, 300.0])
+        with pytest.raises(ValueError, match="'hPa' differs"):
+            f(_int_da())
 
     def test_output_units_checked_before_schema_check(self):
         # Both are wrong, and the unit is reported.
@@ -166,14 +165,14 @@ class TestWrapper:
 
     def test_non_dataarray_arguments_untouched(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)], n: int = 3) -> int:
+        def f(p: Annotated[xr.DataArray, Unit("Pa")], n: int = 3) -> int:
             return n
 
-        assert f(_int_da(), n=5) == 5
+        assert f(_int_da("Pa"), n=5) == 5
 
     def test_dimensional_mismatch_always_raises(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa", convert=True)]): ...
+        def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
 
         with pytest.raises(pint.DimensionalityError):
             f(_int_da(unit="kg"))
@@ -193,11 +192,11 @@ class TestAsync:
     def test_output_is_applied_to_the_awaited_result(self):
         @xra.enforce
         async def f(
-            p: Annotated[xr.DataArray, Unit("Pa", convert=True)],
+            p: Annotated[xr.DataArray, Unit("Pa")],
         ) -> Annotated[xr.DataArray, Unit("kPa"), Dims("time")]:
             return (p / 1000.0).assign_attrs(units="kilopascal")
 
-        out = asyncio.run(f(_int_da().astype(float)))
+        out = asyncio.run(f(_int_da("Pa").astype(float)))
         assert out.attrs["units"] == "kPa"
 
     def test_output_checks_run(self):
