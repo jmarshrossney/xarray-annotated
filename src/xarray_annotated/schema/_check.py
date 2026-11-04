@@ -102,8 +102,9 @@ def _is_exact(marker: Dtype) -> bool:
 def _same_dtype(a: np.dtype, b: np.dtype) -> bool:
     """Whether two dtypes are the same, ignoring byte order.
 
-    Files often hold big-endian data, as NetCDF-3 always does, and that says nothing
-    about what the array is.
+    Byte order says nothing about what the array is.  xarray makes data native when it
+    opens a file, but an array built from raw bytes, or opened with `decode_cf=False`,
+    may not be.
     """
     return a.newbyteorder("=") == b.newbyteorder("=")
 

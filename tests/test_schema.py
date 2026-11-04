@@ -150,7 +150,6 @@ class TestCheckDtype:
 
     @pytest.mark.parametrize("actual", [">f8", "<f8"])
     def test_byte_order_is_not_part_of_the_dtype(self, actual):
-        # NetCDF-3 files are big-endian.
         _run(_da(dtype=actual), Dtype("float64"))
         _run(_da(dtype=actual), Dtype("float"))
         with pytest.raises(schema.SchemaError):
