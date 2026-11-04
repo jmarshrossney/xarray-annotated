@@ -70,6 +70,10 @@ def _markers_in(hint: Any, seen: set[TypeAliasType] | None = None) -> list[Any]:
     for arg in get_args(hint):
         if isinstance(arg, Unit | Dims | Dtype | Coords | Freq):
             found.append(arg)
+        elif isinstance(arg, list):
+            # A Callable's parameter list, which get_args returns as a plain list.
+            for item in arg:
+                found.extend(_markers_in(item, seen))
         else:
             found.extend(_markers_in(arg, seen))
     return found

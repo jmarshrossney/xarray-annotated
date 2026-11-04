@@ -11,7 +11,7 @@ import inspect
 import typing
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, NotRequired, TypedDict
+from typing import Annotated, Concatenate, NotRequired, ParamSpec, TypedDict
 
 import numpy as np
 import pandas as pd
@@ -335,6 +335,7 @@ class TestVariadics:
         assert f(_int_da("Pa"), 1, 2, z="3") == 3
 
 
+_P = ParamSpec("_P")
 _PA = Annotated[xr.DataArray, Unit("Pa")]
 
 type _Alias = _PA
@@ -386,6 +387,10 @@ class TestStrayMarkers:
             Annotated[float, Unit("Pa")],
             Annotated[int, Unit("Pa")] | None,  # pyright: ignore[reportOperatorIssue]
             Callable[[_PA], _PA],
+            Callable[[_PA], int],
+            Callable[[int, _PA], int],
+            list[Callable[[_PA], int]],
+            Callable[Concatenate[_PA, _P], int],  # pyright: ignore[reportGeneralTypeIssues]
             _StrayAlias,
             _StrayGeneric[xr.DataArray],
             _StrayGeneric[xr.DataArray] | None,
