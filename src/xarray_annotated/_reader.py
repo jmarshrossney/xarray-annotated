@@ -76,7 +76,24 @@ class Declared:
         return [m for m in (self.dims, self.dtype, self.coords) if m is not None]
 
 
-def _flatten_aliases(base: Any, metadata: list[Any]) -> tuple[Any, list[Any]]:
+def _enter_alias(alias: TypeAliasType, path: frozenset[Any]) -> frozenset[Any]:
+    """Add an alias to the path being read.
+
+    Raises:
+        ValueError: If the path already holds it, since it then refers to itself and
+            could never resolve to a declaration.  A self-reference inside a
+            container is fine: `type R = Annotated[...] | list[R]` is not entered.
+    """
+    if alias in path:
+        raise ValueError(
+            f"type alias {alias.__name__} refers to itself, so it declares nothing"
+        )
+    return path | {alias}
+
+
+def _flatten_aliases(
+    base: Any, metadata: list[Any], path: frozenset[Any]
+) -> tuple[Any, list[Any]]:
     """Unwrap `type` aliases in `Annotated`'s base slot, keeping their metadata.
 
     `Annotated` flattens a nested `Annotated`, inner metadata first, but cannot see
@@ -87,11 +104,46 @@ def _flatten_aliases(base: Any, metadata: list[Any]) -> tuple[Any, list[Any]]:
     """
     if not isinstance(base, TypeAliasType):
         return base, metadata
+    path = _enter_alias(base, path)
     value = base.__value__
     if get_origin(value) is Annotated:
         value, *inner = get_args(value)
         metadata = [*inner, *metadata]
-    return _flatten_aliases(value, metadata)
+    return _flatten_aliases(value, metadata, path)
+
+
+def _read_hint(hint: Any, path: frozenset[Any] = frozenset()) -> Declared | None:
+    """Read one hint, tracking the `type` aliases entered on the way to it."""
+    if isinstance(hint, TypeAliasType):
+        return _read_hint(hint.__value__, _enter_alias(hint, path))
+    origin = get_origin(hint)
+    if origin in _QUALIFIERS:
+        return _read_hint(get_args(hint)[0], path)
+    if origin in (Union, types.UnionType):
+        members = [_read_hint(arg, path) for arg in get_args(hint)]
+        declared = [member for member in members if member is not None]
+        if len(declared) > 1:
+            raise ValueError(
+                f"one union declares {len(declared)} DataArray hints "
+                f"({', '.join(map(repr, declared))}); declare at most one"
+            )
+        return declared[0] if declared else None
+    if origin is not Annotated:
+        return None
+    base, *metadata = get_args(hint)
+    if get_origin(base) in _QUALIFIERS:
+        base = get_args(base)[0]
+    base, metadata = _flatten_aliases(base, metadata, path)
+    if not _is_dataarray_type(base):
+        return None
+    declared = Declared(
+        unit=_single_marker(metadata, Unit),
+        dims=_single_marker(metadata, Dims),
+        dtype=_single_marker(metadata, Dtype),
+        coords=_single_marker(metadata, Coords),
+        freq=_single_marker(metadata, Freq),
+    )
+    return None if declared == Declared() else declared
 
 
 def declaration_from_hint(hint: Any) -> Declared | None:
@@ -115,7 +167,8 @@ def declaration_from_hint(hint: Any) -> Declared | None:
 
     Raises:
         ValueError: If the hint carries two markers of the same type, or is a union
-            of two declared members, since a value could not say which one applies.
+            of two declared members, since a value could not say which one applies,
+            or is a `type` alias that refers to itself.
 
     Examples:
         >>> from typing import Annotated
@@ -129,36 +182,7 @@ def declaration_from_hint(hint: Any) -> Declared | None:
         >>> declaration_from_hint(Annotated[xr.DataArray, "surface pressure"]) is None
         True
     """
-    if isinstance(hint, TypeAliasType):
-        return declaration_from_hint(hint.__value__)
-    origin = get_origin(hint)
-    if origin in _QUALIFIERS:
-        return declaration_from_hint(get_args(hint)[0])
-    if origin in (Union, types.UnionType):
-        members = [declaration_from_hint(arg) for arg in get_args(hint)]
-        declared = [member for member in members if member is not None]
-        if len(declared) > 1:
-            raise ValueError(
-                f"one union declares {len(declared)} DataArray hints "
-                f"({', '.join(map(repr, declared))}); declare at most one"
-            )
-        return declared[0] if declared else None
-    if origin is not Annotated:
-        return None
-    base, *metadata = get_args(hint)
-    if get_origin(base) in _QUALIFIERS:
-        base = get_args(base)[0]
-    base, metadata = _flatten_aliases(base, metadata)
-    if not _is_dataarray_type(base):
-        return None
-    declared = Declared(
-        unit=_single_marker(metadata, Unit),
-        dims=_single_marker(metadata, Dims),
-        dtype=_single_marker(metadata, Dtype),
-        coords=_single_marker(metadata, Coords),
-        freq=_single_marker(metadata, Freq),
-    )
-    return None if declared == Declared() else declared
+    return _read_hint(hint)
 
 
 def declarations_from_signature(

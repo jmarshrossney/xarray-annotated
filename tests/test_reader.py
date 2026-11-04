@@ -404,3 +404,47 @@ class TestReadsThroughWrappers:
 
         with pytest.raises(ValueError, match="no 'units' attribute"):
             f()
+
+
+type _ToNone = _ToNone | None  # pyright: ignore[reportGeneralTypeIssues]
+type _ToItself = _ToItself  # pyright: ignore[reportGeneralTypeIssues]
+type _ToMarker = Annotated[_ToMarker, Dims("x")]
+type _ToUnion = Annotated[xr.DataArray, Unit("Pa")] | _ToUnion  # pyright: ignore[reportGeneralTypeIssues]
+type _First = _Second | None  # pyright: ignore[reportGeneralTypeIssues]
+type _Second = _First | int
+type _InContainer = Annotated[xr.DataArray, Unit("Pa")] | list[_InContainer]
+type _Shared = Annotated[xr.DataArray, Unit("Pa")]
+type _UsesShared = Annotated[_Shared, Dims("x")] | None
+
+
+def _returning(hint):
+    def f():
+        return None
+
+    f.__annotations__ = {"return": hint}
+    return f
+
+
+class TestSelfReferringAliases:
+    @pytest.mark.parametrize(
+        "alias", [_ToNone, _ToItself, _ToMarker, _ToUnion, _First, _Second]
+    )
+    def test_raises_a_value_error_naming_the_alias(self, alias):
+        with pytest.raises(ValueError, match=r"type alias _\w+ refers to itself"):
+            declaration_from_hint(alias)
+
+    def test_enforce_raises_it_at_decoration(self):
+        with pytest.raises(ValueError, match="refers to itself"):
+            xra.enforce(_returning(_ToNone))
+
+    def test_signature_reader_raises_it_with_the_location(self):
+        with pytest.raises(ValueError, match="refers to itself") as excinfo:
+            declarations_from_signature(_returning(_ToNone))
+        assert any("output" in note for note in excinfo.value.__notes__)
+
+    def test_self_reference_in_a_container_is_fine(self):
+        assert declaration_from_hint(_InContainer) == Declared(unit=Unit("Pa"))
+
+    def test_an_alias_used_on_two_branches_is_not_a_cycle(self):
+        declared = declaration_from_hint(_UsesShared)
+        assert declared == Declared(unit=Unit("Pa"), dims=Dims("x"))
