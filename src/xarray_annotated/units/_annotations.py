@@ -48,8 +48,8 @@ class Unit:
     `on_output` can be set for this declaration too, and beats the decorator
     keyword, which beats the default; switching the package off
     (`enabled(False)`) still disables everything.  `convert` applies to an input
-    and to a pint-quantified output, as an `attrs` label on an output may be stale
-    and is stamped rather than converted.  `on_output` applies only where the
+    and to a pint-quantified output, but never to an `attrs` label on an output,
+    which may be stale.  `on_output` applies only where the
     marker declares an output and is ignored elsewhere, so one marker can be reused
     on both sides.
 

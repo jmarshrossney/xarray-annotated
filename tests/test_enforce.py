@@ -60,7 +60,7 @@ class TestOrdering:
     def test_output_schema_mismatch_reported_after_units(self):
         @xra.enforce
         def f() -> Annotated[xr.DataArray, Unit("Pa"), Dims("x")]:
-            return _int_da()
+            return _int_da("Pa")
 
         with pytest.raises(schema.SchemaError, match="'return'"):
             f()
@@ -217,7 +217,7 @@ class TestWrapper:
 
 class TestAsync:
     def test_output_is_applied_to_the_awaited_result(self):
-        @xra.enforce
+        @xra.enforce(units_on_output="stamp")
         async def f(
             p: Annotated[xr.DataArray, Unit("Pa", convert=True)],
         ) -> Annotated[xr.DataArray, Unit("kPa"), Dims("time")]:
@@ -265,7 +265,7 @@ class TestAsync:
 
 class TestOutputStampLeavesTheInputAlone:
     def _passthrough(self):
-        @xra.enforce
+        @xra.enforce(units_on_output="stamp")
         def f(x: xr.DataArray) -> Annotated[xr.DataArray, Unit("Pa")]:
             return x
 
@@ -282,7 +282,7 @@ class TestOutputStampLeavesTheInputAlone:
         assert np.shares_memory(self._passthrough()(da).values, da.values)
 
     def test_later_check_failure_leaves_it_alone(self):
-        @xra.enforce
+        @xra.enforce(units_on_output="stamp")
         def f(x: xr.DataArray) -> Annotated[xr.DataArray, Unit("Pa"), Dims("nope")]:
             return x
 
@@ -302,7 +302,7 @@ class TestOutputStampLeavesTheInputAlone:
         class Out:
             p: Annotated[xr.DataArray, Unit("Pa")]
 
-        @xra.enforce
+        @xra.enforce(units_on_output="stamp")
         def f(x: xr.DataArray) -> Out:
             return Out(p=x)
 
@@ -327,7 +327,7 @@ class TestOutputStampLeavesTheInputAlone:
         class Out(TypedDict):
             p: Annotated[xr.DataArray, Unit("Pa")]
 
-        @xra.enforce
+        @xra.enforce(units_on_output="stamp")
         def f(x: xr.DataArray) -> Out:
             return {"p": x}
 

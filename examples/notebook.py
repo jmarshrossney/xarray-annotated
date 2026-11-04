@@ -491,6 +491,7 @@ def _(Annotated, Coords, Dims, Dtype, Freq, TypedDict, Unit, xr, xra):
     ) -> Partitioned:
         """Partition NEE into GPP and respiration via a Q10 model."""
         reco = 2.60 * 2.0 ** ((tair - 10.0) / 10.0)
+        reco = reco.assign_attrs(units="umol m-2 s-1")  # otherwise labelled degC
         gpp = (reco - nee).where(ppfd > 5.0, 0.0)  # no photosynthesis in the dark
         return {"gpp": gpp, "reco": reco}
 
@@ -642,7 +643,7 @@ def _(Annotated, UMOL_S_TO_G_D, Unit, xr, xra):
         flux: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
     ) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
         """Umol CO2 m-2 s-1 -> g C m-2 d-1, via the molar mass of carbon."""
-        return flux * UMOL_S_TO_G_D
+        return (flux * UMOL_S_TO_G_D).assign_attrs(units="g m-2 d-1")
 
     return (to_mass_flux,)
 

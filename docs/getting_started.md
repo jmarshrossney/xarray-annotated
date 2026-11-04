@@ -92,7 +92,7 @@ The tabs on this page switch together, so you can compare the code and each resu
     2.  These dimensions must be present, in any order, and no others.
     3.  The body always sees `degC`. A different unit such as `K` raises, even though it could be converted: see [Converting units](guides/conversion.md).
     4.  The `time` coordinate must be hourly.
-    5.  The return value is checked too. `kPa` is stamped on the result, which takes the body's word for it: see [`on_output`](guides/policy.md#units-on_output) for stricter options.
+    5.  The return value is checked too. This body's result has no label, so `kPa` is stamped on it, which takes the body's word for it: see [`on_output`](guides/policy.md#units-on_output) for stricter options.
 
 To try it, we need some data.
 The values are constant at 20 °C and 60% humidity, so every correct result is the same: 0.935 kPa.
@@ -146,7 +146,7 @@ The annotated function refuses the input, because `K` is not the declared `degC`
     ```
     ValueError: [daily_vpd] input 'tair': unit 'K' differs from declared 'degC'.
       Converting would change the values; if that is correct for this quantity,
-      declare Unit('degC', convert=True).
+      pass .pint.quantify().pint.to('degC') or declare Unit('degC', convert=True).
     ```
 
     Temperature is safe to convert here, so convert it with pint and try again:

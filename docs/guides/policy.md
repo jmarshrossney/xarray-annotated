@@ -8,7 +8,7 @@ Behaviour is set only where it is declared, so reading a signature and its decor
 | Frequency mismatch, or no unambiguous time axis | `on_mismatch` | `error`, `warn`, `ignore` | yes | no | `check_freq` |
 | Short or irregular time axis | `on_uninferable` | `warn`, `error`, `ignore` | no | `temporal_on_uninferable` | `check_freq` |
 | Compatible but different unit, on an input or a quantified output | [`convert`](conversion.md#opting-in) | `False`, `True` | yes | no | no (pass the marker) |
-| Declared output unit | `on_output` | `stamp`, `strict`, `require` | yes | `units_on_output` | `apply_output_units` |
+| Declared output unit | `on_output` | `strict`, `stamp`, `require` | yes | `units_on_output` | `apply_output_units` |
 | Dimensionally wrong input unit | none | always raises `DimensionalityError` | | | |
 | Missing, unparseable or over-long input unit | none | always raises `ValueError` | | | |
 
@@ -34,30 +34,36 @@ filterwarnings = ["ignore::xarray_annotated.temporal.UninferableFreqWarning"]
 
 ## `on_output` { #units-on_output }
 
-| Returned value | `stamp` | `strict` | `require` |
+| Returned value | `strict` | `stamp` | `require` |
 |---|---|---|---|
 | No label | stamped | stamped | `ValueError` |
 | Label equals declared | stamped | stamped | stamped |
-| Compatible label (`hPa`) | stamped | `ValueError` | `ValueError` |
-| Incompatible label (`kg`) | stamped | `DimensionalityError` | `DimensionalityError` |
+| Compatible label (`hPa`) | `ValueError` | stamped | `ValueError` |
+| Incompatible label (`kg`) | `DimensionalityError` | stamped | `DimensionalityError` |
 | Unparseable label | stamped | stamped | `ValueError` |
-| Quantified, compatible unit | `ValueError`, or converted with `convert=True` | `ValueError` | `ValueError`, or converted with `convert=True` |
+| Quantified, compatible unit | `ValueError`, or converted with `convert=True` | the same | the same |
 | Quantified, incompatible unit | `DimensionalityError` | `DimensionalityError` | `DimensionalityError` |
 | Not a `DataArray` | passed through | passed through | `ValueError` |
 
-Stamping is the default because `attrs` are inert under arithmetic:
+A returned label that differs from the declaration could mean two things, and the package cannot tell them apart:
+
+- **A forgotten conversion:** the label is true, and overwriting it would report 1 hPa as 1 Pa.
+- **A stale label:** `attrs` are inert under arithmetic, so a correct body can leave its input's label on the result.
+
+`strict` raises in both cases, because a false alarm is loud and a mislabelled result is silent.
+A body that changes the unit states the new one, and the label is never used to convert, since that would apply the arithmetic twice:
 
 ```python
 @xra.enforce
 def to_pascals(
     p: Annotated[xr.DataArray, Unit("hPa")],
 ) -> Annotated[xr.DataArray, Unit("Pa")]:
-    return p * 100.0  # values are Pa; attrs still say "hPa"
+    return (p * 100.0).assign_attrs(units="Pa")  # otherwise labelled "hPa"
 ```
 
-Converting on that stale label would multiply by 100 again.
-For the same reason `strict` suits only bodies that keep their units truthful, such as pass-through functions or pint-quantified computations.
-A body doing scalar arithmetic fails it whether or not it is correct, unless it clears its own label.
+`assign_attrs` can silence a wrong body as easily as a right one, so this makes the author state the unit but does not verify it.
+To trust a function's body without stating the unit, use `@xra.enforce(units_on_output="stamp")`.
+This default is a stopgap: see [the open issue](https://github.com/jmarshrossney/xarray-annotated/issues/ISSUE_NUMBER).
 
 A quantified array's unit lives in the data and cannot go stale, so it is never stamped.
 A different unit raises unless the declaration says `convert=True`, as for an input, and the result stays quantified.

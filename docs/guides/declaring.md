@@ -52,10 +52,10 @@ A few hints are silently not declarations; see [Troubleshooting](troubleshooting
 **Inputs are checked.**
 A different unit in the same dimension (`"hPa"` where `"Pa"` is declared) raises unless [the declaration opts in to converting it](conversion.md), and a dimensionally wrong, missing or unparseable unit always raises.
 
-**Outputs are stamped.**
-A declared return has `attrs["units"]` overwritten with the declared unit, and its values are never inspected.
-Everything downstream then compares against that declaration, so a return's `Unit` is a claim rather than a check; see [Troubleshooting](troubleshooting.md#a-forgotten-conversion-is-not-caught).
-[`on_output`](policy.md#units-on_output) tightens this.
+**Outputs are checked against their label.**
+A return labelled differently from its declaration raises, and one with no label is stamped with the declared unit.
+Values are never inspected, so a stamped or relabelled result is a claim rather than a check; see [Troubleshooting](troubleshooting.md#a-forgotten-conversion-is-not-caught).
+[`on_output`](policy.md#units-on_output) tightens or loosens this.
 
 CF-convention strings such as `"umol m-2 s-1"` need [the CF registry](registry.md).
 

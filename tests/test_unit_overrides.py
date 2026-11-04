@@ -109,20 +109,28 @@ class TestThroughEnforce:
 
     def test_on_output_override_on_a_typeddict_field(self):
         class Out(TypedDict):
-            p: Annotated[xr.DataArray, Unit("Pa", on_output="strict")]
-            q: Annotated[xr.DataArray, Unit("Pa")]
+            p: Annotated[xr.DataArray, Unit("Pa")]
+            q: Annotated[xr.DataArray, Unit("Pa", on_output="stamp")]
 
         @xra.enforce
         def f() -> Out:
             return {"p": _da(unit="Pa"), "q": _da(unit="hPa")}
 
-        out = f()  # q is only stamped; p matched its strict declaration
+        out = f()  # q is only stamped; p matched the strict default
         assert out["q"].attrs["units"] == "Pa"
 
-    def test_convert_does_not_convert_a_labelled_output(self):
-        # A label may be stale, so it is stamped; convert must not act on it.
+    def test_convert_refuses_a_labelled_output_like_any_other(self):
         @xra.enforce
         def f() -> Annotated[xr.DataArray, Unit("Pa", convert=True)]:
+            return _da(unit="hPa")
+
+        with pytest.raises(ValueError, match="on_output='strict'"):
+            f()
+
+    def test_convert_does_not_convert_a_labelled_output(self):
+        # A label may be stale, so convert must not act on it.
+        @xra.enforce
+        def f() -> Annotated[xr.DataArray, Unit("Pa", convert=True, on_output="stamp")]:
             return _da(unit="hPa")
 
         out = f()

@@ -33,9 +33,10 @@ OnOutput = Literal["stamp", "strict", "require"]
 
 _VALID_ON_OUTPUT: frozenset[str] = frozenset({"stamp", "strict", "require"})
 
-#: Outputs are stamped, not verified, by default: a body that does its own unit
-#: arithmetic leaves `attrs` stale, and re-converting would corrupt the values.
-DEFAULT_ON_OUTPUT: OnOutput = "stamp"
+#: Outputs are verified by default.  A body doing its own unit arithmetic leaves
+#: `attrs` stale and must say so, which is a one-line fix, whereas stamping over the
+#: label would silently mislabel a body that forgot the conversion.
+DEFAULT_ON_OUTPUT: OnOutput = "strict"
 
 
 def _validate_on_output(value: str) -> OnOutput:

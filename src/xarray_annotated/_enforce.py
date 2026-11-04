@@ -7,9 +7,9 @@ applies each declared facet in a fixed order:
 1. **inputs** — units are converted (and restamped) *first*, so the structural
    and temporal checks then see the array the function body will see;
 2. the function runs;
-3. **outputs** — the declared unit is applied *first* (stamped, or for a
-   pint-quantified array checked and, if opted into, converted), so the structural
-   and temporal checks see the value the caller will receive.
+3. **outputs** — the declared unit is applied *first* (a label is checked and
+   stamped, a pint-quantified array checked and, if opted into, converted), so the
+   structural and temporal checks see the value the caller will receive.
 
 That order is the reason there is one decorator rather than one per domain:
 stackable per-domain decorators could be applied in any order, and only one
@@ -132,9 +132,9 @@ def enforce(
        its structure (`check_schema`) and frequency (`check_freq`) on the
        converted array;
     2. runs the wrapped function;
-    3. applies each declared output unit (`apply_output_units`: stamped, or for a
-       pint-quantified array checked and, if opted into, converted), then validates
-       structure and frequency on the value returned to the caller.
+    3. applies each declared output unit (`apply_output_units`: a label is checked
+       and stamped, a pint-quantified array checked and, if opted into, converted),
+       then validates structure and frequency on the value returned to the caller.
 
     Only `DataArray` values are touched; anything else passes through, except
     that under `on_output="require"` a declared output that is not a

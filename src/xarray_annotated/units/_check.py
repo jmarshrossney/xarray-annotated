@@ -360,7 +360,8 @@ def check_units(
             raise ValueError(
                 f"{prefix}input {name!r}: unit {have!r} differs from declared "
                 f"{declared!r}. Converting would change the values; if that is "
-                f"correct for this quantity, declare "
+                f"correct for this quantity, pass "
+                f".pint.quantify().pint.to({declared!r}) or declare "
                 f"Unit({declared!r}, convert=True)."
             )
         _log.debug(
@@ -431,8 +432,8 @@ def _apply_output_quantified(
         pint.DimensionalityError: When the unit cannot be converted to
             `declared`, under any mode.
         ValueError: When the unit is compatible with but not equal to `declared`,
-            unless `convert` is set and the mode is not `"strict"`; under
-            `"require"`, when the active registry cannot parse the unit.
+            unless `convert` is set; under `"require"`, when the active registry
+            cannot parse the unit.
     """
     try:
         label = _quantified_label(have)
@@ -463,20 +464,13 @@ def _apply_output_quantified(
         return da
     # Only *compatible* units raise here; an incompatible label falls through to the
     # conversion below, which raises DimensionalityError for us.
-    if units_compatible(label, declared):
-        if on_output == "strict":
-            raise ValueError(
-                f"{prefix}output {name!r}: unit {label!r} differs from declared "
-                f"{declared!r} and on_output='strict' requires them to match"
-            )
-        if not convert:
-            raise ValueError(
-                f"{prefix}output {name!r}: unit {label!r} differs from declared "
-                f"{declared!r}. Converting would change the values; if that is "
-                f"correct for this quantity, declare "
-                f"Unit({declared!r}, convert=True) or return "
-                f".pint.to({declared!r})."
-            )
+    if units_compatible(label, declared) and not convert:
+        raise ValueError(
+            f"{prefix}output {name!r}: unit {label!r} differs from declared "
+            f"{declared!r}. Converting would change the values; if that is "
+            f"correct for this quantity, return .pint.to({declared!r}) or declare "
+            f"Unit({declared!r}, convert=True)."
+        )
     _log.debug(
         "%soutput %r: converting quantified %r -> declared %r",
         prefix,
@@ -517,13 +511,13 @@ def apply_output_units(
     declaration opts in with `Unit(..., convert=True)`, as for an input, since
     whether a conversion is correct depends on the quantity.  It stays quantified.
 
-    - `"stamp"` (default) — overwrite a label, with no checks.
-    - `"strict"` — a parseable label, or a quantified unit, that differs from
-      `declared` raises, whatever `convert` says.  Only for bodies that keep their
-      units truthful: scalar arithmetic fails it whether or not it is correct.
-    - `"require"` — as `"strict"`, except that `convert=True` still converts a
-      quantified unit, and an output with no parseable unit of its own raises.
-      For wrappers of libraries that return bare arrays.
+    - `"strict"` (default) — a parseable label that differs from `declared` raises.
+      A body that changes the unit by scalar arithmetic leaves a stale label and
+      fails this whether or not it is correct, so it must state the new unit with
+      `.assign_attrs(units=...)`; an unlabelled result is stamped.
+    - `"stamp"` — overwrite a label, with no checks.
+    - `"require"` — as `"strict"`, and an output with no parseable unit of its own
+      raises.  For wrappers of libraries that return bare arrays.
 
     Output *values* are never inspected, so no mode detects a forgotten conversion
     factor on a labelled array.  See [`on_output`](../guides/policy.md#units-on_output)
@@ -535,7 +529,7 @@ def apply_output_units(
             whose `on_output` override and `convert` then apply.
         name: A label for the value, used in error messages.
         on_output: Set the on-output axis for this call (`None` takes the
-            default, `"stamp"`); a marker's own override wins.
+            default, `"strict"`); a marker's own override wins.
         qualname: A qualifier prepended to messages as `[qualname]`.
 
     Returns:
@@ -553,9 +547,8 @@ def apply_output_units(
             converted.
         ValueError: Under `"strict"` or `"require"`, when an `attrs` label is
             compatible with but not equal to `declared`.  For a quantified array
-            with such a unit, under `"strict"`, or under any mode without
-            `convert`.  Under `"require"`, also when the array carries no parseable
-            unit of its own.
+            with such a unit, under any mode without `convert`.  Under `"require"`,
+            also when the array carries no parseable unit of its own.
 
     Examples:
         >>> import xarray as xr
@@ -650,16 +643,24 @@ def apply_output_units(
                     extra_msg=(
                         f" ({prefix}output {name!r} is labelled {have!r} but declares "
                         f"{declared!r}, and on_output={on_output!r} requires them to "
-                        f"match; if the body converts by scalar arithmetic, clear its "
-                        f"'units' attribute or use on_output='stamp')"
+                        f"match. {_stale_label_hint(declared)})"
                     ),
                 ) from None
         else:
             raise ValueError(
                 f"{prefix}output {name!r}: unit {have!r} differs from declared "
-                f"{declared!r} and on_output={on_output!r} requires them to match"
+                f"{declared!r} and on_output={on_output!r} requires them to match. "
+                f"{_stale_label_hint(declared)}"
             )
     return _stamped(da, declared)
+
+
+def _stale_label_hint(declared: str) -> str:
+    return (
+        f"If the values really are in {declared!r} and the label is stale, state "
+        f"that in the body with .assign_attrs(units={declared!r}); otherwise the "
+        f"body returned the wrong unit"
+    )
 
 
 def require_dataarray(

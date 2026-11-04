@@ -247,11 +247,11 @@ class TestOnOutput:
     """The ``on_output`` axis: whether a returned array's own unit label is
     verified before being overwritten.
 
-    Outputs are *stamped* rather than converted because xarray's ``attrs`` are
-    inert under arithmetic: a body converting by scalar multiplication returns an
-    array still labelled with its input's unit.  These tests pin the four label
-    cases (absent / equal / compatible-but-different / incompatible) across both
-    modes, and the limits of what ``"strict"`` can mean.
+    Labelled outputs are never converted because xarray's ``attrs`` are inert under
+    arithmetic: a body converting by scalar multiplication returns an array still
+    labelled with its input's unit.  These tests pin the four label cases (absent /
+    equal / compatible-but-different / incompatible) across both modes, and the
+    limits of what ``"strict"`` can mean.
     """
 
     @staticmethod
@@ -264,16 +264,39 @@ class TestOnOutput:
 
         return f
 
-    # -- default behaviour is unchanged ------------------------------------
+    # -- defaults -----------------------------------------------------------
 
-    def test_default_is_stamp(self):
-        assert units._config.DEFAULT_ON_OUTPUT == "stamp"
+    def test_default_is_strict(self):
+        assert units._config.DEFAULT_ON_OUTPUT == "strict"
+
+    def test_default_refuses_a_forgotten_conversion(self):
+        """What the default is for: a truthful label is not overwritten."""
+
+        @xra.enforce
+        def forgot(
+            p: Annotated[xr.DataArray, Unit("hPa")],
+        ) -> Annotated[xr.DataArray, Unit("Pa")]:
+            return p
+
+        with pytest.raises(ValueError, match=r"'hPa' differs.*assign_attrs"):
+            forgot(_da([[1.0]], unit="hPa"))
+
+    def test_default_lets_a_body_state_a_new_unit(self):
+        @xra.enforce
+        def to_pascals(
+            p: Annotated[xr.DataArray, Unit("hPa")],
+        ) -> Annotated[xr.DataArray, Unit("Pa")]:
+            return (p * 100.0).assign_attrs(units="Pa")
+
+        out = to_pascals(_da([[1013.0]], unit="hPa"))
+        assert out.attrs["units"] == "Pa"
+        np.testing.assert_allclose(out.values, [[101300.0]])
 
     def test_stamp_does_not_reconvert(self):
         """The regression this asymmetry exists to prevent: a body that has
         already done the arithmetic must not have it applied a second time."""
 
-        @xra.enforce
+        @xra.enforce(units_on_output="stamp")
         def to_pascals(
             p: Annotated[xr.DataArray, Unit("hPa")],
         ) -> Annotated[xr.DataArray, Unit("Pa")]:
@@ -286,10 +309,10 @@ class TestOnOutput:
 
     def test_stamp_tolerates_dimension_changing_body(self):
         """A body converting moles -> mass by a scalar factor leaves a
-        dimensionally *incompatible* stale label.  Under the default this is
+        dimensionally *incompatible* stale label.  Under ``"stamp"`` this is
         expected, not an error -- the label simply carries no information."""
 
-        @xra.enforce
+        @xra.enforce(units_on_output="stamp")
         def to_mass(
             flux: Annotated[xr.DataArray, Unit("umol / m**2 / s")],
         ) -> Annotated[xr.DataArray, Unit("g / m**2 / d")]:
@@ -339,9 +362,9 @@ class TestOnOutput:
             self._returning("kg", on_output="strict")()
 
     def test_strict_message_suggests_the_escape_hatch(self):
-        """The likeliest cause is a scalar-arithmetic body, so the message must
-        point at that rather than implying the values are wrong."""
-        with pytest.raises(pint.DimensionalityError, match="scalar arithmetic"):
+        """A stale label from a scalar-arithmetic body is a likely cause, so the
+        message must offer that rather than implying the values are wrong."""
+        with pytest.raises(pint.DimensionalityError, match=r"stale.*assign_attrs"):
             self._returning("kg", on_output="strict")()
 
     def test_strict_accepts_a_body_that_clears_its_label(self):
@@ -438,9 +461,10 @@ class TestApplyOutputUnitsPrimitive:
         assert out.attrs["units"] == "Pa"
         assert "units" not in da.attrs
 
-    def test_none_takes_default_stamp(self):
+    def test_none_takes_default_strict(self):
         da = _da([[1.0]], unit="kg")
-        assert units.apply_output_units(da, "Pa", "return").attrs["units"] == "Pa"
+        with pytest.raises(pint.DimensionalityError):
+            units.apply_output_units(da, "Pa", "return")
 
     def test_argument_applies(self):
         da = _da([[1.0]], unit="kg")
@@ -485,22 +509,24 @@ class TestQuantifiedOutputs:
     @pytest.mark.parametrize(
         "declared", ["Pa", Unit("Pa"), Unit("Pa", convert=False)], ids=repr
     )
-    @pytest.mark.parametrize("on_output", ["stamp", "require"])
+    @pytest.mark.parametrize("on_output", ["stamp", "strict", "require"])
     def test_conversion_needs_opting_into(self, declared, on_output):
         # Compatible is not correct: the input rule, applied to an output.
-        with pytest.raises(ValueError, match=r"'return'.*convert=True.*pint\.to"):
+        with pytest.raises(ValueError, match=r"'return'.*pint\.to.*convert=True"):
             units.apply_output_units(
                 _quantified([[1.0]], "hPa"), declared, "return", on_output
             )
 
-    def test_strict_refuses_even_a_declared_conversion(self):
-        with pytest.raises(ValueError, match="on_output='strict'"):
-            units.apply_output_units(
-                _quantified([[1.0]], "hPa"),
-                Unit("Pa", convert=True),
-                "return",
-                "strict",
-            )
+    @pytest.mark.parametrize("on_output", ["stamp", "strict", "require"])
+    def test_a_declared_conversion_applies_in_every_mode(self, on_output):
+        # The unit is true whatever the mode, and the declaration said to convert.
+        out = units.apply_output_units(
+            _quantified([[1.0]], "hPa"),
+            Unit("Pa", convert=True),
+            "return",
+            on_output,
+        )
+        np.testing.assert_allclose(out.pint.magnitude, [[100.0]])
 
     def test_already_declared_unit_is_returned_untouched(self):
         # No conversion needed => same object, and crucially no copy of the
@@ -528,7 +554,7 @@ class TestQuantifiedOutputs:
             units.apply_output_units(_quantified([[1.0]], "hPa"), "kg", "return")
 
     def test_strict_rejects_a_compatible_but_different_unit(self):
-        with pytest.raises(ValueError, match="on_output='strict'"):
+        with pytest.raises(ValueError, match="convert=True"):
             units.apply_output_units(
                 _quantified([[1.0]], "hPa"), "Pa", "return", "strict"
             )

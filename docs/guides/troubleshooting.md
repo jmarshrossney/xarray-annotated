@@ -27,20 +27,21 @@ A `TypedDict` used as a parameter type is not read field by field, and in a unio
 
 `declarations_from_signature(f)` shows what a function actually declares.
 
-## A forgotten conversion is not caught { #a-forgotten-conversion-is-not-caught }
+## A forgotten conversion can still get through { #a-forgotten-conversion-is-not-caught }
 
-A function declares an output unit, its body omits the conversion or a wrapped library returns something else, and every check passes:
+The default catches a body that leaves its input's label on the result, but values are never inspected, so a wrong result with the right label or no label passes every check:
 
 ```python
 @xra.enforce
 def daily_carbon(
     flux: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
 ) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
-    return flux.resample(time="D").mean()  # forgot * MOLAR_FACTOR
+    daily = flux.resample(time="D").mean()  # forgot * MOLAR_FACTOR
+    return daily.assign_attrs(units="g m-2 d-1")
 ```
 
-The output is stamped with its declared unit, and values are never inspected.
-A consumer declaring `g m-2 d-1` then agrees with that stamp, so declaring the unit downstream does not help, and `strict` cannot tell this body from a correct one.
+The same happens to a wrapped library that returns a bare array in some other unit, which is stamped with the declaration.
+A consumer declaring `g m-2 d-1` then agrees with that label, so declaring the unit downstream does not help.
 Declarations catch wiring mistakes, not algebra.
 
 Two things do keep the unit tied to the values:

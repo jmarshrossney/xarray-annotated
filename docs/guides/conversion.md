@@ -18,7 +18,8 @@ Convert the array before passing it in, so the decision is visible where it is m
 def altitude(
     p: Annotated[xr.DataArray, Unit("Pa")],
 ) -> Annotated[xr.DataArray, Unit("m")]:
-    return 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
+    alt = 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
+    return alt.assign_attrs(units="m")
 
 
 p = xr.DataArray([1013.0, 1000.0], dims="time", attrs={"units": "hPa"})
@@ -26,6 +27,7 @@ altitude(p.pint.quantify().pint.to("Pa"))
 ```
 
 `enforce` reads a quantified input's unit from the data, and the body receives a plain array labelled `Pa`.
+The `assign_attrs` call states the unit of the result, because xarray would otherwise leave the `Pa` label on it; see [`on_output`](policy.md#units-on_output).
 To get a plain array back yourself, add `.pint.dequantify()`.
 
 Inside a function that computes on quantified arrays, do the same before returning:
@@ -51,7 +53,8 @@ Add `convert=True` to the marker:
 def altitude(
     p: Annotated[xr.DataArray, Unit("Pa", convert=True)],
 ) -> Annotated[xr.DataArray, Unit("m")]:
-    return 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
+    alt = 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
+    return alt.assign_attrs(units="m")
 
 
 altitude(p)
@@ -73,7 +76,6 @@ type Pressure = Annotated[xr.DataArray, Unit("Pa", convert=True)]
 |---|---|---|
 | Input | `ValueError` | Converted |
 | Quantified output | `ValueError` | Converted, and stays quantified |
-| Quantified output under `on_output="strict"` | `ValueError` | `ValueError` |
 | Labelled output | Governed by [`on_output`](policy.md#units-on_output), never converted | The same |
 
 Equivalent spellings (`pascal` for `Pa`) need no opt-in, because the values do not change.

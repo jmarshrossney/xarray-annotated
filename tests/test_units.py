@@ -37,7 +37,7 @@ def _da(values, unit=None):
 
 class TestAxes:
     def test_defaults(self):
-        assert _config.DEFAULT_ON_OUTPUT == "stamp"
+        assert _config.DEFAULT_ON_OUTPUT == "strict"
 
     def test_on_missing_is_gone(self):
         with pytest.raises(TypeError, match="on_missing"):

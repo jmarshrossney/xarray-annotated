@@ -82,13 +82,13 @@ class TestUnreadableInputs:
 
 class TestOutputs:
     def test_stamp_over_different_label_is_debug(self, audit):
-        units.apply_output_units(_da("hPa"), "Pa", "return")
+        units.apply_output_units(_da("hPa"), "Pa", "return", "stamp")
         [(level, msg)] = _records(audit, UNITS)
         assert level == logging.DEBUG
         assert "over label 'hPa'" in msg
 
     def test_stamp_over_unparseable_label_is_debug(self, audit):
-        units.apply_output_units(_da("not_a_unit"), "Pa", "return")
+        units.apply_output_units(_da("not_a_unit"), "Pa", "return", "stamp")
         [(level, _)] = _records(audit, UNITS)
         assert level == logging.DEBUG
 
@@ -158,7 +158,7 @@ class TestQuietByDefault:
     def test_nothing_reaches_a_warning_level_handler(self, caplog):
         caplog.set_level(logging.WARNING, logger="xarray_annotated")
         units.check_units(_da(), Unit("Pa", convert=True), "p")
-        units.apply_output_units(_da(), "Pa", "return")
+        units.apply_output_units(_da(), "Pa", "return", "stamp")
         assert caplog.records == []
 
     def test_switched_off_logs_nothing(self, audit):
@@ -176,7 +176,7 @@ class TestOverLongLabelUnderStamp:
             raise AssertionError("over-long label reached the parser")
 
         monkeypatch.setattr(units._check, "units_equal", fail)
-        out = units.apply_output_units(_da(label), "Pa", "return")
+        out = units.apply_output_units(_da(label), "Pa", "return", "stamp")
         assert out.attrs["units"] == "Pa"
         [(level, msg)] = _records(audit, UNITS)
         assert level == logging.DEBUG

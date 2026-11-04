@@ -83,14 +83,15 @@ def altitude(
     p: Annotated[xr.DataArray, Dims("time"), Unit("Pa")],
 ) -> Annotated[xr.DataArray, Dims("time"), Unit("m")]:
     """Barometric altitude."""
-    return 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
+    alt = 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
+    return alt.assign_attrs(units="m")
 
 
 p = xr.DataArray([1013.0, 1000.0], dims=["time"], attrs={"units": "hPa"})
 altitude(p)
 # ValueError: [altitude] input 'p': unit 'hPa' differs from declared 'Pa'.
 #   Converting would change the values; if that is correct for this quantity,
-#   declare Unit('Pa', convert=True).
+#   pass .pint.quantify().pint.to('Pa') or declare Unit('Pa', convert=True).
 ```
 
 The wrong unit is now an error rather than a wrong answer.
@@ -107,7 +108,8 @@ Attributes:
     units:    m
 ```
 
-Now the outputs are physical, and the result is stamped with the unit the signature promised.
+Now the outputs are physical and carry the unit the signature promised.
+The body has to state that unit, because xarray would otherwise leave the `Pa` label on the result, and a label that disagrees with the declaration raises: it could just as easily mean a forgotten conversion.
 A declaration can also [opt in to converting](https://jmarshrossney.github.io/xarray-annotated/guides/conversion.html) its inputs, but this is off by default: whether a conversion is correct depends on the quantity, and a compatible unit is not always the right one.
 The docstring no longer needs to say "assumes Pa", because the signature does --- and unlike the docstring, it is actually enforced.
 
