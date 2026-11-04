@@ -530,12 +530,33 @@ class TestConversionClearsEncoding:
         out = units.check_units(_packed(), Unit("Pa", convert=True), "p")
         assert out.time.encoding == {"units": "days since 2000-01-01"}
 
-    @pytest.mark.parametrize(
-        "prepare", [lambda da: da, lambda da: da.pint.quantify()], ids=["attrs", "pint"]
-    )
-    def test_same_unit_keeps_it(self, prepare):
-        out = units.check_units(prepare(_packed("hPa")), "hectopascal", "p")
+    def test_same_unit_keeps_it(self):
+        out = units.check_units(_packed("hPa"), "hectopascal", "p")
         assert out.encoding == _PACKING
+
+    def test_explicitly_converted_input(self):
+        da = _packed().pint.quantify().pint.to("Pa")
+        assert da.encoding == _PACKING  # what pint-xarray leaves behind
+        out = units.check_units(da, "Pa", "p")
+        assert out.encoding == {}
+        assert da.encoding == _PACKING
+
+    def test_explicitly_converted_input_survives_encoding(self):
+        out = units.check_units(_packed().pint.quantify().pint.to("Pa"), "Pa", "p")
+        encoded = xr.conventions.encode_cf_variable(out.variable)
+        decoded = xr.conventions.decode_cf_variable("p", encoded)
+        np.testing.assert_allclose(decoded.values, [100000.0, 101000.0])
+
+    def test_explicitly_converted_output(self):
+        da = _packed().pint.quantify().pint.to("Pa")
+        out = units.apply_output_units(da, "Pa", "return")
+        assert out.encoding == {}
+        assert out.pint.units == da.pint.units
+        assert da.encoding == _PACKING
+
+    def test_quantified_output_with_no_packing_comes_back_as_itself(self):
+        da = xr.DataArray([1.0], attrs={"units": "Pa"}).pint.quantify()
+        assert units.apply_output_units(da, "Pa", "return") is da
 
 
 class _CountingBackend(BackendArray):

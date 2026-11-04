@@ -316,8 +316,8 @@ def check_units(
         to `declared`.  When the input is already in `declared` the data is not
         copied — the result is a shallow copy sharing the caller's buffer, so
         declaring a unit an array already has costs nothing, and a lazy array stays
-        lazy.  A converted array has empty `.encoding`, since packing that described
-        the old values would corrupt the new ones on write.
+        lazy.  A converted or quantified array has empty `.encoding`, since packing
+        that described other values would corrupt these on write.
 
     Raises:
         ValueError: When no parseable unit is found, or when a value-changing
@@ -397,8 +397,9 @@ def check_units(
     # dequantify writes pint's canonical unit name (e.g. 'pascal'), and the plain
     # path still holds the old label; stamp the declared spelling over either.
     converted.attrs["units"] = declared
-    if not units_equal(have, declared):
-        # The packing described the old values, and would corrupt these on write.
+    if quantified or not units_equal(have, declared):
+        # The packing may describe other values, and would corrupt these on write.
+        # A quantified array may have been converted already: `.pint.to` keeps it.
         converted.encoding = {}
     return converted
 
@@ -436,7 +437,8 @@ def apply_output_units(
         For a labelled array, a shallow copy of `da` with `attrs["units"]` respelled
         as `declared`; `da` itself is left as it was, since a body may have returned
         the caller's own array.  For a quantified array, `da` itself, as dequantifying
-        would copy the whole buffer.  Always use the return value.
+        would copy the whole buffer, or a shallow copy with empty `.encoding` if it has
+        any.  Always use the return value.
 
     Raises:
         pint.DimensionalityError: When the unit is dimensionally incompatible with
@@ -459,7 +461,14 @@ def apply_output_units(
 
     have, quantified = _own_unit(da, declared, where, _STATE_UNIT)
     if units_equal(have, declared):
-        return da if quantified else _stamped(da, declared)
+        if not quantified:
+            return _stamped(da, declared)
+        if not da.encoding:
+            return da
+        # As for an input: `.pint.to` keeps a packing that describes the old values.
+        unpacked = da.copy(deep=False)
+        unpacked.encoding = {}
+        return unpacked
     hint = (
         f"Convert it in the body with .pint.to({declared!r})."
         if quantified
