@@ -645,3 +645,108 @@ class TestNothingIsReadFromDisk:
         assert reads > 0
         assert temporal.check_freq(indexed, Freq("D"), "x") is indexed
         assert backend.reads == reads
+
+
+def _track():
+    return xr.DataArray(np.zeros(5), dims="obs", coords={"time": ("obs", _TIMES)})
+
+
+class TestErrorsNameTheFix:
+    """The message says what is wrong with the coordinate, and its remedy works."""
+
+    @pytest.mark.parametrize("dim", [None, "time"])
+    @pytest.mark.parametrize(
+        ("make", "reason", "fix"),
+        [
+            (_track, r"'time' has no index.*\.set_xindex\('time'\)", "set_xindex"),
+            (
+                lambda: _custom_index_axis()[0],
+                r"'time' has a _NoPandasIndex, not a pandas index"
+                r".*\.drop_indexes\('time'\)\.set_xindex\('time'\)",
+                "replace",
+            ),
+        ],
+        ids=["unindexed", "custom"],
+    )
+    def test_the_named_fix_passes(self, make, reason, fix, dim):
+        da = make()
+        with pytest.raises(temporal.FreqError, match=reason):
+            temporal.check_freq(da, Freq("D", dim=dim), "x")
+        if fix == "replace":
+            da = da.drop_indexes("time")
+        fixed = da.set_xindex("time")
+        assert temporal.check_freq(fixed, Freq("D", dim=dim), "x") is fixed
+
+    @pytest.mark.parametrize("dim", [None, "time"])
+    def test_scalar_names_expand_dims_which_keeps_a_time_dimension(self, dim):
+        da = _da(_TIMES).isel(time=0)
+        with pytest.raises(temporal.FreqError, match=r"\.expand_dims\('time'\)"):
+            temporal.check_freq(da, Freq("D", dim=dim), "x")
+        fixed = da.expand_dims("time")
+        with pytest.warns(temporal.UninferableFreqWarning):
+            temporal.check_freq(fixed, Freq("D", dim=dim), "x")
+
+    def test_2d_coord_is_named_as_such(self):
+        valid = np.tile(_TIMES.values[:, None], (1, 2))
+        da = xr.DataArray(
+            np.zeros((5, 2)), dims=("a", "b"), coords={"valid": (("a", "b"), valid)}
+        )
+        with pytest.raises(temporal.FreqError, match="'valid' is 2-D"):
+            temporal.check_freq(da, Freq("D"), "x")
+
+    def test_every_coordinate_is_named(self):
+        da = _track().assign_coords(valid=("obs", _TIMES))
+        with pytest.raises(temporal.FreqError) as exc:
+            temporal.check_freq(da, Freq("D"), "x")
+        assert "'time' has no index" in str(exc.value)
+        assert "'valid' has no index" in str(exc.value)
+
+    def test_unindexed_cftime_gets_the_generic_wording(self):
+        times = xr.date_range(
+            "2020-01-01", periods=5, freq="D", calendar="noleap", use_cftime=True
+        )
+        with pytest.raises(temporal.FreqError, match="unindexed cftime"):
+            temporal.check_freq(_da(times).drop_indexes("time"), Freq("D"), "x")
+
+    def test_no_time_at_all_gets_the_generic_wording(self):
+        da = xr.DataArray(np.zeros(5), dims="x")
+        with pytest.raises(temporal.FreqError, match="undecoded times"):
+            temporal.check_freq(da, Freq("D"), "x")
+
+    def test_naming_an_absent_coordinate_lists_the_candidates(self):
+        with pytest.raises(temporal.FreqError, match=r"coords: \['time'\]"):
+            temporal.check_freq(_da(_TIMES), Freq("D", dim="nope"), "x")
+
+    def test_naming_a_non_datetime_coordinate_lists_the_candidates(self):
+        da = _da(_TIMES, extra_coords={"n": np.arange(5)})
+        with pytest.raises(temporal.FreqError, match=r"coords: \['time'\]"):
+            temporal.check_freq(da, Freq("D", dim="n"), "x")
+
+    def test_building_the_message_reads_nothing(self):
+        aux, backend = _lazy_variable("s", _TIMES.values)
+        da = _with_lazy_coord(xr.DataArray(np.zeros(5), dims="s"), "valid", aux)
+        with pytest.raises(temporal.FreqError, match="'valid' has no index"):
+            temporal.check_freq(da, Freq("D"), "x")
+        assert backend.reads == 0
+        da.compute()
+        assert backend.reads > 0
+
+
+class TestAnAuxCoordCanBeTheAxis:
+    def _both(self):
+        spaced = pd.date_range("2020-01-01", periods=5, freq="2D")
+        return _da(_TIMES, extra_coords={"valid": spaced}).set_xindex("valid")
+
+    def test_indexing_it_makes_the_axis_ambiguous(self):
+        with pytest.raises(temporal.FreqError, match="ambiguous"):
+            temporal.check_freq(self._both(), Freq("D"), "x")
+
+    def test_naming_it_checks_it(self):
+        da = self._both()
+        assert temporal.check_freq(da, Freq("2D", dim="valid"), "x") is da
+        with pytest.raises(temporal.FreqError, match="frequency mismatch"):
+            temporal.check_freq(da, Freq("D", dim="valid"), "x")
+
+    def test_naming_the_other_one_checks_that(self):
+        da = self._both()
+        assert temporal.check_freq(da, Freq("D", dim="time"), "x") is da

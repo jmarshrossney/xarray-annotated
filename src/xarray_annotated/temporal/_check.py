@@ -226,6 +226,33 @@ def _is_datetime_like(da: xr.DataArray, name: str) -> bool:
     return is_numpy or isinstance(index.index, xr.CFTimeIndex)
 
 
+def _why_not_axis(da: xr.DataArray, name: str) -> str | None:
+    """Why a numpy datetime coordinate is not a time axis, and how to make it one.
+
+    Decided from its dtype, shape and index, so nothing is read.  That leaves cftime
+    unidentified, as an unindexed one has dtype `object` until it is read.
+
+    Returns:
+        The reason, or `None` for a coordinate this cannot say anything about.
+    """
+    coord = da.coords[name]
+    index = da.xindexes.get(name)
+    if not np.issubdtype(coord.dtype, np.datetime64) or isinstance(index, PandasIndex):
+        return None
+    if coord.ndim == 0:
+        return (
+            f"{name!r} is a scalar, so keep its dimension with .expand_dims({name!r})"
+        )
+    if coord.ndim > 1:
+        return f"{name!r} is {coord.ndim}-D, and a time axis must be 1-D"
+    if index is not None:
+        return (
+            f"{name!r} has a {type(index).__name__}, not a pandas index, so replace it "
+            f"with .drop_indexes({name!r}).set_xindex({name!r})"
+        )
+    return f"{name!r} has no index, so add one with .set_xindex({name!r})"
+
+
 def _locate_axis(da: xr.DataArray, marker: Freq) -> tuple[str | None, str]:
     """Find the time coordinate a `Freq` declaration is about.
 
@@ -233,17 +260,25 @@ def _locate_axis(da: xr.DataArray, marker: Freq) -> tuple[str | None, str]:
     unambiguous answer — which is itself a mismatch (the declaration says the array
     has a time axis; it does not, or it has two).
     """
-    candidates = [str(name) for name in da.coords if _is_datetime_like(da, str(name))]
+    names = [str(name) for name in da.coords]
+    candidates = [name for name in names if _is_datetime_like(da, name)]
     if marker.dim is not None:
         if marker.dim not in candidates:
+            reason = _why_not_axis(da, marker.dim) if marker.dim in names else None
             return None, (
                 f"declared {marker!r} but {marker.dim!r} is not an indexed datetime "
-                f"coordinate; indexed datetime coords: {candidates}"
+                f"coordinate: {reason or f'indexed datetime coords: {candidates}'}"
             )
         return marker.dim, ""
     if not candidates:
+        reasons = [r for name in names if (r := _why_not_axis(da, name))]
         return None, (
             f"declared {marker!r} but the array has no indexed datetime coordinate"
+            + (
+                f": {'; '.join(reasons)}"
+                if reasons
+                else "; unindexed cftime and undecoded times look like this too"
+            )
         )
     if len(candidates) > 1:
         return None, (
