@@ -537,6 +537,21 @@ def _lazy_variable(dim, values):
     return xr.Variable((dim,), data), backend  # pyright: ignore[reportArgumentType]
 
 
+def _with_lazy_coord(da, name, variable):
+    """Attach an unindexed coord, keeping its backend.
+
+    The `DataArray` constructor deep-copies a coord's backend, so a counter on the
+    original would never move.
+    """
+    return da.assign_coords(xr.Coordinates({name: variable}, indexes={}))
+
+
+def _custom_index_axis():
+    time, backend = _lazy_variable("time", _TIMES.values)
+    da = _with_lazy_coord(xr.DataArray(np.zeros(5), dims="time"), "time", time)
+    return da.set_xindex("time", _NoPandasIndex), backend
+
+
 class TestOnlyAnIndexedCoordIsATimeAxis:
     def test_scalar_datetime_coord_is_ignored(self):
         da = _da(_TIMES).assign_coords(ref=np.datetime64("2000-01-01"))
@@ -596,14 +611,37 @@ class TestNothingIsReadFromDisk:
     def test_lazy_data_and_aux_coord_with_an_indexed_axis(self):
         data, data_backend = _lazy_variable("time", np.zeros(5))
         aux, aux_backend = _lazy_variable("time", _TIMES.values)
-        da = xr.DataArray(data, coords={"time": _TIMES, "valid": aux})
+        da = xr.DataArray(data, coords={"time": _TIMES})
+        da = _with_lazy_coord(da, "valid", aux)
         assert temporal.check_freq(da, Freq("D"), "x") is da
         assert data_backend.reads == 0
         assert aux_backend.reads == 0
+        da.compute()
+        assert data_backend.reads > 0
+        assert aux_backend.reads > 0
 
     def test_lazy_unindexed_axis_is_refused_unread(self):
         aux, aux_backend = _lazy_variable("s", _TIMES.values)
-        da = xr.DataArray(np.zeros(5), dims="s", coords={"valid": aux})
+        da = _with_lazy_coord(xr.DataArray(np.zeros(5), dims="s"), "valid", aux)
         with pytest.raises(temporal.FreqError, match="no indexed datetime coordinate"):
             temporal.check_freq(da, Freq("D"), "x")
         assert aux_backend.reads == 0
+        da.compute()
+        assert aux_backend.reads > 0
+
+    @pytest.mark.parametrize("dim", [None, "time"])
+    def test_custom_index_on_the_axis_is_refused_unread(self, dim):
+        da, backend = _custom_index_axis()
+        with pytest.raises(temporal.FreqError, match="indexed datetime"):
+            temporal.check_freq(da, Freq("D", dim=dim), "x")
+        assert backend.reads == 0
+        da.compute()
+        assert backend.reads > 0
+
+    def test_replacing_a_custom_index_reads_once_then_the_check_reads_nothing(self):
+        da, backend = _custom_index_axis()
+        indexed = da.drop_indexes("time").set_xindex("time")
+        reads = backend.reads
+        assert reads > 0
+        assert temporal.check_freq(indexed, Freq("D"), "x") is indexed
+        assert backend.reads == reads

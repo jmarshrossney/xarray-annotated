@@ -40,7 +40,8 @@ class Freq:
 
     Pass ``dim`` to name the time coordinate explicitly; by default the array's sole
     indexed datetime-like coordinate is used, and an array carrying two is ambiguous.
-    Either way it must be indexed, so that checking it reads nothing from disk.
+    Either way it must have a pandas index, not a custom one, so that checking it reads
+    nothing from disk.
     """
 
     _freq: str

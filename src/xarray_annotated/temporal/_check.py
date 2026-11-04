@@ -213,17 +213,17 @@ def freq_compatible(a: Freq, b: Freq) -> bool:
 def _is_datetime_like(da: xr.DataArray, name: str) -> bool:
     """Whether a coordinate is an indexed time axis, numpy datetimes or cftime ones.
 
-    Only an indexed coordinate qualifies.  An index is in memory, so inferring its
-    frequency reads nothing from disk, and a scalar or 2-D coordinate has none, so it
-    never competes with the real axis.  `da.indexes` is avoided: it casts every index
-    to pandas, and raises on a custom one.
+    Only a coordinate with a `PandasIndex` qualifies.  That index is in memory, so
+    inferring its frequency reads nothing from disk, whereas a custom index may leave
+    its coordinate lazy.  A scalar or 2-D coordinate has no index, so it never competes
+    with the real axis.  `da.indexes` is avoided: it casts every index to pandas, and
+    raises on a custom one.
     """
     index = da.xindexes.get(name)
-    if index is None:
+    if not isinstance(index, PandasIndex):
         return False
-    if np.issubdtype(da.coords[name].dtype, np.datetime64):
-        return True
-    return isinstance(index, PandasIndex) and isinstance(index.index, xr.CFTimeIndex)
+    is_numpy = np.issubdtype(da.coords[name].dtype, np.datetime64)
+    return is_numpy or isinstance(index.index, xr.CFTimeIndex)
 
 
 def _locate_axis(da: xr.DataArray, marker: Freq) -> tuple[str | None, str]:
@@ -297,9 +297,9 @@ def check_freq(
 ) -> xr.DataArray:
     """Validate `da`'s time axis against its declared frequency; return it unchanged.
 
-    Locates the declared time coordinate (the array's sole indexed datetime-like
-    coordinate, unless the marker names one, which must also be indexed, so nothing is
-    read from disk), infers its frequency with `xarray.infer_freq`, and
+    Locates the declared time coordinate (the array's sole datetime-like coordinate
+    with a pandas index, unless the marker names one, which must also have one, so
+    nothing is read from disk), infers its frequency with `xarray.infer_freq`, and
     compares that with the declaration via `freq_compatible`.  Because pandas always
     hands back a fully-anchored string (`"W-WED"`, never `"7D"`), the *declaration*
     alone decides how strict the comparison is — `Freq("7D")` accepts any weekday,
