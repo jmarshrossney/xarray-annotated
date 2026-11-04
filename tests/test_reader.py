@@ -448,3 +448,8 @@ class TestSelfReferringAliases:
     def test_an_alias_used_on_two_branches_is_not_a_cycle(self):
         declared = declaration_from_hint(_UsesShared)
         assert declared == Declared(unit=Unit("Pa"), dims=Dims("x"))
+
+    def test_custom_extractor_does_not_recurse(self):
+        inputs, output = xra.walk_signature(_returning(_ToNone), lambda hint: None)
+        assert inputs == {}
+        assert output is None

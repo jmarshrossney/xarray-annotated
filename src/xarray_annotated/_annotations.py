@@ -90,19 +90,23 @@ def _is_dataarray_type(tp: Any) -> bool:
     return False
 
 
-def _strip_return_hint(hint: Any) -> Any:
-    """Strip `type` aliases, `Annotated` and `| None` off a return hint."""
+def _strip_return_hint(hint: Any, path: frozenset[Any] = frozenset()) -> Any:
+    """Strip `type` aliases, `Annotated` and `| None` off a return hint.
+
+    An alias that refers to itself is left in place: it resolves to nothing.
+    """
     origin = get_origin(hint)
-    if isinstance(hint, TypeAliasType):
-        return _strip_return_hint(hint.__value__)
-    if isinstance(origin, TypeAliasType):
-        return _strip_return_hint(origin.__value__)
+    alias = next((a for a in (hint, origin) if isinstance(a, TypeAliasType)), None)
+    if alias is not None:
+        if alias in path:
+            return hint
+        return _strip_return_hint(alias.__value__, path | {alias})
     if origin is Annotated:
-        return _strip_return_hint(get_args(hint)[0])
+        return _strip_return_hint(get_args(hint)[0], path)
     if origin in (Union, types.UnionType):
         members = [arg for arg in get_args(hint) if arg is not types.NoneType]
         if len(members) == 1:
-            return _strip_return_hint(members[0])
+            return _strip_return_hint(members[0], path)
     return hint
 
 
