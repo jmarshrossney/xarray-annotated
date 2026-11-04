@@ -60,6 +60,11 @@ class TestReaders:
         assert not readers
 
 
+@pytest.mark.parametrize("name", ["unwrap_annotated", "walk_signature"])
+def test_introspection_is_not_public(name):
+    assert not hasattr(xra, name)
+
+
 class TestInternalHelpersStayInternal:
     """``check_dims`` / ``check_coords`` / ``check_dtype`` return ``(ok, detail)``
     tuples and apply no policy: they are message-building plumbing behind

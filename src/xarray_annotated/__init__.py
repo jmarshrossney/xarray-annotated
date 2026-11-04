@@ -25,16 +25,12 @@ hint, and the domain-*agnostic*
 names: ``enforce``; the ``enabled`` switch; the shared
 declaration *writer* ``annotate`` and its inverse *readers*
 ``declaration_from_hint`` and ``declarations_from_signature`` (which read every facet
-declared on a hint or a signature into one uniform ``Declared`` value); and the
-``Annotated`` introspection kernel (``unwrap_annotated``, ``walk_signature``).
-``walk_signature`` is the driver behind the readers, so a third-party facet author
-can use it to build their own ``*_from_signature`` reader.
+declared on a hint or a signature into one uniform ``Declared`` value).
 """
 
 from importlib.metadata import version as _version
 
 from . import schema, temporal, units
-from ._annotations import unwrap_annotated, walk_signature
 from ._config import enabled
 from ._enforce import enforce
 from ._reader import Declared, declaration_from_hint, declarations_from_signature
@@ -61,6 +57,4 @@ __all__ = [
     "schema",
     "temporal",
     "units",
-    "unwrap_annotated",
-    "walk_signature",
 ]

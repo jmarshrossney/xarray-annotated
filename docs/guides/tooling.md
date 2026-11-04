@@ -49,7 +49,6 @@ inputs, output = declarations_from_signature(node)
 - **Return shape:** a dict for a `TypedDict` or dataclass, including one written `R | None` or `R[int]`, one [`Declared`][xarray_annotated.Declared] for a single array, otherwise `None`.
 - **Slots:** each slot of a `Declared` holds a marker or `None`, and `.schema` lists the structural markers.
 - **One hint:** use [`declaration_from_hint`][xarray_annotated.declaration_from_hint].
-- **Your own facet:** pass your own extractor to [`walk_signature`][xarray_annotated.walk_signature].
 
 ## Writing declarations
 

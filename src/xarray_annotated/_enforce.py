@@ -38,7 +38,7 @@ from typing import (
 
 import xarray as xr
 
-from ._annotations import _record_return, walk_signature
+from ._annotations import _record_return, _walk_signature
 from ._config import resolve_enabled
 from ._reader import Declared, declaration_from_hint, declarations_from_signature
 from .schema import Coords, Dims, Dtype
@@ -259,7 +259,7 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
         >>> double(xr.DataArray([1.0], dims="x", attrs={"units": "Pa"})).values
         array([2.])
     """
-    walk_signature(func, _refuse_stray_markers)
+    _walk_signature(func, _refuse_stray_markers)
     inputs, output = declarations_from_signature(func)
     hints = get_type_hints(func, include_extras=True)
     return_hint = hints.pop("return", None)

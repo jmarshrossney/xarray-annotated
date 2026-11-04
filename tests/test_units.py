@@ -377,22 +377,6 @@ class TestUnitsEqual:
 
 
 # ---------------------------------------------------------------------------
-# unwrap_annotated: seeing through unit metadata to the base type
-# ---------------------------------------------------------------------------
-
-
-class TestUnwrapAnnotated:
-    def test_unwraps_annotated_to_base_type(self):
-        assert (
-            xra.unwrap_annotated(Annotated[xr.DataArray, Unit("degC")]) is xr.DataArray
-        )
-
-    def test_passes_through_plain_types(self):
-        assert xra.unwrap_annotated(xr.DataArray) is xr.DataArray
-        assert xra.unwrap_annotated(int) is int
-
-
-# ---------------------------------------------------------------------------
 # Unit typed marker: the one way to declare a unit
 # ---------------------------------------------------------------------------
 

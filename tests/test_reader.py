@@ -138,13 +138,6 @@ class TestSingleHint:
     def test_declares_nothing(self, hint):
         assert declaration_from_hint(hint) is None
 
-    def test_drives_walk_signature(self):
-        def node(a: Annotated[xr.DataArray, Unit("Pa")]) -> None: ...
-
-        assert xra.walk_signature(node, declaration_from_hint) == (
-            declarations_from_signature(node)
-        )
-
 
 class TestSchemaProperty:
     def test_collects_the_schema_slots(self):
@@ -418,6 +411,7 @@ class TestReadsThroughWrappers:
 
 type _ToNone = _ToNone | None  # pyright: ignore[reportGeneralTypeIssues]
 type _ToItself = _ToItself  # pyright: ignore[reportGeneralTypeIssues]
+type _Generic[T] = _Generic[T] | None  # pyright: ignore[reportGeneralTypeIssues]
 type _ToMarker = Annotated[_ToMarker, Dims("x")]
 type _ToUnion = Annotated[xr.DataArray, Unit("Pa")] | _ToUnion  # pyright: ignore[reportGeneralTypeIssues]
 type _First = _Second | None  # pyright: ignore[reportGeneralTypeIssues]
@@ -459,7 +453,8 @@ class TestSelfReferringAliases:
         declared = declaration_from_hint(_UsesShared)
         assert declared == Declared(unit=Unit("Pa"), dims=Dims("x"))
 
-    def test_custom_extractor_does_not_recurse(self):
-        inputs, output = xra.walk_signature(_returning(_ToNone), lambda hint: None)
-        assert inputs == {}
-        assert output is None
+    def test_a_generic_alias_does_not_recurse(self):
+        # The reader does not enter `_Generic[int]`, so nothing has raised by the time
+        # `enforce` looks for a record in the return hint.
+        f = xra.enforce(_returning(_Generic[int]))
+        assert f() is None

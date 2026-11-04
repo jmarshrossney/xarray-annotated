@@ -11,15 +11,7 @@ from typing import Annotated, get_args, get_origin
 
 import xarray as xr
 
-import xarray_annotated
-from xarray_annotated import (
-    Declared,
-    _annotations,
-    annotate,
-    declarations_from_signature,
-    unwrap_annotated,
-    walk_signature,
-)
+from xarray_annotated import Declared, annotate, declarations_from_signature
 from xarray_annotated.schema import Coords, Dims, Dtype
 from xarray_annotated.temporal import Freq
 from xarray_annotated.units import Unit
@@ -74,21 +66,6 @@ class TestMarkers:
     def test_only_given_facets_contribute(self):
         assert get_args(annotate(dtype="int32"))[1:] == (Dtype("int32"),)
         assert get_args(annotate(freq="ME"))[1:] == (Freq("ME"),)
-
-
-class TestTopLevelKernelExports:
-    def test_unwrap_annotated_is_the_kernel_helper(self):
-        # The domain-agnostic helper is reachable from the package root, not only
-        # via a private module (which downstream had to copy verbatim).
-        assert unwrap_annotated is _annotations.unwrap_annotated
-        assert xarray_annotated.unwrap_annotated is _annotations.unwrap_annotated
-
-    def test_walk_signature_is_the_kernel_driver(self):
-        assert walk_signature is _annotations.walk_signature
-
-    def test_unwrap_annotated_sees_base_through_markers(self):
-        assert unwrap_annotated(annotate(unit="Pa", dims=("x",))) is xr.DataArray
-        assert unwrap_annotated(xr.DataArray) is xr.DataArray
 
 
 class TestRoundTrip:

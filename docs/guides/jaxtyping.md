@@ -58,4 +58,4 @@ type PascalPressure = Annotated[Pressure, Unit("Pa")]
 ## Caveats
 
 - **Use beartype, not typeguard.** On typeguard 4, jaxtyping's checks can fail to import or silently pass everything.
-- **Base type:** `unwrap_annotated` returns the jaxtyping class rather than `xr.DataArray`, and `annotate(Pressure, unit="Pa")` keeps it.
+- **Base type:** `annotate(Pressure, unit="Pa")` keeps the jaxtyping class.

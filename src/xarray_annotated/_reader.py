@@ -32,7 +32,7 @@ from typing import (
     get_origin,
 )
 
-from ._annotations import _is_dataarray_type, _single_marker, walk_signature
+from ._annotations import _is_dataarray_type, _single_marker, _walk_signature
 from .schema import Coords, Dims, Dtype
 from .schema._annotations import SchemaMarker
 from .temporal import Freq
@@ -170,7 +170,7 @@ def declaration_from_hint(hint: Any) -> Declared | None:
     """Read every facet declared on one type hint into a `Declared`.
 
     The single-hint counterpart to `declarations_from_signature`, and an extractor
-    `walk_signature` can drive.  A non-`Annotated` hint, a base type that is not a
+    `_walk_signature` can drive.  A non-`Annotated` hint, a base type that is not a
     `DataArray`, and a hint with no marker all declare nothing.
 
     Reads through a union (`Annotated[DataArray, ...] | None`) and the `TypedDict`
@@ -218,7 +218,7 @@ def declarations_from_signature(
             `Annotated[DataArray, ...]` metadata.
 
     Returns:
-        An `(inputs, output)` pair, mirroring `walk_signature` with a `Declared`
+        An `(inputs, output)` pair, mirroring `_walk_signature` with a `Declared`
         payload:
 
         * `inputs` — `dict[str, Declared]` mapping each declared parameter to its
@@ -227,4 +227,4 @@ def declarations_from_signature(
             dataclass return, a single `Declared` for one declared DataArray
             return, or `None` when the return carries no declaration.
     """
-    return walk_signature(func, declaration_from_hint)
+    return _walk_signature(func, declaration_from_hint)

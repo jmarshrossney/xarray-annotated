@@ -3,7 +3,7 @@
 Pure `typing` machinery with no dependency on any domain's registry or config —
 the "declaration side" common to every domain. An *extractor* turns one
 `Annotated[...]` hint into a declaration payload;
-`walk_signature` drives that extractor over a whole function signature, handling
+`_walk_signature` drives that extractor over a whole function signature, handling
 the `TypedDict` / dataclass / single-value return shapes once, for everyone.
 """
 
@@ -22,22 +22,6 @@ from typing import (
 )
 
 import xarray as xr
-
-
-def unwrap_annotated(hint: Any) -> Any:
-    """Return the underlying type of an `Annotated` hint, else the hint itself.
-
-    `Annotated[DataArray, ...]` → `DataArray`; a non-`Annotated` hint is returned
-    unchanged.  Lets type comparisons (e.g. `t is DataArray`) see through the
-    metadata that declarations attach to parameters.
-
-    Args:
-        hint: A type hint, possibly `Annotated`.
-
-    Returns:
-        The base type if `hint` is `Annotated`; otherwise `hint` unchanged.
-    """
-    return get_args(hint)[0] if get_origin(hint) is Annotated else hint
 
 
 def _single_marker[M](metadata: Iterable[Any], marker_type: type[M]) -> M | None:
@@ -95,7 +79,9 @@ def _strip_return_hint(
 ) -> tuple[Any, bool]:
     """Strip `type` aliases, `Annotated` and `| None` off a return hint.
 
-    An alias that refers to itself is left in place: it resolves to nothing.
+    An alias that refers to itself is left in place: it resolves to nothing.  The reader
+    raises on one, except a generic one, as in `type G[T] = G[T] | None`, whose `G[int]`
+    it does not enter.
 
     Returns:
         What remains, and whether a `| None` was stripped on the way to it.
@@ -128,7 +114,7 @@ def _record_return(hint: Any) -> tuple[Any, bool]:
     return (record if isinstance(record, type) and is_record else None), optional
 
 
-def walk_signature[T](
+def _walk_signature[T](
     func: object,
     extract: Callable[[Any], T | None],
 ) -> tuple[dict[str, T], dict[str, T] | T | None]:
@@ -143,7 +129,7 @@ def walk_signature[T](
         func: A callable whose parameters/return may carry `Annotated` metadata.
         extract: Turns one hint into a declaration payload, or `None`.  For every
             built-in facet at once this is `declaration_from_hint` (payload
-            `Declared`); a third-party facet supplies its own.
+            `Declared`).
 
     Returns:
         An `(inputs, output)` pair:
