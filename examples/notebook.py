@@ -6,7 +6,7 @@
 #     "numpy==2.5.1",
 #     "pint==0.25.3",
 #     "xarray==2026.7.0",
-#     "xarray-annotated==0.6.0",
+#     "xarray-annotated==0.7.0",
 # ]
 #
 # [tool.uv.sources]
