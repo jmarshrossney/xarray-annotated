@@ -22,7 +22,7 @@ The top level is deliberately thin — the domains' checker names stay in their
 subpackages.  The exceptions are the markers (``Coords``, ``Dims``, ``Dtype``,
 ``Freq``, ``Unit``), which are unique across domains and are combined freely in one
 hint, and the domain-*agnostic*
-names: ``enforce``; the ``enabled`` switch, the only global setting; the shared
+names: ``enforce``; the ``enabled`` switch; the shared
 declaration *writer* ``annotate`` and its inverse *readers*
 ``declaration_from_hint`` and ``declarations_from_signature`` (which read every facet
 declared on a hint or a signature into one uniform ``Declared`` value); and the

@@ -1,9 +1,9 @@
 """Every `python` fence in the docs runs, so a page cannot drift from the code.
 
-A page's fences run top to bottom in one namespace.  `PREAMBLE` supplies the imports
-pages share, so a snippet about one marker need not repeat them.  It activates the CF
-registry too, since pages use CF unit strings freely; `conftest._isolate_registry`
-restores the registry afterwards.
+A page's fences run top to bottom in one namespace, as do the README's.  `PREAMBLE`
+supplies the imports pages share, so a snippet about one marker need not repeat them.
+Pages run on the default registry, as a reader's would, so one that uses CF unit strings
+has to activate that registry itself.
 
 A fence inside a top-level `=== "Label"` tab runs in a namespace of its own, shared by
 every tab with that label on the page, because linked tabs are alternative versions of
@@ -34,9 +34,6 @@ from typing import Annotated
 import xarray as xr
 import xarray_annotated as xra
 from xarray_annotated import Coords, Dims, Dtype, Freq, Unit
-from xarray_annotated.units import use_cf_units
-
-use_cf_units()
 """
 
 _FENCE = re.compile(
@@ -51,7 +48,8 @@ _TAB = re.compile(
 
 
 def _pages() -> list[Path]:
-    return sorted(p for p in DOCS.rglob("*.md") if p.name != "example.md")
+    pages = (p for p in DOCS.rglob("*.md") if p.name != "example.md")
+    return [*sorted(pages), DOCS.parent / "README.md"]
 
 
 def _run(code: str, namespace: dict, directive: str | None, where: str) -> None:
@@ -81,7 +79,7 @@ def _isolate_logging():
     package.setLevel(level)
 
 
-@pytest.mark.parametrize("page", _pages(), ids=lambda p: str(p.relative_to(DOCS)))
+@pytest.mark.parametrize("page", _pages(), ids=lambda p: p.name)
 def test_snippets_run(page: Path):
     text = page.read_text()
     if "from jaxtyping import" in text:

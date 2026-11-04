@@ -74,7 +74,6 @@ def _(mo):
 
 @app.cell
 def _():
-    import warnings
     from typing import Annotated, TypedDict
 
     import numpy as np
@@ -84,15 +83,9 @@ def _():
     from xarray_annotated import Coords, Dims, Dtype, Freq, Unit
     from xarray_annotated.units import use_cf_units
 
-    # Catch an annoying warning from cf-xarray when matplotlib not available.
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore", message="Import(s) unavailable to set up matplotlib support"
-        )
-
-        # Flux data is spelled the CF/UDUNITS way ("umol m-2 s-1"), which plain pint
-        # cannot parse. This is a one-time, process-wide choice.
-        use_cf_units()
+    # Flux data is spelled the CF/UDUNITS way ("umol m-2 s-1"), which plain pint
+    # cannot parse. This is a one-time, process-wide choice.
+    use_cf_units()
 
     # Molar mass of carbon, g mol-1.
     M_C = 12.011
@@ -545,7 +538,7 @@ def _(mo):
     6. The docstring's *"assumes tair in degC"*, made real. Kelvin now raises at the
        boundary instead of blowing up the Q10 exponent inside the body. Nothing converts
        on its own: it would be right for a temperature, but the same rule would turn a
-       daily rate into an annual total. See [Converting units](guides/conversion.md).
+       daily rate into an annual total. See [Units](guides/units.md#converting-an-input).
     7. Aggregation changes the frequency and nothing else, so this stage declares a
        frequency and says nothing at all about units — it means whatever it is handed, and
        the silence is the statement.
@@ -571,7 +564,7 @@ def _(mo):
     - The weekly anchor is declared on both the producer and the consumer.
 
     Beyond those, the checks reject inputs that never belonged in this pipeline
-    at all, such as an export with a `time` dimension but no `time` coordinate,
+    at all, such as an export with a `time` dimension but no `time` coordinate, or
     data from an hourly site.
 
     Let's run it.

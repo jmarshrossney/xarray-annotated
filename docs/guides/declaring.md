@@ -30,13 +30,13 @@ def weekly_mean(
 | `Coords(*names)` | These coordinates are present (extras are fine) | |
 | `Dtype(dtype)` | The array has this dtype, in either byte order; `Dtype("float")` means any float, as do `int`, `uint`, `complex`, `str`, `datetime64` and `timedelta64` for their own kinds | |
 | `Unit(unit)` | The array is in this unit, however it is spelled | |
-| `Freq(freq)` | [The time axis](#which-coordinate-is-the-time-axis) has this spacing, and this phase [where spelled](#what-the-same-frequency-means) | `dim=` |
+| `Freq(freq)` | [The time axis](#frequency) has this spacing, and this phase where spelled | `dim=` |
 
 ## Rules
 
 - **Where markers go:** on a parameter, on a return, or on the fields of a `TypedDict` or dataclass return.
 - **Return containers:** a `TypedDict` or dataclass return may also be written `R | None`, `R[int]` or `Annotated[R, "description"]`, or through a `type` alias. Fields carrying markers anywhere else, such as in a parameter, a `NamedTuple`, `list[R]`, `R1 | R2`, or a class nested in another's field, raise at decoration.
-- **Returned containers are not changed in place:** the caller receives a shallow copy of the dict or dataclass when a field changed, which shares its arrays. A failed check leaves the original as it was, and `__post_init__` does not run again.
+- **Returned containers are not changed in place:** the caller receives a shallow copy of the dict or dataclass, which shares its arrays. `__post_init__` does not run again.
 - **Only a `DataArray` passes:** anything else raises `TypeError`, including `None`, an ndarray and a `Dataset`.
 - **Unless the hint allows it:** `| None` allows `None`, `| float` allows anything else unchecked, and `Annotated[xr.DataArray | None, ...]` and `Annotated[xr.DataArray, ...] | None` are equivalent. A `TypedDict` field may be `NotRequired`.
 - **One of each:** a second marker of the same kind on one hint raises `ValueError`, so write `Coords("time", "lat")`.
@@ -49,51 +49,16 @@ A few hints are silently not declarations; see [Troubleshooting](troubleshooting
 
 ## Units
 
-**Inputs are checked.**
-Any other unit raises: one in the same dimension (`"hPa"` where `"Pa"` is declared), so that [you decide whether to convert it](conversion.md), and a dimensionally wrong, missing or unparseable one.
+Inputs and outputs must both already be in the declared unit, and anything else raises.
+See [Units](units.md) for what happens in each case, how to convert an input, and how a body states the unit it returns.
 
-**Outputs must already match.**
-A return with a different unit, or none, raises, and nothing is converted or labelled for you; see [Output units](policy.md#units-outputs).
-A body that changes the unit states the new one with `.assign_attrs(units=...)`.
-Values are never inspected, so that statement is a claim rather than a check; see [Troubleshooting](troubleshooting.md#a-forgotten-conversion-is-not-caught).
+## Frequency
 
-CF-convention strings such as `"umol m-2 s-1"` need [the CF registry](registry.md).
+`Freq` checks the array's one datetime coordinate with a pandas index, which a dimension coordinate has by default, so the check reads nothing from disk.
+If there is no such coordinate, or there are two, it raises `FreqError`, and names the fix where it can tell; use `dim=` to choose between two.
+A scalar, 2-D or unindexed coordinate is not a time axis, so `time(obs)` needs `.set_xindex("time")`, and alongside a real one it is left unchecked.
 
-## Which coordinate is the time axis
-
-The time axis is the array's one datetime coordinate with a pandas index, which xarray builds by default for a dimension coordinate.
-That index is in memory, so the check reads nothing from disk; building it reads the whole coordinate once, at open or at `set_xindex`.
-
-| The array has | Checked | To change that |
-|---|---|---|
-| A `time` dimension | `time` | |
-| A 1-D `time` with no index: `time(obs)`, `create_default_indexes=False`, `.drop_indexes("time")` | `FreqError` | `.set_xindex("time")`, which keeps the dimensions |
-| A scalar `time`, as from `.isel(time=0)` | `FreqError` | `.isel(time=[0])` or `.expand_dims("time")`; a one-point axis [passes](#what-the-same-frequency-means) |
-| A custom index on `time` | `FreqError` | `.drop_indexes("time").set_xindex("time")` |
-| Numbers rather than datetimes, as from `decode_times=False` | `FreqError` | Decode the times |
-| Two indexed datetime coordinates | `FreqError` | Name one with `Freq("7D", dim="time")` |
-| `time` and another datetime coordinate with no index | `time` only | `.set_xindex("valid")` and `Freq("7D", dim="valid")` |
-
-The last row means a scalar, 2-D or auxiliary coordinate is silently left unchecked, and a forecast with `init`, `step` and a 2-D `valid_time` has `init` checked.
-`cftime` follows the same rules, but an error cannot name an unindexed one, because its dtype does not show it without reading it.
-
-```python
-times = xr.date_range("2024-01-01", periods=5, freq="D")
-track = xr.DataArray([0.0] * 5, dims="obs", coords={"time": ("obs", times)})
-
-
-@xra.enforce
-def daily(x: Annotated[xr.DataArray, Dims("obs"), Freq("D")]) -> xr.DataArray:
-    return x
-
-
-daily(track.set_xindex("time"))  # daily(track) raises FreqError
-```
-
-## What "the same frequency" means
-
-The frequency is inferred from [the time axis](#which-coordinate-is-the-time-axis) with `xarray.infer_freq`, so `cftime` calendars work too.
-
+The frequency is inferred with `xarray.infer_freq`, so `cftime` calendars work too.
 **Spacing** is always compared, by meaning rather than by string:
 
 | Declared | Actual | Result | Why |
@@ -103,10 +68,8 @@ The frequency is inferred from [the time axis](#which-coordinate-is-the-time-axi
 | `Freq("QE")` | `3ME` | pass | A quarter is three months |
 | `Freq("ME")` | `30D` | fail | Calendar months are not fixed-length days |
 
-**Phase** is compared in two parts:
-
-- The end or begin convention (`"ME"` vs `"MS"`) is always compared.
-- The anchor (`-WED`, `-MAR`) is compared only if you spell it:
+**Phase** is compared in two parts.
+The end or begin convention (`"ME"` vs `"MS"`) is always compared, and the anchor only if you spell it:
 
 ```python
 Freq("W")  # weekly, any weekday
@@ -114,17 +77,11 @@ Freq("W-SUN")  # weekly, Sundays only
 ```
 
 Unlike pandas, an unspelled anchor means "any" rather than a default.
+A quarterly anchor names four dates rather than one month, so `"QE-MAR"` and `"QE-DEC"` are the same.
 
-A quarterly anchor names four dates rather than one month, so `"QE-MAR"` and `"QE-DEC"` are the same, while `"QE-MAR"` and `"QE-NOV"` conflict.
-
-Every axis is tested, whatever its length:
-
-| The axis has | Result |
-|---|---|
-| Three or more timestamps, regularly spaced | Compared as above |
-| Three or more timestamps, irregularly spaced, such as a missing or duplicated one | `FreqError` |
-| Two timestamps | Their spacing and phase are compared directly; business-day and custom frequencies pass, having nothing to compare |
-| Zero or one timestamp | Passes, as there is no spacing to contradict |
+Every axis is tested, whatever its length.
+Irregular spacing raises, such as a missing or duplicated timestamp, and two timestamps are compared directly, though business-day and custom frequencies have nothing to compare, so pass.
+Zero or one timestamp always passes.
 
 `Freq` therefore only fits an axis a pandas frequency describes.
 Monthly means stamped at month midpoints are not described by one, so leave `Freq` off those.

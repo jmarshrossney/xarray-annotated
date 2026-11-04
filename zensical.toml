@@ -3,7 +3,7 @@
 use_directory_urls = false
 
 site_name = "xarray-annotated"
-site_description = "Run-time validation of xarray DataArray properties declared via typing.Annotated"
+site_description = "Run-time validation of xarray DataArray structure, units and frequency, declared via typing.Annotated"
 site_author = "Joe Marsh Rossney"
 site_url = "https://jmarshrossney.github.io/xarray-annotated"
 
@@ -19,8 +19,7 @@ nav = [
   { "Getting Started" = "getting_started.md" },
   { "Guides" = [
     { "Declaring properties" = "guides/declaring.md" },
-    { "Configuring validation" = "guides/policy.md" },
-    { "Converting units" = "guides/conversion.md" },
+    { "Units" = "guides/units.md" },
     { "Choosing a unit registry" = "guides/registry.md" },
     { "Using with jaxtyping" = "guides/jaxtyping.md" },
     { "Reading and writing declarations (advanced)" = "guides/tooling.md" },

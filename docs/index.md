@@ -16,7 +16,6 @@ Making signatures the single source of truth has several advantages: the same de
 ## How it works
 
 Here is the same function twice: with its expectations in the docstring, where nothing checks them, and with them in the signature.
-The tabs switch together across these docs.
 
 === "Plain xarray"
 
@@ -54,7 +53,7 @@ The tabs switch together across these docs.
         return p.resample(time="D").mean()
     ```
 
-If signatures get long or repetitive, [type aliases can shorten them](getting_started.md#shorter-signatures).
+If signatures get long or repetitive, [type aliases can shorten them](guides/declaring.md#reusing-a-declaration).
 
 ### 1. Declare
 
@@ -70,7 +69,7 @@ Structure and frequency are then checked, and everything is checked again on the
 
 Anything that does not match its declaration raises.
 
-See [Getting started](getting_started.md) for a worked walkthrough, [Declaring properties](guides/declaring.md) for each marker in detail, [Configuring validation](guides/policy.md) for the settings, and [Converting units](guides/conversion.md) for what to do when the units differ.
+See [Getting started](getting_started.md) for a worked walkthrough, [Declaring properties](guides/declaring.md) for each marker in detail, and [Units](guides/units.md) for what to do when the units differ.
 
 ## Motivations
 

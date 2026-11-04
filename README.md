@@ -71,6 +71,7 @@ The returned altitude is numerically wrong and carries a completely bogus hPa un
 
 Here we use `xarray-annotated` to declare expected properties in the signature and enforce them at run-time with minimal boilerplate (one decorator).
 
+<!-- docs-test: raises ValueError -->
 ```python
 from typing import Annotated
 import xarray as xr
@@ -110,16 +111,22 @@ Attributes:
 
 Now the outputs are physical and carry the unit the signature promised.
 The body has to state that unit, because xarray would otherwise leave the `Pa` label on the result, and a label that disagrees with the declaration raises: it could just as easily mean a forgotten conversion.
-Nothing is [converted automatically](https://jmarshrossney.github.io/xarray-annotated/guides/conversion.html), because whether a conversion is correct depends on the quantity, and a compatible unit is not always the right one.
+Nothing is [converted automatically](https://jmarshrossney.github.io/xarray-annotated/guides/units.html#converting-an-input), because whether a conversion is correct depends on the quantity, and a compatible unit is not always the right one.
 The docstring no longer needs to say "assumes Pa", because the signature does --- and unlike the docstring, it is actually enforced.
 
-If we had handed the function an array whose units were _dimensionally_ wrong, or with an extra dimension, this would have failed gracefully:
+An array whose units were _dimensionally_ wrong would also have raised:
 
+<!-- docs-test: raises DimensionalityError -->
 ```python
 altitude(xr.DataArray([1.0, 2.0], dims=["time"], attrs={"units": "kg"}))
 # DimensionalityError: Cannot convert from 'kilogram' ([mass])
 #   to 'pascal' ([mass] / [length] / [time] ** 2)
+```
 
+And so would one with an extra dimension:
+
+<!-- docs-test: raises SchemaError -->
+```python
 altitude(
     xr.DataArray([[101300.0, 100000.0]], dims=["run", "time"], attrs={"units": "Pa"})
 )

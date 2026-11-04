@@ -1,8 +1,9 @@
-"""The package-wide master switch, the only global setting.
+"""The package-wide master switch, the only global that changes how checks behave.
 
 Behaviour is never configured globally, so that how a function validates can be read
 off its signature.  What remains global is whether xarray-annotated does anything at
-all.
+all.  The unit registry is process-wide too, but it decides which units parse, rather
+than what a check does with them.
 
 The switch resolves on every call as: an `enabled(...)` block, then the
 `XARRAY_ANNOTATED_ENABLED` environment variable, then on.  Code beats the

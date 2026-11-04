@@ -1,4 +1,4 @@
-"""Tests for the package-wide switch, the only global setting."""
+"""Tests for the package-wide switch."""
 
 import threading
 from typing import Annotated
