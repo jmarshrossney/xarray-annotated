@@ -316,7 +316,8 @@ def check_units(
         to `declared`.  When the input is already in `declared` the data is not
         copied — the result is a shallow copy sharing the caller's buffer, so
         declaring a unit an array already has costs nothing, and a lazy array stays
-        lazy.
+        lazy.  A converted array has empty `.encoding`, since packing that described
+        the old values would corrupt the new ones on write.
 
     Raises:
         ValueError: When no parseable unit is found, or when a value-changing
@@ -396,6 +397,9 @@ def check_units(
     # dequantify writes pint's canonical unit name (e.g. 'pascal'), and the plain
     # path still holds the old label; stamp the declared spelling over either.
     converted.attrs["units"] = declared
+    if not units_equal(have, declared):
+        # The packing described the old values, and would corrupt these on write.
+        converted.encoding = {}
     return converted
 
 

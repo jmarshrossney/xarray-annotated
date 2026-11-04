@@ -498,6 +498,46 @@ class TestUnitsEqualIsPhysical:
         assert out.attrs["units"] == "Pa"
 
 
+_PACKING = {"dtype": "int16", "scale_factor": 0.1, "_FillValue": -32768, "zlib": True}
+
+
+def _packed(unit="hPa"):
+    time = xr.date_range("2020-01-01", periods=2, freq="D")
+    da = xr.DataArray(
+        [1000.0, 1010.0], dims="time", coords={"time": time}, attrs={"units": unit}
+    )
+    da.encoding.update(_PACKING)
+    da.time.encoding["units"] = "days since 2000-01-01"
+    return da
+
+
+class TestConversionClearsEncoding:
+    """Packing describes the old values, so keeping it corrupts the array on write."""
+
+    def test_converted_input(self):
+        da = _packed()
+        out = units.check_units(da, Unit("Pa", convert=True), "p")
+        assert out.encoding == {}
+        assert da.encoding == _PACKING
+
+    def test_converted_quantified_input(self):
+        da = _packed().pint.quantify()
+        out = units.check_units(da, Unit("Pa", convert=True), "p")
+        assert out.encoding == {}
+        assert da.encoding == _PACKING
+
+    def test_coords_keep_theirs(self):
+        out = units.check_units(_packed(), Unit("Pa", convert=True), "p")
+        assert out.time.encoding == {"units": "days since 2000-01-01"}
+
+    @pytest.mark.parametrize(
+        "prepare", [lambda da: da, lambda da: da.pint.quantify()], ids=["attrs", "pint"]
+    )
+    def test_same_unit_keeps_it(self, prepare):
+        out = units.check_units(prepare(_packed("hPa")), "hectopascal", "p")
+        assert out.encoding == _PACKING
+
+
 class _CountingBackend(BackendArray):
     """A lazily read array that counts how often the backend is read."""
 

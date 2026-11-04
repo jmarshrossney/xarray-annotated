@@ -147,4 +147,5 @@ To declare a difference, use `Unit("delta_degC", convert=True)`, which converts 
 - **Switching off changes results:** under [`xra.enabled(False)`](policy.md#enabled) nothing is converted, so a body that relies on `convert=True` receives `hPa` and computes with it as if it were `Pa`.
 - **Conversion copies:** a converted array has a new buffer, which matters for large arrays. An array already in the declared unit shares its buffer with the caller.
 - **Lazy arrays:** checking a unit reads no data, so an array already in the declared unit stays lazy. Converting one that dask does not back reads it into memory.
+- **Encoding:** a converted array has empty `.encoding`, because packing such as `scale_factor` described the old values and would corrupt the new ones on write. Coordinates keep theirs. Set compression and packing again before writing.
 - **Auditing:** every conversion is [logged](policy.md#auditing) at `DEBUG` on the `xarray_annotated.units` logger.
