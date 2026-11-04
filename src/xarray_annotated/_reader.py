@@ -20,7 +20,7 @@ value — so it lives at the package root rather than in any one domain.
 
 import types
 import typing
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import (
     Annotated,
     Any,
@@ -62,6 +62,10 @@ class Declared:
     The field order (`unit`, `dims`, `dtype`, `coords`, `freq`) matches `annotate`'s
     keyword arguments, so `annotate(unit=d.unit, dims=d.dims, dtype=d.dtype,
     coords=d.coords, freq=d.freq)` rebuilds the hint this was read from.
+
+    `others` holds what the hint's union allows besides a `DataArray`, such as
+    `NoneType` for `Annotated[DataArray, ...] | None`.  It is not a marker, so it takes
+    no part in equality.
     """
 
     unit: Unit | None = None
@@ -69,6 +73,7 @@ class Declared:
     dtype: Dtype | None = None
     coords: Coords | None = None
     freq: Freq | None = None
+    others: tuple[Any, ...] = field(default=(), compare=False, repr=False)
 
     @property
     def schema(self) -> list[SchemaMarker]:
@@ -127,7 +132,14 @@ def _read_hint(hint: Any, path: frozenset[Any] = frozenset()) -> Declared | None
                 f"one union declares {len(declared)} DataArray hints "
                 f"({', '.join(map(repr, declared))}); declare at most one"
             )
-        return declared[0] if declared else None
+        if not declared:
+            return None
+        others = tuple(
+            arg
+            for arg, member in zip(get_args(hint), members, strict=True)
+            if member is None
+        )
+        return replace(declared[0], others=(*declared[0].others, *others))
     if origin is not Annotated:
         return None
     base, *metadata = get_args(hint)
@@ -136,7 +148,15 @@ def _read_hint(hint: Any, path: frozenset[Any] = frozenset()) -> Declared | None
     base, metadata = _flatten_aliases(base, metadata, path)
     if not _is_dataarray_type(base):
         return None
+    others = tuple(
+        arg
+        for arg in (
+            get_args(base) if get_origin(base) in (Union, types.UnionType) else ()
+        )
+        if not _is_dataarray_type(arg)
+    )
     declared = Declared(
+        others=others,
         unit=_single_marker(metadata, Unit),
         dims=_single_marker(metadata, Dims),
         dtype=_single_marker(metadata, Dtype),

@@ -90,32 +90,42 @@ def _is_dataarray_type(tp: Any) -> bool:
     return False
 
 
-def _strip_return_hint(hint: Any, path: frozenset[Any] = frozenset()) -> Any:
+def _strip_return_hint(
+    hint: Any, path: frozenset[Any] = frozenset()
+) -> tuple[Any, bool]:
     """Strip `type` aliases, `Annotated` and `| None` off a return hint.
 
     An alias that refers to itself is left in place: it resolves to nothing.
+
+    Returns:
+        What remains, and whether a `| None` was stripped on the way to it.
     """
     origin = get_origin(hint)
     alias = next((a for a in (hint, origin) if isinstance(a, TypeAliasType)), None)
     if alias is not None:
         if alias in path:
-            return hint
+            return hint, False
         return _strip_return_hint(alias.__value__, path | {alias})
     if origin is Annotated:
         return _strip_return_hint(get_args(hint)[0], path)
     if origin in (Union, types.UnionType):
         members = [arg for arg in get_args(hint) if arg is not types.NoneType]
         if len(members) == 1:
-            return _strip_return_hint(members[0], path)
-    return hint
+            return _strip_return_hint(members[0], path)[0], True
+    return hint, False
 
 
-def _record_type(hint: Any) -> Any:
-    """Return the `TypedDict` or dataclass a return hint resolves to, else `None`."""
-    base = _strip_return_hint(hint)
+def _record_return(hint: Any) -> tuple[Any, bool]:
+    """Read a return hint's `TypedDict` or dataclass, and whether it may be `None`.
+
+    Returns:
+        The class, or `None` if the hint resolves to no such class, and whether the
+        hint allows `None`.
+    """
+    base, optional = _strip_return_hint(hint)
     record = get_origin(base) or base
     is_record = is_typeddict(record) or dataclasses.is_dataclass(record)
-    return record if isinstance(record, type) and is_record else None
+    return (record if isinstance(record, type) and is_record else None), optional
 
 
 def walk_signature[T](
@@ -163,7 +173,7 @@ def walk_signature[T](
     }
 
     output: dict[str, T] | T | None = _extract(ret, "output")
-    record = _record_type(ret)
+    record, _ = _record_return(ret)
     if is_typeddict(record):
         ret_hints = get_type_hints(record, include_extras=True)
         output = {

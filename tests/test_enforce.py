@@ -177,7 +177,7 @@ class TestWrapper:
         with pytest.raises(pint.DimensionalityError):
             f(_int_da(unit="kg"))
 
-    def test_declared_output_field_that_is_not_a_dataarray_passes_through(self):
+    def test_optional_output_field_of_none_passes(self):
         class Out(TypedDict):
             p: Annotated[xr.DataArray | None, Unit("Pa"), Dims("x")]
 
@@ -776,3 +776,76 @@ class TestOutputWriteBack:
 
         self._identity(Out)(Out(_pascal()))
         assert len(calls) == 1
+
+
+class TestOtherValues:
+    """A declared value is a `DataArray`, or whatever else its hint allows."""
+
+    @pytest.mark.parametrize(
+        "value",
+        [None, np.array([1.0]), xr.Dataset(), 1.0],
+        ids=lambda v: type(v).__name__,
+    )
+    def test_input_raises(self, value):
+        @xra.enforce
+        def f(p: Annotated[xr.DataArray, Dims("x")]): ...
+
+        with pytest.raises(TypeError, match="input 'p': declared a DataArray"):
+            f(value)
+
+    def test_none_raises_at_a_default_the_hint_does_not_allow(self):
+        @xra.enforce
+        def f(p: Annotated[xr.DataArray, Dims("x")] = None): ...  # type: ignore[assignment]
+
+        with pytest.raises(TypeError, match=r"got None.*\| None"):
+            f()
+
+    @pytest.mark.parametrize(
+        "hint",
+        [
+            Annotated[xr.DataArray | None, Dims("x")],
+            Annotated[xr.DataArray, Dims("x")] | None,  # pyright: ignore[reportOperatorIssue]
+        ],
+    )
+    def test_optional_allows_none_only(self, hint):
+        @xra.enforce
+        def f(p: hint): ...  # pyright: ignore[reportInvalidTypeForm]
+
+        f(None)
+        with pytest.raises(TypeError, match="got float"):
+            f(1.0)
+
+    @pytest.mark.parametrize(
+        "hint",
+        [
+            Annotated[xr.DataArray | float, Dims("x")],
+            Annotated[xr.DataArray, Dims("x")] | float,
+        ],
+    )
+    def test_another_type_passes_but_does_not_allow_none(self, hint):
+        @xra.enforce
+        def f(p: hint): ...  # pyright: ignore[reportInvalidTypeForm]
+
+        f(1.0)
+        with pytest.raises(TypeError, match="got None"):
+            f(None)
+
+    def test_a_dataarray_under_a_union_is_still_checked(self):
+        @xra.enforce
+        def f(p: Annotated[xr.DataArray | None, Dims("x")]): ...
+
+        with pytest.raises(schema.SchemaError):
+            f(xr.DataArray([1.0], dims="y"))
+
+    def test_undeclared_parameters_are_not_looked_at(self):
+        @xra.enforce
+        def f(p: xr.DataArray, q: Annotated[int, "a description"]): ...
+
+        f(None, None)  # type: ignore[arg-type]
+
+    def test_switched_off_checks_nothing(self):
+        @xra.enforce
+        def f(p: Annotated[xr.DataArray, Dims("x")]): ...
+
+        with xra.enabled(False):
+            f(None)  # type: ignore[arg-type]

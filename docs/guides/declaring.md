@@ -37,8 +37,8 @@ def weekly_mean(
 - **Where markers go:** on a parameter, on a return, or on the fields of a `TypedDict` or dataclass return.
 - **Return containers:** a `TypedDict` or dataclass return may also be written `R | None`, `R[int]` or `Annotated[R, "description"]`, or through a `type` alias. Fields carrying markers anywhere else, such as in a `NamedTuple`, `list[R]`, `R1 | R2`, or a class nested in another's field, raise at decoration.
 - **Returned containers are not changed in place:** the caller receives a shallow copy of the dict or dataclass when a field changed, which shares its arrays. A failed check leaves the original as it was, and `__post_init__` does not run again.
-- **Optional values:** `Annotated[xr.DataArray | None, ...]` and `Annotated[xr.DataArray, ...] | None` are equivalent, and a `TypedDict` field may be `NotRequired`.
-- **Other values:** anything that is not a `DataArray` passes through untouched.
+- **Only a `DataArray` passes:** anything else raises `TypeError`, including `None`, an ndarray and a `Dataset`.
+- **Unless the hint allows it:** `| None` allows `None`, `| float` allows anything else unchecked, and `Annotated[xr.DataArray | None, ...]` and `Annotated[xr.DataArray, ...] | None` are equivalent. A `TypedDict` field may be `NotRequired`.
 - **One of each:** a second marker of the same kind on one hint raises `ValueError`, so write `Coords("time", "lat")`.
 - **Nowhere else:** a marker `enforce` cannot apply raises `ValueError`, such as inside a `tuple[...]` return or on `Annotated[xr.Dataset, ...]`.
 - **Fail fast:** a malformed declaration (a typo'd unit, an unparseable dtype or frequency) raises `ValueError` when the function is decorated.

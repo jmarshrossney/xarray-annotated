@@ -5,6 +5,7 @@ A value either matches its declaration or raises, so an array that got through w
 
 | Event | Result | Setting |
 |---|---|---|
+| A value that is not a `DataArray`, where the hint does not allow it | `TypeError` | none |
 | Structure mismatch | `SchemaError` | none |
 | Frequency mismatch, irregular time axis, or no unambiguous time axis | `FreqError` | none |
 | Compatible but different input unit | `ValueError` | none; [convert it first](conversion.md) |
@@ -32,7 +33,7 @@ Nothing is converted or labelled on the author's behalf.
 | Different but compatible unit (`hPa`) | `ValueError` |
 | Incompatible unit (`kg`) | `DimensionalityError` |
 | No unit, or an unparseable or over-long one | `ValueError` |
-| Not a `DataArray` | Passed through |
+| Not a `DataArray` | `TypeError`, unless the hint allows it |
 
 A quantified result stays quantified, and a body converts one itself with `.pint.to(...)`.
 

@@ -25,6 +25,7 @@ import copy
 import dataclasses
 import functools
 import inspect
+import types
 from collections.abc import Callable
 from typing import (
     Any,
@@ -37,7 +38,7 @@ from typing import (
 
 import xarray as xr
 
-from ._annotations import _record_type, walk_signature
+from ._annotations import _record_return, walk_signature
 from ._config import resolve_enabled
 from ._reader import Declared, declaration_from_hint, declarations_from_signature
 from .schema import Coords, Dims, Dtype
@@ -159,6 +160,25 @@ def _refuse_unread_fields(hint: Any) -> None:
         )
 
 
+def _refuse_other_value(value: Any, decl: Declared, where: str) -> None:
+    """Raise unless the hint allows this value, which is not a `DataArray`.
+
+    Raises:
+        TypeError: If the hint names nothing that could be this value.
+    """
+    if value is None:
+        if types.NoneType not in decl.others:
+            raise TypeError(
+                f"{where}: declared a DataArray, got None. If that is allowed, declare "
+                f"it with `| None`."
+            )
+    elif all(other is types.NoneType for other in decl.others):
+        raise TypeError(
+            f"{where}: declared a DataArray, got {type(value).__name__}. Checks apply "
+            f"only to a DataArray, so this value could not be checked."
+        )
+
+
 def _with_fields(result: Any, changes: dict[str, xr.DataArray]) -> Any:
     """Write applied outputs onto a shallow copy of a dict or dataclass return value.
 
@@ -198,8 +218,9 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
     3. checks each declared output against its unit (`apply_output_units`), then
        validates structure and frequency on the value returned to the caller.
 
-    Only `DataArray` values are touched; anything else passes through.  When
-    xarray-annotated is switched off (`xra.enabled(False)` or
+    A value that is not a `DataArray` raises, unless its hint allows it, as `| None`
+    allows `None` and `| float` allows anything else.  When xarray-annotated is switched
+    off (`xra.enabled(False)` or
     `XARRAY_ANNOTATED_ENABLED=false`) the wrapper is a total no-op.  Every declaration
     is validated **at decoration time**, so a malformed unit, marker or offset string
     fails at import even when switched off.
@@ -221,6 +242,8 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
             carries a declaration, or a hint carries a marker that cannot apply, such
             as in a tuple, on a `Dataset`, on a field of a `NamedTuple` return, or on a
             class nested in a field (at decoration).
+        TypeError: If a declared value is not a `DataArray` and its hint does not allow
+            it, or a `TypedDict` return lacks a required declared field (when called).
 
     Example:
         >>> from typing import Annotated
@@ -238,7 +261,7 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
     walk_signature(func, _refuse_stray_markers)
     inputs, output = declarations_from_signature(func)
     return_hint = get_type_hints(func, include_extras=True).get("return")
-    record = _record_type(return_hint)
+    record, record_optional = _record_return(return_hint)
     if record is None:
         _refuse_unread_fields(return_hint)
     else:
@@ -270,6 +293,7 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
         # caller receives.  apply_output_units returns a *new* labelled array,
         # so its result is always used.
         if not isinstance(value, xr.DataArray):
+            _refuse_other_value(value, decl, f"[{qualname}] output {name!r}")
             return value
         if decl.unit is not None:
             value = apply_output_units(value, decl.unit, name, qualname)
@@ -279,19 +303,34 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
             check_freq(value, decl.freq, name, qualname=qualname)
         return value
 
+    def _record_output(result: Any, cls: Any, fields: dict[str, Declared]) -> Any:
+        is_dict = is_typeddict(cls)
+        if not isinstance(result, dict if is_dict else cls):
+            raise TypeError(
+                f"[{qualname}] output: declared {cls.__name__}, got "
+                f"{type(result).__name__}."
+            )
+        changes = {}
+        for name, decl in fields.items():
+            if is_dict and name not in result:
+                if name in cls.__required_keys__:
+                    raise TypeError(
+                        f"[{qualname}] output {name!r}: a required field of "
+                        f"{cls.__name__} is missing."
+                    )
+                continue
+            value = result[name] if is_dict else getattr(result, name, None)
+            applied = _apply_output(value, decl, name)
+            if applied is not value:
+                changes[name] = applied
+        return _with_fields(result, changes)
+
     def _outputs(result: Any) -> Any:
         if isinstance(output, Declared):
             return _apply_output(result, output, "return")
-        is_dict = isinstance(result, dict)
-        if isinstance(output, dict) and (is_dict or dataclasses.is_dataclass(result)):
-            changes = {}
-            for name, decl in output.items():
-                value = result.get(name) if is_dict else getattr(result, name, None)
-                applied = _apply_output(value, decl, name)
-                if applied is not value:
-                    changes[name] = applied
-            return _with_fields(result, changes)
-        return result
+        if not output or (result is None and record_optional):
+            return result
+        return _record_output(result, record, output)
 
     def _inputs(args: Any, kwargs: Any) -> tuple[Any, Any]:
         if not inputs:
@@ -302,7 +341,10 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
         bound.apply_defaults()
         for name, val in list(bound.arguments.items()):
             decl = inputs.get(name)
-            if decl is None or not isinstance(val, xr.DataArray):
+            if decl is None:
+                continue
+            if not isinstance(val, xr.DataArray):
+                _refuse_other_value(val, decl, f"[{qualname}] input {name!r}")
                 continue
             if decl.unit is not None:
                 val = check_units(val, decl.unit, name, qualname=qualname)

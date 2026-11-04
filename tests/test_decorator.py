@@ -2,7 +2,7 @@
 
 import typing
 from dataclasses import dataclass
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, NotRequired, TypedDict
 
 import numpy as np
 import pint
@@ -364,15 +364,16 @@ class TestOutputs:
         with pytest.raises(pint.DimensionalityError, match="output 'bad'"):
             f()
 
-    # -- anything that is not a DataArray passes through, as for an input -------
+    # -- anything else raises, unless the hint allows it -----------------------
 
     @pytest.mark.parametrize("value", [None, np.array([1.0]), 1.0])
-    def test_non_dataarray_return_passes_through(self, value):
+    def test_non_dataarray_return_raises(self, value):
         @xra.enforce
         def f() -> Annotated[xr.DataArray, Unit("Pa")]:
             return value
 
-        assert f() is value
+        with pytest.raises(TypeError, match="output 'return': declared a DataArray"):
+            f()
 
     def test_optional_return_of_none_passes(self):
         @xra.enforce
@@ -391,7 +392,7 @@ class TestOutputs:
 
         assert f() == {}
 
-    def test_none_dataclass_field_passes(self):
+    def test_none_dataclass_field_raises(self):
         @dataclass
         class Out:
             p: Annotated[xr.DataArray, Unit("Pa")]
@@ -400,17 +401,97 @@ class TestOutputs:
         def f() -> Out:
             return Out(p=None)  # type: ignore[arg-type]
 
+        with pytest.raises(TypeError, match="output 'p'"):
+            f()
+
+    def test_optional_dataclass_field_of_none_passes(self):
+        @dataclass
+        class Out:
+            p: Annotated[xr.DataArray, Unit("Pa")] | None
+
+        @xra.enforce
+        def f() -> Out:
+            return Out(p=None)
+
         assert f().p is None
 
-    def test_undeclared_container_passes(self):
+    @pytest.mark.parametrize("value", [None, 1.0, {"p": 1.0}], ids=repr)
+    def test_something_other_than_the_declared_dataclass_raises(self, value):
+        @dataclass
+        class Out:
+            p: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.enforce
+        def f() -> Out:
+            return value  # type: ignore[return-value]
+
+        with pytest.raises(TypeError, match=r"declared .*Out"):
+            f()
+
+    @pytest.mark.parametrize("value", [None, 1.0], ids=repr)
+    def test_something_other_than_the_declared_typeddict_raises(self, value):
         class Out(TypedDict):
             p: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.enforce
+        def f() -> Out:
+            return value  # type: ignore[return-value]
+
+        with pytest.raises(TypeError, match="declared Out"):
+            f()
+
+    def test_optional_record_of_none_passes(self):
+        class Out(TypedDict):
+            p: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.enforce
+        def f() -> Out | None:
+            return None
+
+        assert f() is None
+
+    def test_record_with_no_declarations_is_not_looked_at(self):
+        @dataclass
+        class Out:
+            p: xr.DataArray
 
         @xra.enforce
         def f() -> Out:
             return None  # type: ignore[return-value]
 
         assert f() is None
+
+    def test_missing_required_field_raises(self):
+        class Out(TypedDict):
+            p: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.enforce
+        def f() -> Out:
+            return {}  # type: ignore[typeddict-item]
+
+        with pytest.raises(TypeError, match="'p': a required field of Out"):
+            f()
+
+    def test_missing_notrequired_field_passes(self):
+        class Out(TypedDict):
+            p: NotRequired[Annotated[xr.DataArray, Unit("Pa")]]
+
+        @xra.enforce
+        def f() -> Out:
+            return {}
+
+        assert f() == {}
+
+    def test_notrequired_field_of_none_raises(self):
+        class Out(TypedDict):
+            p: NotRequired[Annotated[xr.DataArray, Unit("Pa")]]
+
+        @xra.enforce
+        def f() -> Out:
+            return {"p": None}  # type: ignore[typeddict-item]
+
+        with pytest.raises(TypeError, match="output 'p'"):
+            f()
 
     # -- plumbing ---------------------------------------------------------
 
