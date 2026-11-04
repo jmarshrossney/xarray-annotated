@@ -3,6 +3,7 @@
 import threading
 from typing import Annotated
 
+import numpy as np
 import pytest
 import xarray as xr
 
@@ -77,6 +78,22 @@ class TestResolution:
             t.start()
             t.join()
         assert seen == [True]
+
+
+class TestOnlyABoolIsAccepted:
+    @pytest.mark.parametrize("value", ["false", "off", "true", 0, 1, None])
+    def test_anything_else_raises(self, value):
+        with pytest.raises(TypeError, match="enabled takes a bool"), xra.enabled(value):
+            pytest.fail("the block should not run")
+
+    def test_a_refused_value_changes_nothing(self):
+        with pytest.raises(TypeError), xra.enabled("false"):  # type: ignore[arg-type]
+            pass
+        assert _resolve() is True
+
+    def test_a_numpy_bool_is_a_bool(self):
+        with xra.enabled(np.False_):
+            assert _resolve() is False
 
 
 class TestOffIsTotal:

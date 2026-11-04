@@ -16,6 +16,8 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 
+import numpy as np
+
 __all__ = ["ENABLED_ENV_VAR", "enabled", "resolve_enabled"]
 
 ENABLED_ENV_VAR = "XARRAY_ANNOTATED_ENABLED"
@@ -60,7 +62,7 @@ def resolve_enabled() -> bool:
 
 
 @contextmanager
-def enabled(value: bool) -> Generator[None]:
+def enabled(value: bool | np.bool_) -> Generator[None]:
     """Switch xarray-annotated on or off for a block.
 
     Off means no checks, so a body declaring `"Pa"` can receive `"hPa"`.  Declarations
@@ -74,6 +76,9 @@ def enabled(value: bool) -> Generator[None]:
     Args:
         value: `False` to switch off, `True` to switch on.
 
+    Raises:
+        TypeError: If `value` is not a bool, as `bool("false")` would leave checks on.
+
     Examples:
         >>> from typing import Annotated
         >>> import xarray as xr
@@ -86,6 +91,8 @@ def enabled(value: bool) -> Generator[None]:
         ...     f(hpa).attrs["units"]
         'hPa'
     """
+    if not isinstance(value, bool | np.bool_):
+        raise TypeError(f"enabled takes a bool, not {type(value).__name__}.")
     token = _override.set(bool(value))
     try:
         yield
