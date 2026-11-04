@@ -7,8 +7,8 @@ Conversion goes through the active registry: pint directly for an `attrs`-labell
 array, pint-xarray's `.pint` accessor for a quantified one.
 
 Every non-trivial action is logged to the `xarray_annotated.units` logger: at
-DEBUG an opted-in input conversion, an output stamped over a different label and a
-converted quantified output; at INFO an output unit left unchecked.
+DEBUG an opted-in conversion of an input or a quantified output, and an output
+stamped over a different label; at INFO an output unit left unchecked.
 """
 
 import logging
@@ -404,11 +404,12 @@ def _apply_output_quantified(
     declared: str,
     name: str,
     on_output: OnOutput,
+    convert: bool,
     prefix: str,
 ) -> xr.DataArray:
     """Apply a declared unit to a *pint-quantified* return value.
 
-    See `apply_output_units` for why this path converts where the `attrs` path
+    See `apply_output_units` for why this path can convert where the `attrs` path
     stamps. The array stays quantified throughout: `dequantify` copies the whole
     buffer even when it has no conversion to do, and a quantified array already
     describes itself, so there is nothing to gain by paying for that.
@@ -419,6 +420,7 @@ def _apply_output_quantified(
         declared: The declared unit string.
         name: A label for the value, used in error messages.
         on_output: The already-resolved on-output axis.
+        convert: Whether the declaration opts in to a value-changing conversion.
         prefix: The `[qualname] ` message prefix, or `""`.
 
     Returns:
@@ -427,11 +429,10 @@ def _apply_output_quantified(
 
     Raises:
         pint.DimensionalityError: When the unit cannot be converted to
-            `declared` — under `"strict"`, or under `"stamp"` or `"require"`
-            from the conversion itself.
-        ValueError: Under `"strict"`, when the unit is compatible with but not
-            equal to `declared`; under `"require"`, when the active registry
-            cannot parse the unit.
+            `declared`, under any mode.
+        ValueError: When the unit is compatible with but not equal to `declared`,
+            unless `convert` is set and the mode is not `"strict"`; under
+            `"require"`, when the active registry cannot parse the unit.
     """
     try:
         label = _quantified_label(have)
@@ -462,11 +463,20 @@ def _apply_output_quantified(
         return da
     # Only *compatible* units raise here; an incompatible label falls through to the
     # conversion below, which raises DimensionalityError for us.
-    if on_output == "strict" and units_compatible(label, declared):
-        raise ValueError(
-            f"{prefix}output {name!r}: unit {label!r} differs from declared "
-            f"{declared!r} and on_output='strict' requires them to match"
-        )
+    if units_compatible(label, declared):
+        if on_output == "strict":
+            raise ValueError(
+                f"{prefix}output {name!r}: unit {label!r} differs from declared "
+                f"{declared!r} and on_output='strict' requires them to match"
+            )
+        if not convert:
+            raise ValueError(
+                f"{prefix}output {name!r}: unit {label!r} differs from declared "
+                f"{declared!r}. Converting would change the values; if that is "
+                f"correct for this quantity, declare "
+                f"Unit({declared!r}, convert=True) or return "
+                f".pint.to({declared!r})."
+            )
     _log.debug(
         "%soutput %r: converting quantified %r -> declared %r",
         prefix,
@@ -503,15 +513,17 @@ def apply_output_units(
     with it: `attrs` are inert under arithmetic, so a returned label may be stale,
     and converting on it could rescale correct values.  A label is therefore
     *stamped*, never converted.  A pint-quantified array's unit cannot go stale, so
-    it is converted instead, and stays quantified.
+    it is never stamped: a different but compatible unit raises unless the
+    declaration opts in with `Unit(..., convert=True)`, as for an input, since
+    whether a conversion is correct depends on the quantity.  It stays quantified.
 
-    - `"stamp"` (default) — overwrite the label, with no checks.
+    - `"stamp"` (default) — overwrite a label, with no checks.
     - `"strict"` — a parseable label, or a quantified unit, that differs from
-      `declared` raises.  Only for bodies that keep their units truthful: scalar
-      arithmetic fails it whether or not it is correct.
-    - `"require"` — as `"strict"`, except that a compatible quantified unit is
-      converted, and an output with no parseable unit of its own raises.  For
-      wrappers of libraries that return bare arrays.
+      `declared` raises, whatever `convert` says.  Only for bodies that keep their
+      units truthful: scalar arithmetic fails it whether or not it is correct.
+    - `"require"` — as `"strict"`, except that `convert=True` still converts a
+      quantified unit, and an output with no parseable unit of its own raises.
+      For wrappers of libraries that return bare arrays.
 
     Output *values* are never inspected, so no mode detects a forgotten conversion
     factor on a labelled array.  See [`on_output`](../guides/policy.md#units-on_output)
@@ -520,7 +532,7 @@ def apply_output_units(
     Args:
         da: The returned `DataArray`.
         declared: The declared unit string (e.g. `"Pa"`), or a `Unit` marker,
-            whose `on_output` override then applies.
+            whose `on_output` override and `convert` then apply.
         name: A label for the value, used in error messages.
         on_output: Set the on-output axis for this call (`None` takes the
             default, `"stamp"`); a marker's own override wins.
@@ -537,13 +549,13 @@ def apply_output_units(
     Raises:
         pint.DimensionalityError: Under `"strict"` or `"require"`, when the
             returned array's own unit is dimensionally incompatible with
-            `declared`; also under `"stamp"` or `"require"` for a quantified array
-            that cannot be converted.
-        ValueError: Under `"strict"`, when the returned array's unit is
-            compatible with but not equal to `declared`; likewise under
-            `"require"` for an `attrs`-labelled array (a quantified one is
-            converted instead).  Under `"require"`, also when it carries no
-            parseable unit of its own.
+            `declared`; also under any mode for a quantified array that cannot be
+            converted.
+        ValueError: Under `"strict"` or `"require"`, when an `attrs` label is
+            compatible with but not equal to `declared`.  For a quantified array
+            with such a unit, under `"strict"`, or under any mode without
+            `convert`.  Under `"require"`, also when the array carries no parseable
+            unit of its own.
 
     Examples:
         >>> import xarray as xr
@@ -555,13 +567,14 @@ def apply_output_units(
     if not resolve_enabled():
         return da
     on_output = resolve_on_output(declared, on_output)
+    convert = isinstance(declared, Unit) and declared.convert
     declared = str(declared)
     prefix = f"[{qualname}] " if qualname else ""
 
     quantified = da.pint.units
     if quantified is not None:
         return _apply_output_quantified(
-            da, quantified, declared, name, on_output, prefix
+            da, quantified, declared, name, on_output, convert, prefix
         )
 
     have = da.attrs.get("units")
@@ -680,5 +693,5 @@ def _require_message(prefix: str, name: str, declared: str, carries: str) -> str
         f"on_output='require' refuses to stamp a unit the values were not "
         f"computed in. Attach the unit the values are actually in where they "
         f"enter, e.g. `.assign_attrs(units=...).pint.quantify()`, and the declared "
-        f"unit is then checked and converted to."
+        f"unit is then checked against it."
     )

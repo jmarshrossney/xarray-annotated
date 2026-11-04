@@ -44,7 +44,7 @@ Declarations catch wiring mistakes, not algebra.
 
 Two things do keep the unit tied to the values:
 
-- **Let pint carry the unit.** Compute on a quantified array, or [attach the unit a library documents](policy.md#wrapping-a-library), and the return is converted to the declaration. Here the forgotten factor raises `DimensionalityError`:
+- **Let pint carry the unit.** Compute on a quantified array, or [attach the unit a library documents](policy.md#wrapping-a-library), and the return is checked against the declaration. Here the forgotten factor raises `DimensionalityError`:
 
     <!-- docs-test: skip -->
     ```python

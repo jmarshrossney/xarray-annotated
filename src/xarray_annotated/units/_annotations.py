@@ -32,7 +32,7 @@ class Unit:
     The unit string is *not* validated here — parsing is deferred to
     `assert_valid_unit` at decoration time.
 
-    **Conversion is opt-in, per declaration.**  An input in a different but
+    **Conversion is opt-in, per declaration.**  A value in a different but
     compatible unit (`"hPa"` where `"Pa"` is declared) raises unless the
     declaration says `convert=True`.  Whether a conversion is *correct* is a
     property of the quantity, not of the function or the process: kelvin input
@@ -47,10 +47,11 @@ class Unit:
 
     `on_output` can be set for this declaration too, and beats the decorator
     keyword, which beats the default; switching the package off
-    (`enabled(False)`) still disables everything.  `convert` applies where the
-    marker declares an input and `on_output` where it declares an output; a
-    setting that does not apply where the marker sits is ignored, so one marker
-    can be reused on both sides.
+    (`enabled(False)`) still disables everything.  `convert` applies to an input
+    and to a pint-quantified output, as an `attrs` label on an output may be stale
+    and is stamped rather than converted.  `on_output` applies only where the
+    marker declares an output and is ignored elsewhere, so one marker can be reused
+    on both sides.
 
     An input with no parseable unit always raises: the declaration cannot be
     checked, so attach the unit where the data enters.
@@ -61,7 +62,7 @@ class Unit:
 
     Args:
         unit: The declared unit string.
-        convert: Convert a compatible input into `unit` instead of raising.
+        convert: Convert a compatible value into `unit` instead of raising.
         on_output: Override the on-output axis for this declaration.
 
     Raises:
@@ -92,7 +93,7 @@ class Unit:
 
     @property
     def convert(self) -> bool:
-        """Whether this declaration converts a compatible input."""
+        """Whether this declaration converts a compatible value."""
         return self._convert
 
     @property

@@ -3,7 +3,7 @@
 A wrapper around a library that returns bare arrays declares units it never
 computed.  Stamping makes that claim undetectable, since every consumer then
 compares one declaration against another.  ``"require"`` makes the wrapper
-attach the unit the values really are in, which is then checked and converted.
+attach the unit the values really are in, which is then checked.
 """
 
 import dataclasses
@@ -65,10 +65,19 @@ class TestLabelled:
 
 
 class TestQuantified:
-    def test_converted_as_under_stamp(self):
-        out = _require(_da("hPa", 1.0).pint.quantify())
+    def test_converted_when_declared(self):
+        out = units.apply_output_units(
+            _da("hPa", 1.0).pint.quantify(),
+            Unit("Pa", convert=True),
+            "r",
+            "require",
+        )
         assert units.units_equal(f"{out.pint.units:~P}", "Pa")
         np.testing.assert_allclose(out.pint.magnitude, [100.0])
+
+    def test_compatible_raises_without_opting_in(self):
+        with pytest.raises(ValueError, match="convert=True"):
+            _require(_da("hPa", 1.0).pint.quantify())
 
     def test_incompatible_raises(self):
         with pytest.raises(pint.DimensionalityError):
@@ -180,7 +189,7 @@ class TestWiring:
     def test_wrapper_idiom_converts(self):
         # The #16 fix: say what the library returns, and the declaration is checked.
         @xra.enforce(units_on_output="require")
-        def wrap() -> Annotated[xr.DataArray, Unit("Pa")]:
+        def wrap() -> Annotated[xr.DataArray, Unit("Pa", convert=True)]:
             return _da().assign_attrs(units="hPa").pint.quantify()
 
         np.testing.assert_allclose(wrap().pint.magnitude, [100.0])

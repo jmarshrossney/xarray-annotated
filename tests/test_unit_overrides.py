@@ -119,13 +119,15 @@ class TestThroughEnforce:
         out = f()  # q is only stamped; p matched its strict declaration
         assert out["q"].attrs["units"] == "Pa"
 
-    def test_input_axes_ignored_on_an_output(self):
-        # convert has no meaning on an output; it must not leak into on_output.
+    def test_convert_does_not_convert_a_labelled_output(self):
+        # A label may be stale, so it is stamped; convert must not act on it.
         @xra.enforce
         def f() -> Annotated[xr.DataArray, Unit("Pa", convert=True)]:
             return _da(unit="hPa")
 
-        assert f().attrs["units"] == "Pa"  # stamped, as on_output="stamp"
+        out = f()
+        assert out.attrs["units"] == "Pa"
+        np.testing.assert_allclose(out.values, _da(unit="hPa").values)
 
     def test_master_switch_beats_marker(self):
         @xra.enforce

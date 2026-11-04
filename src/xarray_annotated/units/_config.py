@@ -1,11 +1,11 @@
 """Behavioural axes of the units domain: their values, validators and defaults.
 
-Inputs have no axis, only an opt-in, and outputs have one axis:
+Conversion has no axis, only an opt-in, and outputs have one axis:
 
 - `convert` — the declared and actual units are dimensionally compatible but
-  *value-changing* (e.g. `"hPa"` where `"Pa"` is declared).  Not an axis but an
-  opt-in on the `Unit` marker: without it this raises, because whether a
-  conversion is correct depends on the quantity.
+  *value-changing* (e.g. `"hPa"` where `"Pa"` is declared), on an input or a
+  pint-quantified output.  Not an axis but an opt-in on the `Unit` marker: without
+  it this raises, because whether a conversion is correct depends on the quantity.
 - `on_output` — whether a declared return value's own `units` attribute is
   verified before being overwritten: `"stamp"` / `"strict"` / `"require"`.  See
   `apply_output_units` for why the default cannot be otherwise.

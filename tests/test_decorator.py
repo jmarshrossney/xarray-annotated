@@ -462,23 +462,45 @@ def _quantified(values, unit):
 
 
 class TestQuantifiedOutputs:
-    """A quantified return is *converted*, not stamped, and stays quantified.
+    """A quantified return is never stamped, and stays quantified.
 
     Stamping is the right default for ``attrs`` because a label left behind by
     scalar arithmetic is the norm there. A ``Quantity``'s unit travels with the
-    values and cannot be left behind, so it is always true -- which makes
-    converting on the strength of it sound, and stamping over it harmful.
+    values and cannot be left behind, so stamping over it is harmful. Converting
+    is sound, but correct only if the quantity allows it, so it needs opting into.
     """
 
     def test_stamping_a_quantity_would_produce_two_disagreeing_labels(self):
         # The bug this path exists to prevent: attrs saying "Pa" over data that
         # is still hectopascal. Whatever comes back, its two possible labels
         # must agree.
-        out = units.apply_output_units(_quantified([[1.0]], "hPa"), "Pa", "return")
+        out = units.apply_output_units(
+            _quantified([[1.0]], "hPa"), Unit("Pa", convert=True), "return"
+        )
         assert out.pint.units is not None
         assert units.units_equal(f"{out.pint.units:~P}", "Pa")
         assert "units" not in out.attrs
         np.testing.assert_allclose(out.pint.dequantify().values, [[100.0]])
+
+    @pytest.mark.parametrize(
+        "declared", ["Pa", Unit("Pa"), Unit("Pa", convert=False)], ids=repr
+    )
+    @pytest.mark.parametrize("on_output", ["stamp", "require"])
+    def test_conversion_needs_opting_into(self, declared, on_output):
+        # Compatible is not correct: the input rule, applied to an output.
+        with pytest.raises(ValueError, match=r"'return'.*convert=True.*pint\.to"):
+            units.apply_output_units(
+                _quantified([[1.0]], "hPa"), declared, "return", on_output
+            )
+
+    def test_strict_refuses_even_a_declared_conversion(self):
+        with pytest.raises(ValueError, match="on_output='strict'"):
+            units.apply_output_units(
+                _quantified([[1.0]], "hPa"),
+                Unit("Pa", convert=True),
+                "return",
+                "strict",
+            )
 
     def test_already_declared_unit_is_returned_untouched(self):
         # No conversion needed => same object, and crucially no copy of the
@@ -552,7 +574,7 @@ class TestQuantifiedThroughDecorator:
 
     def test_converted_output_is_written_back_for_single_return(self):
         @xra.enforce
-        def f() -> Annotated[xr.DataArray, Unit("Pa")]:
+        def f() -> Annotated[xr.DataArray, Unit("Pa", convert=True)]:
             return _quantified([[1.0]], "hPa")
 
         # The conversion produces a *new* array, so a decorator that discarded
@@ -561,7 +583,7 @@ class TestQuantifiedThroughDecorator:
 
     def test_converted_output_is_written_back_for_typeddict(self):
         class Out(TypedDict):
-            gpp: Annotated[xr.DataArray, Unit("Pa")]
+            gpp: Annotated[xr.DataArray, Unit("Pa", convert=True)]
 
         @xra.enforce
         def f() -> Out:
@@ -572,7 +594,7 @@ class TestQuantifiedThroughDecorator:
     def test_converted_output_is_written_back_for_dataclass(self):
         @dataclass
         class Out:
-            gpp: Annotated[xr.DataArray, Unit("Pa")]
+            gpp: Annotated[xr.DataArray, Unit("Pa", convert=True)]
 
         @xra.enforce
         def f() -> Out:
@@ -596,7 +618,7 @@ class TestQuantifiedThroughDecorator:
     def test_frozen_dataclass_with_a_conversion_is_rebuilt(self):
         @dataclass(frozen=True)
         class Out:
-            gpp: Annotated[xr.DataArray, Unit("Pa")]
+            gpp: Annotated[xr.DataArray, Unit("Pa", convert=True)]
 
         @xra.enforce
         def f() -> Out:

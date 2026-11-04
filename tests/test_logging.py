@@ -98,7 +98,9 @@ class TestOutputs:
         assert _records(audit, UNITS) == []
 
     def test_quantified_output_conversion_is_debug(self, audit):
-        out = units.apply_output_units(_da().pint.quantify(), "Pa", "return")
+        out = units.apply_output_units(
+            _da().pint.quantify(), Unit("Pa", convert=True), "return"
+        )
         np.testing.assert_allclose(out.pint.magnitude, [100.0])
         [(level, msg)] = _records(audit, UNITS)
         assert level == logging.DEBUG

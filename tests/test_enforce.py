@@ -50,7 +50,7 @@ class TestOrdering:
         # A quantified int64 hPa output converts to float64 Pa on the way out;
         # Dtype must see what the caller receives.
         @xra.enforce
-        def f() -> Annotated[xr.DataArray, Unit("Pa"), Dtype("float64")]:
+        def f() -> Annotated[xr.DataArray, Unit("Pa", convert=True), Dtype("float64")]:
             return _int_da().pint.quantify()
 
         out = f()
@@ -79,7 +79,9 @@ class TestOrdering:
     def test_all_facets_on_dataclass_return_converts_quantified_field(self):
         @dataclass
         class Out:
-            p: Annotated[xr.DataArray, Unit("Pa"), Dtype("float64"), Freq("D")]
+            p: Annotated[
+                xr.DataArray, Unit("Pa", convert=True), Dtype("float64"), Freq("D")
+            ]
 
         @xra.enforce
         def f() -> Out:
@@ -92,7 +94,7 @@ class TestOrdering:
     def test_frozen_dataclass_field_is_converted_too(self):
         @dataclass(frozen=True)
         class Out:
-            p: Annotated[xr.DataArray, Unit("Pa"), Dims("time")]
+            p: Annotated[xr.DataArray, Unit("Pa", convert=True), Dims("time")]
 
         @xra.enforce
         def f() -> Out:
@@ -311,7 +313,7 @@ class TestOutputStampLeavesTheInputAlone:
     def test_frozen_dataclass_takes_a_conversion(self):
         @dataclass(frozen=True)
         class Out:
-            p: Annotated[xr.DataArray, Unit("Pa")]
+            p: Annotated[xr.DataArray, Unit("Pa", convert=True)]
 
         @xra.enforce
         def f() -> Out:

@@ -7,7 +7,7 @@ Behaviour is set only where it is declared, so reading a signature and its decor
 | Structure mismatch | `on_mismatch` | `error`, `warn`, `ignore` | yes | no | `check_schema` |
 | Frequency mismatch, or no unambiguous time axis | `on_mismatch` | `error`, `warn`, `ignore` | yes | no | `check_freq` |
 | Short or irregular time axis | `on_uninferable` | `warn`, `error`, `ignore` | no | `temporal_on_uninferable` | `check_freq` |
-| Compatible but different input unit | `convert` | `False`, `True` | yes | no | no (pass the marker) |
+| Compatible but different unit, on an input or a quantified output | `convert` | `False`, `True` | yes | no | no (pass the marker) |
 | Declared output unit | `on_output` | `stamp`, `strict`, `require` | yes | `units_on_output` | `apply_output_units` |
 | Dimensionally wrong input unit | none | always raises `DimensionalityError` | | | |
 | Missing, unparseable or over-long input unit | none | always raises `ValueError` | | | |
@@ -56,7 +56,7 @@ Kelvin should convert here, but a daily mean is dimensionally compatible with an
 | Compatible label (`hPa`) | stamped | `ValueError` | `ValueError` |
 | Incompatible label (`kg`) | stamped | `DimensionalityError` | `DimensionalityError` |
 | Unparseable label | stamped | stamped | `ValueError` |
-| Quantified, compatible unit | converted | `ValueError` | converted |
+| Quantified, compatible unit | `ValueError`, or converted with `convert=True` | `ValueError` | `ValueError`, or converted with `convert=True` |
 | Quantified, incompatible unit | `DimensionalityError` | `DimensionalityError` | `DimensionalityError` |
 | Not a `DataArray` | passed through | passed through | `ValueError` |
 
@@ -74,7 +74,8 @@ Converting on that stale label would multiply by 100 again.
 For the same reason `strict` suits only bodies that keep their units truthful, such as pass-through functions or pint-quantified computations.
 A body doing scalar arithmetic fails it whether or not it is correct, unless it clears its own label.
 
-A quantified array's unit lives in the data and cannot go stale, so it is converted rather than stamped and comes back still quantified.
+A quantified array's unit lives in the data and cannot go stale, so it is never stamped.
+A different unit raises unless the declaration says `convert=True`, as for an input, and the result stays quantified.
 
 ## Wrapping a library that returns bare arrays { #wrapping-a-library }
 
@@ -83,7 +84,7 @@ Attach the unit the library documents, and use `require` so that forgetting rais
 
 ```python
 @xra.enforce(units_on_output="require")
-def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
+def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g m-2 d-1", convert=True)]:
     raw = some_library.gpp(ppfd.values)  # documented as ug m-2 s-1
     out = xr.DataArray(raw, dims=ppfd.dims, coords=ppfd.coords)
     return out.assign_attrs(units="ug m-2 s-1").pint.quantify()
@@ -122,8 +123,7 @@ logging.getLogger("xarray_annotated").setLevel(logging.DEBUG)
 |---|---|
 | Schema or frequency event passed under `ignore` | `INFO` |
 | Output unit unreadable under `strict`, or quantified and unreadable; returned unchecked | `INFO` |
-| Input converted under `convert=True` | `DEBUG` |
+| Input or quantified output converted under `convert=True` | `DEBUG` |
 | Output stamped over a different or unreadable label | `DEBUG` |
-| Quantified output converted | `DEBUG` |
 
 Records are emitted on every call, not once per call site like warnings.
