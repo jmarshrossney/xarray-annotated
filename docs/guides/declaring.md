@@ -30,7 +30,7 @@ def weekly_mean(
 | `Coords(*names)` | These coordinates are present (extras are fine) | |
 | `Dtype(dtype)` | The numpy kind matches: `float32` passes `Dtype("float64")`, `uint8` fails `Dtype("int32")` | `exact=True` requires the precise dtype |
 | `Unit(unit)` | The array is in this unit, however it is spelled | `convert=True` |
-| `Freq(freq)` | The time axis has this spacing, and this phase [where spelled](#what-the-same-frequency-means) | `dim=`, `anchored=` |
+| `Freq(freq)` | [The time axis](#which-coordinate-is-the-time-axis) has this spacing, and this phase [where spelled](#what-the-same-frequency-means) | `dim=`, `anchored=` |
 
 `Dims`, `Coords`, `Dtype` and `Freq` also take `on_mismatch=`; see [Configuring validation](policy.md).
 
@@ -61,13 +61,41 @@ Values are never inspected, so that statement is a claim rather than a check; se
 
 CF-convention strings such as `"umol m-2 s-1"` need [the CF registry](registry.md).
 
+## Which coordinate is the time axis
+
+The time axis is the array's one datetime coordinate with a pandas index, which xarray builds by default for a dimension coordinate.
+That index is in memory, so the check reads nothing from disk; building it reads the whole coordinate once, at open or at `set_xindex`.
+
+| The array has | Checked | To change that |
+|---|---|---|
+| A `time` dimension | `time` | |
+| A 1-D `time` with no index: `time(obs)`, `create_default_indexes=False`, `.drop_indexes("time")` | `FreqError` | `.set_xindex("time")`, which keeps the dimensions |
+| A scalar `time`, as from `.isel(time=0)` | `FreqError` | `.isel(time=[0])` or `.expand_dims("time")`; a short axis then [warns](#what-the-same-frequency-means) |
+| A custom index on `time` | `FreqError` | `.drop_indexes("time").set_xindex("time")` |
+| Numbers rather than datetimes, as from `decode_times=False` | `FreqError` | Decode the times |
+| Two indexed datetime coordinates | `FreqError` | Name one with `Freq("7D", dim="time")` |
+| `time` and another datetime coordinate with no index | `time` only | `.set_xindex("valid")` and `Freq("7D", dim="valid")` |
+
+The last row means a scalar, 2-D or auxiliary coordinate is silently left unchecked, and a forecast with `init`, `step` and a 2-D `valid_time` has `init` checked.
+`cftime` follows the same rules, but an error cannot name an unindexed one, because its dtype does not show it without reading it.
+A `FreqError` here follows [`on_mismatch`](policy.md), and softening it to `warn` or `ignore` skips the check.
+
+```python
+times = xr.date_range("2024-01-01", periods=5, freq="D")
+track = xr.DataArray([0.0] * 5, dims="obs", coords={"time": ("obs", times)})
+
+
+@xra.enforce
+def daily(x: Annotated[xr.DataArray, Dims("obs"), Freq("D")]) -> xr.DataArray:
+    return x
+
+
+daily(track.set_xindex("time"))  # daily(track) raises FreqError
+```
+
 ## What "the same frequency" means
 
-The frequency is inferred from the time coordinate with `xarray.infer_freq`, so `cftime` calendars work too.
-The time axis is the array's only indexed datetime-like coordinate; if it has two, name one with `Freq("7D", dim="time")`.
-Only a coordinate with a pandas index counts, which is what xarray builds by default, so checking a frequency reads nothing from disk, and a scalar, 2-D or auxiliary datetime coordinate never competes with the real axis.
-An unindexed axis is a mismatch: index it with `set_index` or `set_xindex` first.
-So is an axis with a custom index, which may read from disk: replace it with `.drop_indexes("time").set_xindex("time")`.
+The frequency is inferred from [the time axis](#which-coordinate-is-the-time-axis) with `xarray.infer_freq`, so `cftime` calendars work too.
 
 **Spacing** is always compared, by meaning rather than by string:
 

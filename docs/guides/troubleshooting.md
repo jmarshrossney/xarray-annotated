@@ -13,6 +13,7 @@
 | `ValueError: input ... differs from declared` | The unit is compatible with the declared one but not equal to it | [Convert it, or opt in on the declaration](conversion.md) |
 | `ValueError: output ... differs from declared`, or an output with no `units` | The body returned another unit, left a stale label, or returned no label | Fix the body, or [state the unit it returns](policy.md#units-outputs) |
 | `DimensionalityError` | The units cannot be converted, and `convert=True` does not change that | Fix the data or the declaration |
+| `FreqError: ... no indexed datetime coordinate`, when called | The message names a datetime coordinate and its fix where it can tell. Otherwise there is no time coordinate, as after `.mean("time")`, or it is unindexed `cftime` or undecoded | Remove the `Freq` marker, [index it](declaring.md#which-coordinate-is-the-time-axis), or decode it |
 | Checks stopped everywhere | The package is switched off | Check `XARRAY_ANNOTATED_ENABLED`, and look for an `xra.enabled(False)` block |
 
 A quantified input is read from `da.pint.units`, follows the same rules as a plain one, and reaches the body dequantified with `attrs["units"]` set.

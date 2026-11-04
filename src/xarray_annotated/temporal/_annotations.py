@@ -38,10 +38,8 @@ class Freq:
     to suppress the anchor comparison of a spelled-out anchor
     (``Freq("W-SUN", anchored=False)`` = "weekly, any weekday").
 
-    Pass ``dim`` to name the time coordinate explicitly; by default the array's sole
-    indexed datetime-like coordinate is used, and an array carrying two is ambiguous.
-    Either way it must have a pandas index, not a custom one, so that checking it reads
-    nothing from disk.
+    Pass ``dim`` to name the time coordinate where an array has two; see
+    ``docs/guides/declaring.md`` for which coordinates count.
     """
 
     _freq: str

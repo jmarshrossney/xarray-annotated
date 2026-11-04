@@ -213,10 +213,8 @@ def freq_compatible(a: Freq, b: Freq) -> bool:
 def _is_datetime_like(da: xr.DataArray, name: str) -> bool:
     """Whether a coordinate is an indexed time axis, numpy datetimes or cftime ones.
 
-    Only a coordinate with a `PandasIndex` qualifies.  That index is in memory, so
-    inferring its frequency reads nothing from disk, whereas a custom index may leave
-    its coordinate lazy.  A scalar or 2-D coordinate has no index, so it never competes
-    with the real axis.  `da.indexes` is avoided: it casts every index to pandas, and
+    Only a `PandasIndex` qualifies, as it is in memory where a custom index may leave
+    its coordinate lazy.  `da.indexes` is avoided: it casts every index to pandas, and
     raises on a custom one.
     """
     index = da.xindexes.get(name)
@@ -332,9 +330,9 @@ def check_freq(
 ) -> xr.DataArray:
     """Validate `da`'s time axis against its declared frequency; return it unchanged.
 
-    Locates the declared time coordinate (the array's sole datetime-like coordinate
-    with a pandas index, unless the marker names one, which must also have one, so
-    nothing is read from disk), infers its frequency with `xarray.infer_freq`, and
+    Locates the time coordinate, reading nothing from disk (see
+    `docs/guides/declaring.md` for which coordinates count), infers its frequency with
+    `xarray.infer_freq`, and
     compares that with the declaration via `freq_compatible`.  Because pandas always
     hands back a fully-anchored string (`"W-WED"`, never `"7D"`), the *declaration*
     alone decides how strict the comparison is — `Freq("7D")` accepts any weekday,
