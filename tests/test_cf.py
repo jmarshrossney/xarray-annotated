@@ -1,5 +1,8 @@
 """Tests for the CF/UDUNITS registry path (``use_cf_units()``), needs the ``[cf]`` extra."""
 
+import subprocess
+import sys
+
 import numpy as np
 import pytest
 
@@ -76,3 +79,21 @@ class TestUseCfUnitsHint:
         units.set_registry(pint.UnitRegistry())
         with pytest.raises(ValueError, match="use_cf_units"):
             units.assert_valid_unit("umol m-2 s-1", "ctx")
+
+
+def test_use_cf_units_hides_cf_xarray_matplotlib_warning():
+    """No warning about matplotlib, which we neither depend on nor use.
+
+    It fires only on the first import of ``cf_xarray.units``, and only without
+    matplotlib, hence a subprocess with matplotlib blocked.
+    """
+    code = (
+        "import sys; sys.modules['matplotlib'] = None; "
+        "from xarray_annotated.units import use_cf_units; use_cf_units()"
+    )
+    out = subprocess.run(
+        [sys.executable, "-W", "error::UserWarning", "-c", code],
+        capture_output=True,
+        text=True,
+    )
+    assert out.returncode == 0, out.stderr

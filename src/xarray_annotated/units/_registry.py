@@ -8,6 +8,7 @@ cf-xarray's UDUNITS-aware registry, activated once via `use_cf_units`.
 """
 
 import importlib.util
+import warnings
 
 import pint
 import pint_xarray
@@ -66,7 +67,14 @@ def use_cf_units() -> None:
     """
     global _using_cf
     try:
-        import cf_xarray.units
+        # Works around cf_xarray warning at import time when matplotlib is absent.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"Import\(s\) unavailable to set up matplotlib support",
+                category=UserWarning,
+            )
+            import cf_xarray.units
     except ImportError as exc:
         raise ImportError(
             "use_cf_units() requires cf-xarray. Install it with "
