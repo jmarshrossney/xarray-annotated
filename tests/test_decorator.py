@@ -28,7 +28,7 @@ def _da(values, unit=None):
 
 
 class TestBareDecorator:
-    def test_converts_input_and_stamps_output(self):
+    def test_converts_input_and_checks_output(self):
         @xra.enforce
         def f(
             p: Annotated[xr.DataArray, Unit("Pa", convert=True)],
@@ -39,20 +39,20 @@ class TestBareDecorator:
         assert out.attrs["units"] == "Pa"
         np.testing.assert_allclose(out.values, [[1000.0, 2000.0]])
 
-    def test_stamps_typeddict_outputs(self):
+    def test_checks_typeddict_outputs(self):
         class Out(TypedDict):
             gpp: Annotated[xr.DataArray, Unit("g / m**2 / d")]
             plain: xr.DataArray  # no declared unit
 
         @xra.enforce
         def f() -> Out:
-            return {"gpp": _da([[1.0]]), "plain": _da([[2.0]])}
+            return {"gpp": _da([[1.0]], unit="g / m**2 / d"), "plain": _da([[2.0]])}
 
         out = f()
         assert out["gpp"].attrs["units"] == "g / m**2 / d"
         assert "units" not in out["plain"].attrs
 
-    def test_stamps_dataclass_outputs(self):
+    def test_checks_dataclass_outputs(self):
         @dataclass
         class Out:
             gpp: Annotated[xr.DataArray, Unit("g / m**2 / d")]
@@ -60,7 +60,7 @@ class TestBareDecorator:
 
         @xra.enforce
         def f() -> Out:
-            return Out(gpp=_da([[1.0]]), plain=_da([[2.0]]))
+            return Out(gpp=_da([[1.0]], unit="g / m**2 / d"), plain=_da([[2.0]]))
 
         out = f()
         assert out.gpp.attrs["units"] == "g / m**2 / d"
@@ -243,45 +243,86 @@ class TestAnnotationsSurviveWraps:
         assert "return" in hints
 
 
-class TestOnOutput:
-    """The ``on_output`` axis: whether a returned array's own unit label is
-    verified before being overwritten.
+class TestOutputs:
+    """A returned array must already match its declaration.
 
-    Labelled outputs are never converted because xarray's ``attrs`` are inert under
-    arithmetic: a body converting by scalar multiplication returns an array still
-    labelled with its input's unit.  These tests pin the four label cases (absent /
-    equal / compatible-but-different / incompatible) across both modes, and the
-    limits of what ``"strict"`` can mean.
+    Its author controls what it returns, so a mismatch is a bug: nothing is converted
+    or labelled on the author's behalf.  ``attrs`` are inert under arithmetic, so a
+    body that changes the unit has to state the new one.
     """
 
     @staticmethod
-    def _returning(label, on_output=None):
+    def _returning(label):
         """A function whose return carries ``label`` while declaring 'Pa'."""
 
-        @xra.enforce(units_on_output=on_output)
+        @xra.enforce
         def f() -> Annotated[xr.DataArray, Unit("Pa")]:
             return _da([[1.0]], unit=label)
 
         return f
 
-    # -- defaults -----------------------------------------------------------
+    # -- the label decides -----------------------------------------------------
 
-    def test_default_is_strict(self):
-        assert units._config.DEFAULT_ON_OUTPUT == "strict"
+    def test_equal_label_is_respelled(self):
+        out = self._returning("pascal")()
+        assert out.attrs["units"] == "Pa"
+        np.testing.assert_allclose(out.values, [[1.0]])
 
-    def test_default_refuses_a_forgotten_conversion(self):
-        """What the default is for: a truthful label is not overwritten."""
+    def test_missing_label_raises_with_the_fix(self):
+        with pytest.raises(ValueError, match=r"no 'units' attribute.*assign_attrs"):
+            self._returning(None)()
 
+    def test_unparseable_label_raises(self):
+        with pytest.raises(ValueError, match="unparseable 'units' attribute"):
+            self._returning("not_a_unit")()
+
+    def test_overlong_label_raises_without_echoing_it(self):
+        with pytest.raises(ValueError, match="over-long") as info:
+            self._returning("m" * 10_000)()
+        assert "m" * 100 not in str(info.value)
+
+    def test_non_string_label_raises(self):
+        with pytest.raises(ValueError, match="unparseable 'units' attribute"):
+            units.apply_output_units(_da([[1.0]]).assign_attrs(units=3), "Pa", "r")
+
+    def test_compatible_label_raises_with_the_fix(self):
+        with pytest.raises(ValueError, match=r"'hPa' differs.*assign_attrs"):
+            self._returning("hPa")()
+
+    def test_incompatible_label_raises_with_the_fix(self):
+        with pytest.raises(pint.DimensionalityError, match=r"'return'.*assign_attrs"):
+            self._returning("kg")()
+
+    def test_message_names_the_function(self):
+        with pytest.raises(ValueError, match=r"\[[\w.<>]*\bf\] output"):
+            self._returning("hPa")()
+
+    # -- bodies ------------------------------------------------------------------
+
+    def test_a_forgotten_conversion_raises(self):
         @xra.enforce
         def forgot(
             p: Annotated[xr.DataArray, Unit("hPa")],
         ) -> Annotated[xr.DataArray, Unit("Pa")]:
             return p
 
-        with pytest.raises(ValueError, match=r"'hPa' differs.*assign_attrs"):
+        with pytest.raises(ValueError, match="'hPa' differs"):
             forgot(_da([[1.0]], unit="hPa"))
 
-    def test_default_lets_a_body_state_a_new_unit(self):
+    def test_a_stale_label_raises(self):
+        @xra.enforce
+        def to_pascals(
+            p: Annotated[xr.DataArray, Unit("hPa")],
+        ) -> Annotated[xr.DataArray, Unit("Pa")]:
+            return p * 100.0
+
+        with (
+            xr.set_options(keep_attrs=True),
+            pytest.raises(ValueError, match="'hPa' differs"),
+        ):
+            to_pascals(_da([[1013.0]], unit="hPa"))
+
+    def test_a_body_can_state_a_new_unit(self):
         @xra.enforce
         def to_pascals(
             p: Annotated[xr.DataArray, Unit("hPa")],
@@ -292,102 +333,8 @@ class TestOnOutput:
         assert out.attrs["units"] == "Pa"
         np.testing.assert_allclose(out.values, [[101300.0]])
 
-    def test_stamp_does_not_reconvert(self):
-        """The regression this asymmetry exists to prevent: a body that has
-        already done the arithmetic must not have it applied a second time."""
-
-        @xra.enforce(units_on_output="stamp")
-        def to_pascals(
-            p: Annotated[xr.DataArray, Unit("hPa")],
-        ) -> Annotated[xr.DataArray, Unit("Pa")]:
-            return p * 100.0  # values now Pa; attrs still say hPa
-
-        with xr.set_options(keep_attrs=True):
-            out = to_pascals(_da([[1013.0]], unit="hPa"))
-        assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, [[101300.0]])
-
-    def test_stamp_tolerates_dimension_changing_body(self):
-        """A body converting moles -> mass by a scalar factor leaves a
-        dimensionally *incompatible* stale label.  Under ``"stamp"`` this is
-        expected, not an error -- the label simply carries no information."""
-
-        @xra.enforce(units_on_output="stamp")
-        def to_mass(
-            flux: Annotated[xr.DataArray, Unit("umol / m**2 / s")],
-        ) -> Annotated[xr.DataArray, Unit("g / m**2 / d")]:
-            return flux * 1.0377504
-
-        with xr.set_options(keep_attrs=True):
-            out = to_mass(_da([[1.0]], unit="umol / m**2 / s"))
-        assert out.attrs["units"] == "g / m**2 / d"
-        np.testing.assert_allclose(out.values, [[1.0377504]])
-
-    @pytest.mark.parametrize("mode", ["stamp", "strict"])
-    def test_absent_label_is_stamped_in_every_mode(self, mode):
-        out = self._returning(None, on_output=mode)()
-        assert out.attrs["units"] == "Pa"
-
-    @pytest.mark.parametrize("mode", ["stamp", "strict"])
-    def test_equal_label_passes_in_every_mode(self, mode):
-        # 'pascal' is an equivalent spelling of 'Pa': no value change implied.
-        out = self._returning("pascal", on_output=mode)()
-        assert out.attrs["units"] == "Pa"
-
-    # -- stamp believes nothing ---------------------------------------------
-
-    @pytest.mark.parametrize("label", ["hPa", "kg"])
-    def test_stamp_overwrites_any_label(self, label):
-        out = self._returning(label, on_output="stamp")()
-        assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, [[1.0]])  # never rescaled
-
-    # -- strict requires the label to match ---------------------------------
-
-    def test_strict_rejects_compatible_but_different(self):
-        with pytest.raises(ValueError, match="on_output='strict'"):
-            self._returning("hPa", on_output="strict")()
-
-    def test_strict_rejects_incompatible(self):
-        with pytest.raises(pint.DimensionalityError) as excinfo:
-            self._returning("kg", on_output="strict")()
-        msg = str(excinfo.value)
-        assert "kilogram" in msg
-        assert "pascal" in msg
-        assert "output 'return'" in msg
-        assert "on_output='strict'" in msg
-
-    def test_strict_message_names_the_function(self):
-        with pytest.raises(pint.DimensionalityError, match=r"\[[\w.<>]*\bf\] output"):
-            self._returning("kg", on_output="strict")()
-
-    def test_strict_message_suggests_the_escape_hatch(self):
-        """A stale label from a scalar-arithmetic body is a likely cause, so the
-        message must offer that rather than implying the values are wrong."""
-        with pytest.raises(pint.DimensionalityError, match=r"stale.*assign_attrs"):
-            self._returning("kg", on_output="strict")()
-
-    def test_strict_accepts_a_body_that_clears_its_label(self):
-        """The documented escape hatch for a manual-arithmetic body."""
-
-        @xra.enforce(units_on_output="strict")
-        def f(
-            p: Annotated[xr.DataArray, Unit("hPa")],
-        ) -> Annotated[xr.DataArray, Unit("Pa")]:
-            out = p * 100.0
-            out.attrs.pop("units", None)
-            return out
-
-        with xr.set_options(keep_attrs=True):
-            out = f(_da([[1013.0]], unit="hPa"))
-        assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, [[101300.0]])
-
-    def test_strict_passes_a_unit_preserving_body(self):
-        """Pass-through and subsetting bodies keep a truthful label, which is the
-        case ``strict`` is actually for."""
-
-        @xra.enforce(units_on_output="strict")
+    def test_a_unit_preserving_body_passes(self):
+        @xra.enforce
         def f(
             p: Annotated[xr.DataArray, Unit("Pa", convert=True)],
         ) -> Annotated[xr.DataArray, Unit("Pa")]:
@@ -397,15 +344,29 @@ class TestOnOutput:
         assert out.attrs["units"] == "Pa"
         np.testing.assert_allclose(out.values, [[1000.0]])
 
-    # -- unverifiable labels are never fatal -------------------------------
+    # -- convert does not apply -----------------------------------------------
 
-    def test_unparseable_label_is_stamped(self):
-        out = self._returning("not_a_unit", on_output="strict")()
-        assert out.attrs["units"] == "Pa"
+    @pytest.mark.parametrize(
+        "make", [lambda: _da([[1.0]], "hPa"), lambda: _quantified([[1.0]], "hPa")]
+    )
+    def test_convert_does_not_apply_to_an_output(self, make):
+        @xra.enforce
+        def f() -> Annotated[xr.DataArray, Unit("Pa", convert=True)]:
+            return make()
 
-    def test_overlong_label_is_stamped(self):
-        out = self._returning("m" * 300, on_output="strict")()
+        with pytest.raises(ValueError, match="'hPa' differs"):
+            f()
+
+    def test_one_marker_can_serve_both_sides(self):
+        marker = Unit("Pa", convert=True)
+
+        @xra.enforce
+        def f(p: Annotated[xr.DataArray, marker]) -> Annotated[xr.DataArray, marker]:
+            return p
+
+        out = f(_da([[1.0]], unit="hPa"))
         assert out.attrs["units"] == "Pa"
+        np.testing.assert_allclose(out.values, [[100.0]])
 
     # -- container returns --------------------------------------------------
 
@@ -414,7 +375,7 @@ class TestOnOutput:
             good: Annotated[xr.DataArray, Unit("Pa")]
             bad: Annotated[xr.DataArray, Unit("Pa")]
 
-        @xra.enforce(units_on_output="strict")
+        @xra.enforce
         def f() -> Out:
             return {"good": _da([[1.0]], unit="Pa"), "bad": _da([[2.0]], unit="kg")}
 
@@ -426,58 +387,92 @@ class TestOnOutput:
         class Out:
             bad: Annotated[xr.DataArray, Unit("Pa")]
 
-        @xra.enforce(units_on_output="strict")
+        @xra.enforce
         def f() -> Out:
             return Out(bad=_da([[2.0]], unit="kg"))
 
         with pytest.raises(pint.DimensionalityError, match="output 'bad'"):
             f()
 
+    # -- anything that is not a DataArray passes through, as for an input -------
+
+    @pytest.mark.parametrize("value", [None, np.array([1.0]), 1.0])
+    def test_non_dataarray_return_passes_through(self, value):
+        @xra.enforce
+        def f() -> Annotated[xr.DataArray, Unit("Pa")]:
+            return value
+
+        assert f() is value
+
+    def test_optional_return_of_none_passes(self):
+        @xra.enforce
+        def f() -> Annotated[xr.DataArray, Unit("Pa")] | None:
+            return None
+
+        assert f() is None
+
+    def test_missing_typeddict_key_passes(self):
+        class Out(TypedDict, total=False):
+            p: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.enforce
+        def f() -> Out:
+            return {}
+
+        assert f() == {}
+
+    def test_none_dataclass_field_passes(self):
+        @dataclass
+        class Out:
+            p: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.enforce
+        def f() -> Out:
+            return Out(p=None)  # type: ignore[arg-type]
+
+        assert f().p is None
+
+    def test_undeclared_container_passes(self):
+        class Out(TypedDict):
+            p: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.enforce
+        def f() -> Out:
+            return None  # type: ignore[return-value]
+
+        assert f() is None
+
     # -- plumbing ---------------------------------------------------------
 
     def test_disabled_is_a_total_no_op(self):
-        f = self._returning("kg", on_output="strict")
+        f = self._returning("kg")
         with xra.enabled(False):
             out = f()
-        assert out.attrs["units"] == "kg"  # not even stamped
+        assert out.attrs["units"] == "kg"
 
-    @pytest.mark.parametrize("bad", ["convert", "check", "STAMP_", "", "warn"])
-    def test_invalid_value_rejected(self, bad):
-        with pytest.raises(ValueError, match="Invalid units_on_output"):
-            xra.enforce(units_on_output=bad)
-
-    def test_invalid_value_rejected_by_primitive(self):
-        with pytest.raises(ValueError, match="Invalid on_output"):
-            units.apply_output_units(_da([[1.0]]), "Pa", "return", "check")  # type: ignore[arg-type]
+    def test_the_on_output_keyword_is_gone(self):
+        with pytest.raises(TypeError, match="units_on_output"):
+            xra.enforce(units_on_output="stamp")  # type: ignore[call-arg]
 
 
 class TestApplyOutputUnitsPrimitive:
     """``apply_output_units`` is public; it must behave standalone."""
 
-    def test_stamps_a_copy(self):
-        da = _da([[1.0]])
+    def test_respells_a_copy(self):
+        da = _da([[1.0]], unit="pascal")
         out = units.apply_output_units(da, "Pa", "return")
         assert out is not da
         assert out.attrs["units"] == "Pa"
-        assert "units" not in da.attrs
+        assert da.attrs["units"] == "pascal"
 
-    def test_none_takes_default_strict(self):
-        da = _da([[1.0]], unit="kg")
-        with pytest.raises(pint.DimensionalityError):
-            units.apply_output_units(da, "Pa", "return")
-
-    def test_argument_applies(self):
-        da = _da([[1.0]], unit="kg")
-        with pytest.raises(pint.DimensionalityError):
-            units.apply_output_units(da, "Pa", "return", "strict")
+    def test_has_no_setting(self):
+        with pytest.raises(TypeError):
+            units.apply_output_units(_da([[1.0]]), "Pa", "r", on_output="stamp")  # type: ignore[call-arg]
 
     def test_qualname_omitted_when_none(self):
-        da = _da([[1.0]], unit="kg")
-        with pytest.raises(pint.DimensionalityError) as excinfo:
-            units.apply_output_units(da, "Pa", "return", "strict")
-        msg = str(excinfo.value)
-        assert "output 'return'" in msg
-        assert "] output" not in msg  # no empty '[] ' qualname prefix
+        with pytest.raises(ValueError, match="output 'return'") as excinfo:
+            units.apply_output_units(_da([[1.0]], unit="hPa"), "Pa", "return")
+        assert "] output" not in str(excinfo.value)  # no empty '[] ' qualname prefix
 
 
 def _quantified(values, unit):
@@ -486,51 +481,11 @@ def _quantified(values, unit):
 
 
 class TestQuantifiedOutputs:
-    """A quantified return is never stamped, and stays quantified.
-
-    Stamping is the right default for ``attrs`` because a label left behind by
-    scalar arithmetic is the norm there. A ``Quantity``'s unit travels with the
-    values and cannot be left behind, so stamping over it is harmful. Converting
-    is sound, but correct only if the quantity allows it, so it needs opting into.
-    """
-
-    def test_stamping_a_quantity_would_produce_two_disagreeing_labels(self):
-        # The bug this path exists to prevent: attrs saying "Pa" over data that
-        # is still hectopascal. Whatever comes back, its two possible labels
-        # must agree.
-        out = units.apply_output_units(
-            _quantified([[1.0]], "hPa"), Unit("Pa", convert=True), "return"
-        )
-        assert out.pint.units is not None
-        assert units.units_equal(f"{out.pint.units:~P}", "Pa")
-        assert "units" not in out.attrs
-        np.testing.assert_allclose(out.pint.dequantify().values, [[100.0]])
-
-    @pytest.mark.parametrize(
-        "declared", ["Pa", Unit("Pa"), Unit("Pa", convert=False)], ids=repr
-    )
-    @pytest.mark.parametrize("on_output", ["stamp", "strict", "require"])
-    def test_conversion_needs_opting_into(self, declared, on_output):
-        # Compatible is not correct: the input rule, applied to an output.
-        with pytest.raises(ValueError, match=r"'return'.*pint\.to.*convert=True"):
-            units.apply_output_units(
-                _quantified([[1.0]], "hPa"), declared, "return", on_output
-            )
-
-    @pytest.mark.parametrize("on_output", ["stamp", "strict", "require"])
-    def test_a_declared_conversion_applies_in_every_mode(self, on_output):
-        # The unit is true whatever the mode, and the declaration said to convert.
-        out = units.apply_output_units(
-            _quantified([[1.0]], "hPa"),
-            Unit("Pa", convert=True),
-            "return",
-            on_output,
-        )
-        np.testing.assert_allclose(out.pint.magnitude, [[100.0]])
+    """A quantified return must already be in its declared unit, and stays quantified."""
 
     def test_already_declared_unit_is_returned_untouched(self):
-        # No conversion needed => same object, and crucially no copy of the
-        # buffer: dequantifying purely to write an attrs string would cost one.
+        # Same object, and crucially no copy of the buffer: dequantifying purely to
+        # write an attrs string would cost one.
         da = _quantified([[1.0]], "Pa")
         out = units.apply_output_units(da, "Pa", "return")
         assert out is da
@@ -540,48 +495,39 @@ class TestQuantifiedOutputs:
         da = _quantified([[1.0]], "pascal")
         assert units.apply_output_units(da, "Pa", "return") is da
 
-    def test_stamp_raises_on_dimensional_mismatch(self):
-        """The one case where ``"stamp"`` can raise.
+    @pytest.mark.parametrize(
+        "declared", ["Pa", Unit("Pa"), Unit("Pa", convert=True)], ids=repr
+    )
+    def test_a_different_unit_raises_with_the_fix(self, declared):
+        with pytest.raises(ValueError, match=r"'hPa' differs.*pint\.to\('Pa'\)"):
+            units.apply_output_units(_quantified([[1.0]], "hPa"), declared, "return")
 
-        Elsewhere ``"stamp"`` overwrites without checking, because a mismatched
-        ``attrs`` label is expected rather than diagnostic. A quantified array
-        that cannot be converted to the declared unit is a genuine error, and
-        the alternative -- silently labelling hectopascals as kilograms -- is
-        what ``strict`` used to permit here (empty ``attrs`` took the
-        always-stamp shortcut).
-        """
-        with pytest.raises(pint.DimensionalityError):
+    def test_an_incompatible_unit_raises(self):
+        with pytest.raises(pint.DimensionalityError, match="'return'"):
             units.apply_output_units(_quantified([[1.0]], "hPa"), "kg", "return")
 
-    def test_strict_rejects_a_compatible_but_different_unit(self):
-        with pytest.raises(ValueError, match="convert=True"):
-            units.apply_output_units(
-                _quantified([[1.0]], "hPa"), "Pa", "return", "strict"
-            )
+    def test_a_body_can_convert_it_itself(self):
+        @xra.enforce
+        def f() -> Annotated[xr.DataArray, Unit("Pa")]:
+            return _quantified([[1.0]], "hPa").pint.to("Pa")
 
-    def test_strict_rejects_an_incompatible_unit(self):
-        with pytest.raises(pint.DimensionalityError):
-            units.apply_output_units(
-                _quantified([[1.0]], "hPa"), "kg", "return", "strict"
-            )
+        np.testing.assert_allclose(f().pint.magnitude, [[100.0]])
 
-    def test_strict_passes_when_the_unit_already_matches(self):
-        da = _quantified([[1.0]], "Pa")
-        assert units.apply_output_units(da, "Pa", "return", "strict") is da
+    def test_a_wrapper_can_attach_a_unit_and_convert(self):
+        @xra.enforce
+        def wrap() -> Annotated[xr.DataArray, Unit("Pa")]:
+            bare = _da([[1.0]])  # as a library would return it
+            return bare.assign_attrs(units="hPa").pint.quantify().pint.to("Pa")
 
-    def test_unit_from_a_foreign_registry_is_left_untouched(self):
-        """Unreadable in the active registry, so neither checkable nor convertible.
+        np.testing.assert_allclose(wrap().pint.magnitude, [[100.0]])
 
-        Stamping ``attrs`` as a fallback would manufacture the very
-        two-disagreeing-labels object this path exists to prevent, so the array
-        is handed back exactly as it came.
-        """
+    def test_unit_from_a_foreign_registry_raises(self):
+        # Unparseable here, as an unparseable attrs label is.
         foreign = pint.UnitRegistry(force_ndarray_like=True)
         foreign.define("widget = [thing]")
         da = _da([[1.0]]).pint.quantify("widget", unit_registry=foreign)
-        out = units.apply_output_units(da, "Pa", "return")
-        assert out is da
-        assert "units" not in out.attrs
+        with pytest.raises(ValueError, match="unparseable 'units' attribute 'widget'"):
+            units.apply_output_units(da, "Pa", "return")
 
     def test_disabled_policy_leaves_it_alone(self):
         da = _quantified([[1.0]], "hPa")
@@ -598,35 +544,35 @@ class TestQuantifiedThroughDecorator:
         out = f(_quantified([[1.0]], "hPa"))
         np.testing.assert_allclose(out.values, [[100.0]])
 
-    def test_converted_output_is_written_back_for_single_return(self):
+    def test_respelled_output_is_written_back_for_single_return(self):
         @xra.enforce
-        def f() -> Annotated[xr.DataArray, Unit("Pa", convert=True)]:
-            return _quantified([[1.0]], "hPa")
+        def f() -> Annotated[xr.DataArray, Unit("Pa")]:
+            return _da([[1.0]], unit="pascal")
 
-        # The conversion produces a *new* array, so a decorator that discarded
-        # apply_output_units' return would silently hand back the unconverted one.
-        np.testing.assert_allclose(f().pint.dequantify().values, [[100.0]])
+        # Respelling produces a *new* array, so a decorator that discarded
+        # apply_output_units' return would silently hand back the old label.
+        assert f().attrs["units"] == "Pa"
 
-    def test_converted_output_is_written_back_for_typeddict(self):
+    def test_respelled_output_is_written_back_for_typeddict(self):
         class Out(TypedDict):
-            gpp: Annotated[xr.DataArray, Unit("Pa", convert=True)]
+            gpp: Annotated[xr.DataArray, Unit("Pa")]
 
         @xra.enforce
         def f() -> Out:
-            return {"gpp": _quantified([[1.0]], "hPa")}
+            return {"gpp": _da([[1.0]], unit="pascal")}
 
-        np.testing.assert_allclose(f()["gpp"].pint.dequantify().values, [[100.0]])
+        assert f()["gpp"].attrs["units"] == "Pa"
 
-    def test_converted_output_is_written_back_for_dataclass(self):
+    def test_respelled_output_is_written_back_for_dataclass(self):
         @dataclass
         class Out:
-            gpp: Annotated[xr.DataArray, Unit("Pa", convert=True)]
+            gpp: Annotated[xr.DataArray, Unit("Pa")]
 
         @xra.enforce
         def f() -> Out:
-            return Out(gpp=_quantified([[1.0]], "hPa"))
+            return Out(gpp=_da([[1.0]], unit="pascal"))
 
-        np.testing.assert_allclose(f().gpp.pint.dequantify().values, [[100.0]])
+        assert f().gpp.attrs["units"] == "Pa"
 
     def test_frozen_dataclass_is_fine_when_no_conversion_is_needed(self):
         # Nothing is written back unless the array actually changed, so the
@@ -641,13 +587,13 @@ class TestQuantifiedThroughDecorator:
 
         assert f().gpp.pint.units is not None
 
-    def test_frozen_dataclass_with_a_conversion_is_rebuilt(self):
+    def test_frozen_dataclass_with_a_respelling_is_rebuilt(self):
         @dataclass(frozen=True)
         class Out:
-            gpp: Annotated[xr.DataArray, Unit("Pa", convert=True)]
+            gpp: Annotated[xr.DataArray, Unit("Pa")]
 
         @xra.enforce
         def f() -> Out:
-            return Out(gpp=_quantified([[1.0]], "hPa"))
+            return Out(gpp=_da([[1.0]], unit="pascal"))
 
-        np.testing.assert_allclose(f().gpp.pint.dequantify().values, [[100.0]])
+        assert f().gpp.attrs["units"] == "Pa"

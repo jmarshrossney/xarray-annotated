@@ -13,7 +13,7 @@ import xarray as xr
 
 import xarray_annotated as xra
 from xarray_annotated import Unit, units
-from xarray_annotated.units import _check, _config
+from xarray_annotated.units import _check
 
 
 def _da(values, unit=None):
@@ -36,9 +36,6 @@ def _da(values, unit=None):
 
 
 class TestAxes:
-    def test_defaults(self):
-        assert _config.DEFAULT_ON_OUTPUT == "strict"
-
     def test_on_missing_is_gone(self):
         with pytest.raises(TypeError, match="on_missing"):
             units.check_units(_da([[1.0]], "Pa"), "Pa", "x", on_missing="warn")  # type: ignore[call-arg]
@@ -46,11 +43,6 @@ class TestAxes:
     def test_convert_is_not_an_argument(self):
         with pytest.raises(TypeError, match="convert"):
             units.check_units(_da([[1.0]], "Pa"), "Pa", "x", convert=True)  # type: ignore[call-arg]
-
-    def test_axis_types_are_public(self):
-        # The axis types are importable from the public surface (no private
-        # _config import needed).
-        assert units.OnOutput is _config.OnOutput
 
 
 # ---------------------------------------------------------------------------
@@ -498,8 +490,7 @@ class TestUnitsEqualIsPhysical:
         np.testing.assert_array_equal(out.values, da.values)
         assert out.attrs["units"] == "Pa"
 
-    @pytest.mark.parametrize("on_output", ["strict", "require"])
-    def test_recomposed_output_label_is_no_mismatch(self, on_output):
+    def test_recomposed_output_label_is_no_mismatch(self):
         da = xr.DataArray([1.0], attrs={"units": "N/m**2"})
-        out = units.apply_output_units(da, "Pa", "return", on_output)
+        out = units.apply_output_units(da, "Pa", "return")
         assert out.attrs["units"] == "Pa"

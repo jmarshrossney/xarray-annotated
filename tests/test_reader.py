@@ -109,7 +109,7 @@ class TestSingleHint:
         assert declaration_from_hint(hint) == Declared(unit=Unit("Pa"), freq=Freq("D"))
 
     def test_keeps_unit_overrides(self):
-        marker = Unit("Pa", convert=True, on_output="strict")
+        marker = Unit("Pa", convert=True)
         declared = declaration_from_hint(Annotated[xr.DataArray, marker])
         assert declared is not None
         assert declared.unit == marker
@@ -396,13 +396,11 @@ class TestReadsThroughWrappers:
 
     def test_not_required_field_is_enforced(self):
         class Out(typing.TypedDict):
-            a: typing.NotRequired[
-                Annotated[xr.DataArray, Unit("Pa", on_output="require")]
-            ]
+            a: typing.NotRequired[Annotated[xr.DataArray, Unit("Pa")]]
 
         @xra.enforce
         def f() -> Out:
             return {"a": xr.DataArray([1.0])}
 
-        with pytest.raises(ValueError, match="on_output='require'"):
+        with pytest.raises(ValueError, match="no 'units' attribute"):
             f()

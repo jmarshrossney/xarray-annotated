@@ -46,16 +46,14 @@ class TestOrdering:
         assert out.dtype == np.float64
         np.testing.assert_allclose(out.values, [0.0, 100.0, 200.0, 300.0])
 
-    def test_output_units_converted_before_schema_check(self):
-        # A quantified int64 hPa output converts to float64 Pa on the way out;
-        # Dtype must see what the caller receives.
+    def test_output_units_checked_before_schema_check(self):
+        # Both are wrong, and the unit is reported.
         @xra.enforce
-        def f() -> Annotated[xr.DataArray, Unit("Pa", convert=True), Dtype("float64")]:
-            return _int_da().pint.quantify()
+        def f() -> Annotated[xr.DataArray, Unit("Pa"), Dtype("float64")]:
+            return _int_da()
 
-        out = f()
-        assert out.dtype == np.float64
-        assert units.units_equal(f"{out.pint.units:~P}", "Pa")
+        with pytest.raises(ValueError, match="'hPa' differs"):
+            f()
 
     def test_output_schema_mismatch_reported_after_units(self):
         @xra.enforce
@@ -73,32 +71,30 @@ class TestOrdering:
         def f(x: xr.DataArray) -> Out:
             return {"p": x}
 
-        out = f(_int_da(unit=None))
+        out = f(_int_da("pascal"))
         assert out["p"].attrs["units"] == "Pa"
 
-    def test_all_facets_on_dataclass_return_converts_quantified_field(self):
+    def test_all_facets_on_dataclass_return_checks_quantified_field(self):
         @dataclass
         class Out:
-            p: Annotated[
-                xr.DataArray, Unit("Pa", convert=True), Dtype("float64"), Freq("D")
-            ]
+            p: Annotated[xr.DataArray, Unit("Pa"), Dtype("float64"), Freq("D")]
 
         @xra.enforce
         def f() -> Out:
-            return Out(p=_int_da().pint.quantify())
+            return Out(p=_int_da("Pa").astype(float).pint.quantify())
 
         out = f()
         assert out.p.dtype == np.float64
         assert units.units_equal(f"{out.p.pint.units:~P}", "Pa")
 
-    def test_frozen_dataclass_field_is_converted_too(self):
+    def test_frozen_dataclass_quantified_field_is_checked_too(self):
         @dataclass(frozen=True)
         class Out:
-            p: Annotated[xr.DataArray, Unit("Pa", convert=True), Dims("time")]
+            p: Annotated[xr.DataArray, Unit("Pa"), Dims("time")]
 
         @xra.enforce
         def f() -> Out:
-            return Out(p=_int_da().pint.quantify())
+            return Out(p=_int_da("Pa").pint.quantify())
 
         assert units.units_equal(f"{f().p.pint.units:~P}", "Pa")
 
@@ -107,7 +103,6 @@ class TestKeywords:
     @pytest.mark.parametrize(
         "kwarg",
         [
-            "units_on_output",
             "temporal_on_uninferable",
         ],
     )
@@ -217,11 +212,11 @@ class TestWrapper:
 
 class TestAsync:
     def test_output_is_applied_to_the_awaited_result(self):
-        @xra.enforce(units_on_output="stamp")
+        @xra.enforce
         async def f(
             p: Annotated[xr.DataArray, Unit("Pa", convert=True)],
         ) -> Annotated[xr.DataArray, Unit("kPa"), Dims("time")]:
-            return p / 1000.0
+            return (p / 1000.0).assign_attrs(units="kilopascal")
 
         out = asyncio.run(f(_int_da().astype(float)))
         assert out.attrs["units"] == "kPa"
@@ -234,12 +229,13 @@ class TestAsync:
         with pytest.raises(schema.SchemaError):
             asyncio.run(f())
 
-    def test_require_sees_the_awaited_result(self):
+    def test_output_unit_is_checked_on_the_awaited_result(self):
         @xra.enforce
-        async def f() -> Annotated[xr.DataArray, Unit("Pa", on_output="require")]:
-            return _int_da("Pa")
+        async def f() -> Annotated[xr.DataArray, Unit("Pa")]:
+            return _int_da("hPa")
 
-        assert asyncio.run(f()).attrs["units"] == "Pa"
+        with pytest.raises(ValueError, match="'hPa' differs"):
+            asyncio.run(f())
 
     def test_input_checks_run(self):
         @xra.enforce
@@ -263,38 +259,33 @@ class TestAsync:
         assert inspect.iscoroutinefunction(f)
 
 
-class TestOutputStampLeavesTheInputAlone:
+class TestOutputRespellingLeavesTheInputAlone:
     def _passthrough(self):
-        @xra.enforce(units_on_output="stamp")
+        @xra.enforce
         def f(x: xr.DataArray) -> Annotated[xr.DataArray, Unit("Pa")]:
             return x
 
         return f
 
     def test_caller_array_keeps_its_label(self):
-        da = _int_da("hPa")
+        da = _int_da("pascal")
         out = self._passthrough()(da)
         assert out.attrs["units"] == "Pa"
-        assert da.attrs["units"] == "hPa"
+        assert da.attrs["units"] == "pascal"
 
     def test_data_is_not_copied(self):
-        da = xr.DataArray(np.zeros(3), dims="x", attrs={"units": "hPa"})
+        da = xr.DataArray(np.zeros(3), dims="x", attrs={"units": "pascal"})
         assert np.shares_memory(self._passthrough()(da).values, da.values)
 
     def test_later_check_failure_leaves_it_alone(self):
-        @xra.enforce(units_on_output="stamp")
+        @xra.enforce
         def f(x: xr.DataArray) -> Annotated[xr.DataArray, Unit("Pa"), Dims("nope")]:
             return x
 
-        da = _int_da("hPa")
+        da = _int_da("pascal")
         with pytest.raises(schema.SchemaError):
             f(da)
-        assert da.attrs["units"] == "hPa"
-
-    def test_unlabelled_array_stays_unlabelled(self):
-        da = xr.DataArray([1.0])
-        assert self._passthrough()(da).attrs["units"] == "Pa"
-        assert "units" not in da.attrs
+        assert da.attrs["units"] == "pascal"
 
     @pytest.mark.parametrize("frozen", [True, False])
     def test_dataclass_field(self, frozen):
@@ -302,38 +293,25 @@ class TestOutputStampLeavesTheInputAlone:
         class Out:
             p: Annotated[xr.DataArray, Unit("Pa")]
 
-        @xra.enforce(units_on_output="stamp")
+        @xra.enforce
         def f(x: xr.DataArray) -> Out:
             return Out(p=x)
 
-        da = _int_da("hPa")
+        da = _int_da("pascal")
         assert f(da).p.attrs["units"] == "Pa"
-        assert da.attrs["units"] == "hPa"
-
-    def test_frozen_dataclass_takes_a_conversion(self):
-        @dataclass(frozen=True)
-        class Out:
-            p: Annotated[xr.DataArray, Unit("Pa", convert=True)]
-
-        @xra.enforce
-        def f() -> Out:
-            return Out(p=_int_da("hPa").astype(float).pint.quantify())
-
-        out = f().p
-        assert units.units_equal(f"{out.pint.units:~P}", "Pa")
-        np.testing.assert_allclose(out.pint.magnitude, _int_da().values * 100.0)
+        assert da.attrs["units"] == "pascal"
 
     def test_dict_field(self):
         class Out(TypedDict):
             p: Annotated[xr.DataArray, Unit("Pa")]
 
-        @xra.enforce(units_on_output="stamp")
+        @xra.enforce
         def f(x: xr.DataArray) -> Out:
             return {"p": x}
 
-        da = _int_da("hPa")
+        da = _int_da("pascal")
         assert f(da)["p"].attrs["units"] == "Pa"
-        assert da.attrs["units"] == "hPa"
+        assert da.attrs["units"] == "pascal"
 
 
 class TestVariadics:
@@ -467,9 +445,9 @@ class TestTypeAliases:
         with pytest.raises(ValueError, match="differs from declared"):
             f(xr.DataArray([1.0], attrs={"units": "hPa"}))
 
-    def test_return_is_stamped(self):
+    def test_return_is_checked(self):
         f = xra.enforce(_annotated(ret=_Alias))
-        assert f(xr.DataArray([1.0])).attrs["units"] == "Pa"
+        assert f(xr.DataArray([1.0], attrs={"units": "pascal"})).attrs["units"] == "Pa"
 
     @pytest.mark.parametrize(
         ("hint", "expected"),
@@ -520,5 +498,5 @@ class TestTypeAliases:
 
     def test_aliased_typeddict_return_is_read_per_field(self):
         f = xra.enforce(_annotated(ret=_FieldsAlias))
-        out = f({"pa": xr.DataArray([1.0])})
+        out = f({"pa": xr.DataArray([1.0], attrs={"units": "pascal"})})
         assert out["pa"].attrs["units"] == "Pa"

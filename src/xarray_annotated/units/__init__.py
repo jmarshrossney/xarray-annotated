@@ -12,9 +12,6 @@ from ._check import (
     units_compatible,
     units_equal,
 )
-from ._config import (
-    OnOutput,
-)
 from ._registry import (
     get_registry,
     set_registry,
@@ -22,7 +19,6 @@ from ._registry import (
 )
 
 __all__ = [
-    "OnOutput",
     "Unit",
     "apply_output_units",
     "assert_valid_unit",

@@ -29,7 +29,7 @@ def weekly_mean(
 | `Dims(*names)` | The array has exactly these dims, in any order | `ordered=True` pins the order |
 | `Coords(*names)` | These coordinates are present (extras are fine) | |
 | `Dtype(dtype)` | The numpy kind matches: `float32` passes `Dtype("float64")`, `uint8` fails `Dtype("int32")` | `exact=True` requires the precise dtype |
-| `Unit(unit)` | The array is in this unit, however it is spelled | `convert=True`, `on_output=` |
+| `Unit(unit)` | The array is in this unit, however it is spelled | `convert=True` |
 | `Freq(freq)` | The time axis has this spacing, and this phase [where spelled](#what-the-same-frequency-means) | `dim=`, `anchored=` |
 
 `Dims`, `Coords`, `Dtype` and `Freq` also take `on_mismatch=`; see [Configuring validation](policy.md).
@@ -42,7 +42,7 @@ def weekly_mean(
 - **One of each:** a second marker of the same kind on one hint raises `ValueError`, so write `Coords("time", "lat")`.
 - **Nowhere else:** a marker `enforce` cannot apply raises `ValueError`, such as inside a `tuple[...]` return or on `Annotated[xr.Dataset, ...]`.
 - **Fail fast:** a malformed declaration (a typo'd unit, an unparseable dtype or frequency) raises `ValueError` when the function is decorated.
-- **Units first:** input units are checked (and converted, if opted into) before other markers, and output units are applied before theirs, so checks see what the body and the caller see.
+- **Units first:** input units are checked (and converted, if opted into) before other markers, and output units are checked before theirs, so checks see what the body and the caller see.
 - **Only `Unit` changes an array:** the other markers just check it.
 
 A few hints are silently not declarations; see [Troubleshooting](troubleshooting.md#a-declaration-is-silently-ignored).
@@ -52,10 +52,10 @@ A few hints are silently not declarations; see [Troubleshooting](troubleshooting
 **Inputs are checked.**
 A different unit in the same dimension (`"hPa"` where `"Pa"` is declared) raises unless [the declaration opts in to converting it](conversion.md), and a dimensionally wrong, missing or unparseable unit always raises.
 
-**Outputs are checked against their label.**
-A return labelled differently from its declaration raises, and one with no label is stamped with the declared unit.
-Values are never inspected, so a stamped or relabelled result is a claim rather than a check; see [Troubleshooting](troubleshooting.md#a-forgotten-conversion-is-not-caught).
-[`on_output`](policy.md#units-on_output) tightens or loosens this.
+**Outputs must already match.**
+A return with a different unit, or none, raises, and nothing is converted or labelled for you; see [Output units](policy.md#units-outputs).
+A body that changes the unit states the new one with `.assign_attrs(units=...)`.
+Values are never inspected, so that statement is a claim rather than a check; see [Troubleshooting](troubleshooting.md#a-forgotten-conversion-is-not-caught).
 
 CF-convention strings such as `"umol m-2 s-1"` need [the CF registry](registry.md).
 

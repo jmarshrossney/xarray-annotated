@@ -85,14 +85,16 @@ The tabs on this page switch together, so you can compare the code and each resu
     ) -> Annotated[xr.DataArray, Dims("time", "site"), Unit("kPa"), Freq("D")]:  # (5)!
         """Daily mean vapour pressure deficit."""
         es = 0.6108 * np.exp(17.27 * tair / (tair + 237.3))
-        return (es * (1 - rh / 100)).resample(time="D").mean()
+        vpd = (es * (1 - rh / 100)).resample(time="D").mean()
+        return vpd.assign_attrs(units="kPa")  # (6)!
     ```
 
     1.  `enforce` reads the declarations from the signature and checks them on every call.
     2.  These dimensions must be present, in any order, and no others.
     3.  The body always sees `degC`. A different unit such as `K` raises, even though it could be converted: see [Converting units](guides/conversion.md).
     4.  The `time` coordinate must be hourly.
-    5.  The return value is checked too. This body's result has no label, so `kPa` is stamped on it, which takes the body's word for it: see [`on_output`](guides/policy.md#units-on_output) for stricter options.
+    5.  The return value is checked too, and has to match.
+    6.  This result has no unit of its own, so the body states it, and values are never inspected: see [Output units](guides/policy.md#units-outputs).
 
 To try it, we need some data.
 The values are constant at 20 °C and 60% humidity, so every correct result is the same: 0.935 kPa.
@@ -262,7 +264,8 @@ def daily_vpd(
 ) -> Annotated[DailyBySite, Unit("kPa")]:
     """Daily mean vapour pressure deficit."""
     es = 0.6108 * np.exp(17.27 * tair / (tair + 237.3))
-    return (es * (1 - rh / 100)).resample(time="D").mean()
+    vpd = (es * (1 - rh / 100)).resample(time="D").mean()
+    return vpd.assign_attrs(units="kPa")
 ```
 
 This declares exactly what the longer version does.

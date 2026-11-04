@@ -7,10 +7,10 @@ Behaviour is set only where it is declared, so reading a signature and its decor
 | Structure mismatch | `on_mismatch` | `error`, `warn`, `ignore` | yes | no | `check_schema` |
 | Frequency mismatch, or no unambiguous time axis | `on_mismatch` | `error`, `warn`, `ignore` | yes | no | `check_freq` |
 | Short or irregular time axis | `on_uninferable` | `warn`, `error`, `ignore` | no | `temporal_on_uninferable` | `check_freq` |
-| Compatible but different unit, on an input or a quantified output | [`convert`](conversion.md#opting-in) | `False`, `True` | yes | no | no (pass the marker) |
-| Declared output unit | `on_output` | `strict`, `stamp`, `require` | yes | `units_on_output` | `apply_output_units` |
+| Compatible but different input unit | [`convert`](conversion.md#opting-in) | `False`, `True` | yes | no | no (pass the marker) |
 | Dimensionally wrong input unit | none | always raises `DimensionalityError` | | | |
 | Missing, unparseable or over-long input unit | none | always raises `ValueError` | | | |
+| [Output unit that does not match](#units-outputs) | none | always raises | | | |
 
 The marker beats the keyword or argument, which beats the default.
 A mismatch can only be softened, and a conversion only allowed, on the marker it applies to.
@@ -32,26 +32,29 @@ To silence short test fixtures while leaving real mismatches visible:
 filterwarnings = ["ignore::xarray_annotated.temporal.UninferableFreqWarning"]
 ```
 
-## `on_output` { #units-on_output }
+## Output units { #units-outputs }
 
-| Returned value | `strict` | `stamp` | `require` |
-|---|---|---|---|
-| No label | stamped | stamped | `ValueError` |
-| Label equals declared | stamped | stamped | stamped |
-| Compatible label (`hPa`) | `ValueError` | stamped | `ValueError` |
-| Incompatible label (`kg`) | `DimensionalityError` | stamped | `DimensionalityError` |
-| Unparseable label | stamped | stamped | `ValueError` |
-| Quantified, compatible unit | `ValueError`, or converted with `convert=True` | the same | the same |
-| Quantified, incompatible unit | `DimensionalityError` | `DimensionalityError` | `DimensionalityError` |
-| Not a `DataArray` | passed through | passed through | `ValueError` |
+A function's author controls what it returns, so an output that does not match its declaration is a bug.
+Nothing is converted or labelled on the author's behalf.
 
-A returned label that differs from the declaration could mean two things, and the package cannot tell them apart:
+| Returned value | Result |
+|---|---|
+| Label or quantified unit equal to declared | Passes; a label is respelled as declared (`pascal` to `Pa`) |
+| Different but compatible unit (`hPa`) | `ValueError` |
+| Incompatible unit (`kg`) | `DimensionalityError` |
+| No unit, or an unparseable or over-long one | `ValueError` |
+| Not a `DataArray` | Passed through |
 
-- **A forgotten conversion:** the label is true, and overwriting it would report 1 hPa as 1 Pa.
+`convert` does not apply to outputs, so one marker can be shared with an input.
+A quantified result stays quantified, and a body converts one itself with `.pint.to(...)`.
+
+A label that differs from the declaration could mean two things, and the package cannot tell them apart:
+
+- **A forgotten conversion:** the label is true, and the values are in the wrong unit.
 - **A stale label:** `attrs` are inert under arithmetic, so a correct body can leave its input's label on the result.
 
-`strict` raises in both cases, because a false alarm is loud and a mislabelled result is silent.
-A body that changes the unit states the new one, and the label is never used to convert, since that would apply the arithmetic twice:
+Both raise, because a false alarm is loud and a mislabelled result is silent.
+A body that changes the unit states the new one:
 
 ```python
 @xra.enforce
@@ -61,28 +64,24 @@ def to_pascals(
     return (p * 100.0).assign_attrs(units="Pa")  # otherwise labelled "hPa"
 ```
 
-`assign_attrs` can silence a wrong body as easily as a right one, so this makes the author state the unit but does not verify it.
-To trust a function's body without stating the unit, use `@xra.enforce(units_on_output="stamp")`.
-This default is a stopgap: see [the open issue](https://github.com/jmarshrossney/xarray-annotated/issues/26).
-
-A quantified array's unit lives in the data and cannot go stale, so it is never stamped.
-A different unit raises unless the declaration says `convert=True`, as for an input, and the result stays quantified.
+Values are never inspected, so `assign_attrs` can silence a wrong body as easily as a right one: it makes the author state the unit but does not verify it.
+A better approach is an open question in [this GitHub issue](https://github.com/jmarshrossney/xarray-annotated/issues/26).
 
 ## Wrapping a library that returns bare arrays { #wrapping-a-library }
 
-A wrapper's output declaration is a claim about someone else's convention, and stamping takes it on trust.
-Attach the unit the library documents, and use `require` so that forgetting raises:
+A wrapper's output declaration is a claim about someone else's convention, and a bare array raises until the wrapper makes that claim.
+Attach the unit the library documents, and let pint do any conversion:
 
 ```python
-@xra.enforce(units_on_output="require")
-def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g m-2 d-1", convert=True)]:
+@xra.enforce
+def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
     raw = some_library.gpp(ppfd.values)  # documented as ug m-2 s-1
     out = xr.DataArray(raw, dims=ppfd.dims, coords=ppfd.coords)
-    return out.assign_attrs(units="ug m-2 s-1").pint.quantify()
+    return out.assign_attrs(units="ug m-2 s-1").pint.quantify().pint.to("g m-2 d-1")
 ```
 
-The result is converted to the declared unit, here by a factor of 0.0864.
-For a whole module of wrappers, bind the keyword once: `enforce = functools.partial(xra.enforce, units_on_output="require")`.
+Here that is a factor of 0.0864.
+`.pint.quantify()` also [reads the labels on coordinates](conversion.md#quantify-reads-coordinates).
 
 ## Switching the package off { #enabled }
 
@@ -91,7 +90,7 @@ with xra.enabled(False):
     ...
 ```
 
-Off is a total no-op: no checks, no conversion and no stamping, so a function declaring `Unit("Pa")` can receive `hPa`.
+Off is a total no-op: no checks and no conversion, so a function declaring `Unit("Pa")` can receive `hPa`.
 Malformed declarations still raise when a function is decorated.
 
 - **For a process:** set `XARRAY_ANNOTATED_ENABLED` to `0`, `false`, `no` or `off`.
@@ -113,8 +112,6 @@ logging.getLogger("xarray_annotated").setLevel(logging.DEBUG)
 | Event | Level |
 |---|---|
 | Schema or frequency event passed under `ignore` | `INFO` |
-| Output unit unreadable under `strict`, or quantified and unreadable; returned unchecked | `INFO` |
-| Input or quantified output converted under `convert=True` | `DEBUG` |
-| Output stamped over a different or unreadable label | `DEBUG` |
+| Input converted under `convert=True` | `DEBUG` |
 
 Records are emitted on every call, not once per call site like warnings.

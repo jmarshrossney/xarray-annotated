@@ -27,7 +27,7 @@ altitude(p.pint.quantify().pint.to("Pa"))
 ```
 
 `enforce` reads a quantified input's unit from the data, and the body receives a plain array labelled `Pa`.
-The `assign_attrs` call states the unit of the result, because xarray would otherwise leave the `Pa` label on it; see [`on_output`](policy.md#units-on_output).
+The `assign_attrs` call states the unit of the result, because xarray would otherwise leave the `Pa` label on it; see [Output units](policy.md#units-outputs).
 To get a plain array back yourself, add `.pint.dequantify()`.
 
 Inside a function that computes on quantified arrays, do the same before returning:
@@ -38,11 +38,19 @@ def pressure_in_pa() -> Annotated[xr.DataArray, Unit("Pa")]:
     return p.pint.quantify().pint.to("Pa")
 ```
 
-!!! warning "`quantify()` also parses the labels on coordinates"
+### When a coordinate has a unit label { #quantify-reads-coordinates }
 
-    A coordinate labelled `degrees_north` makes `.pint.quantify()` raise on the default registry.
-    [The CF registry](registry.md) parses that label.
-    `.pint.quantify({"lat": None})` also avoids the error, but it deletes the label from the coordinate.
+`.pint.quantify()` reads the `units` label of every coordinate as well as the data, so one label pint cannot parse stops the conversion.
+On the default registry that includes `degrees_north`.
+
+- **[The CF registry](registry.md)** parses `degrees_north`, but not every label, and dequantifying respells others (`km` becomes `kilometer`).
+- **`.pint.quantify({"lat": None})`** avoids the error, but deletes the label from the coordinate.
+- **`check_units`** converts only the data, and leaves every coordinate as it was:
+
+```python
+p = p.assign_coords(lat=("time", [10.0, 20.0], {"units": "degrees_north"}))
+altitude(xra.units.check_units(p, Unit("Pa", convert=True), "p"))
+```
 
 ## Opting in
 
@@ -72,11 +80,8 @@ ConvertedUnit = functools.partial(Unit, convert=True)
 type Pressure = Annotated[xr.DataArray, Unit("Pa", convert=True)]
 ```
 
-| Value, in a compatible but different unit | Without `convert=True` | With `convert=True` |
-|---|---|---|
-| Input | `ValueError` | Converted |
-| Quantified output | `ValueError` | Converted, and stays quantified |
-| Labelled output | Governed by [`on_output`](policy.md#units-on_output), never converted | The same |
+`convert` applies only to inputs.
+An output must already match its declaration, since the function's author controls it, so a body that wants another unit converts it itself; see [Output units](policy.md#units-outputs).
 
 Equivalent spellings (`pascal` for `Pa`) need no opt-in, because the values do not change.
 A dimensionally wrong unit always raises `DimensionalityError`, and an input with a missing or unparseable unit always raises `ValueError`.

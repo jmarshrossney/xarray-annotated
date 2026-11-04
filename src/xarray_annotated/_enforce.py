@@ -7,9 +7,8 @@ applies each declared facet in a fixed order:
 1. **inputs** — units are converted (and restamped) *first*, so the structural
    and temporal checks then see the array the function body will see;
 2. the function runs;
-3. **outputs** — the declared unit is applied *first* (a label is checked and
-   stamped, a pint-quantified array checked and, if opted into, converted), so the
-   structural and temporal checks see the value the caller will receive.
+3. **outputs** — the declared unit is checked *first*, then structure and frequency,
+   on the value the caller will receive.
 
 That order is the reason there is one decorator rather than one per domain:
 stackable per-domain decorators could be applied in any order, and only one
@@ -38,12 +37,10 @@ from .temporal import Freq
 from .temporal import _config as _temporal
 from .temporal._check import assert_valid_freq, check_freq
 from .units import Unit
-from .units import _config as _units
 from .units._check import (
     apply_output_units,
     assert_valid_unit,
     check_units,
-    require_dataarray,
 )
 
 __all__ = ["enforce"]
@@ -115,7 +112,6 @@ def _with_fields(result: Any, changes: dict[str, xr.DataArray]) -> Any:
 def enforce(
     func: Callable[..., Any] | None = None,
     *,
-    units_on_output: _units.OnOutput | None = None,
     temporal_on_uninferable: _temporal.OnUninferable | None = None,
 ) -> Callable[..., Any]:
     """Apply every facet declared on a function's signature at runtime.
@@ -132,16 +128,13 @@ def enforce(
        its structure (`check_schema`) and frequency (`check_freq`) on the
        converted array;
     2. runs the wrapped function;
-    3. applies each declared output unit (`apply_output_units`: a label is checked
-       and stamped, a pint-quantified array checked and, if opted into, converted),
-       then validates structure and frequency on the value returned to the caller.
+    3. checks each declared output against its unit (`apply_output_units`), then
+       validates structure and frequency on the value returned to the caller.
 
-    Only `DataArray` values are touched; anything else passes through, except
-    that under `on_output="require"` a declared output that is not a
-    `DataArray` (including `None` or a missing key) raises.  When
+    Only `DataArray` values are touched; anything else passes through.  When
     xarray-annotated is switched off (`xra.enabled(False)` or
     `XARRAY_ANNOTATED_ENABLED=false`) the wrapper is a total no-op: inputs are
-    not converted and outputs are not stamped.  Every declaration is validated
+    not converted and outputs are not checked.  Every declaration is validated
     **at decoration time**, so a malformed unit, marker or offset string fails
     at import even when switched off.
 
@@ -152,14 +145,14 @@ def enforce(
     conversion, on the marker it applies to (`Dims(..., on_mismatch="warn")`,
     `Unit("Pa", convert=True)`).
 
-    Usable bare (`@xra.enforce`) or called (`@xra.enforce(units_on_output=...)`).
+    Usable bare (`@xra.enforce`) or called
+    (`@xra.enforce(temporal_on_uninferable=...)`).
     On an `async def`, the checks run when the coroutine is awaited, and outputs
     are applied to the awaited result.
 
     Args:
         func: The function to decorate (when used bare); `None` when called with
             keyword arguments, in which case a parametrised decorator is returned.
-        units_on_output: Overrides `units` `on_output`.
         temporal_on_uninferable: Overrides `temporal` `on_uninferable`.
 
     Returns:
@@ -183,17 +176,14 @@ def enforce(
         >>> to_pa(xr.DataArray([1.0], dims="x", attrs={"units": "hPa"})).values
         array([100.])
     """
-    for keyword, value, allowed in (
-        ("units_on_output", units_on_output, _units.OnOutput),
-        ("temporal_on_uninferable", temporal_on_uninferable, _temporal.OnUninferable),
-    ):
-        # Checked here rather than by the domain validators, which name the
-        # unprefixed axis (`on_output`) instead of the keyword the caller passed.
-        if value is not None and value not in get_args(allowed):
-            raise ValueError(
-                f"Invalid {keyword} {value!r}. "
-                f"Choose one of {sorted(get_args(allowed))}."
-            )
+    # Checked here rather than by the domain validator, which names the unprefixed
+    # axis (`on_uninferable`) instead of the keyword the caller passed.
+    allowed = get_args(_temporal.OnUninferable)
+    if temporal_on_uninferable is not None and temporal_on_uninferable not in allowed:
+        raise ValueError(
+            f"Invalid temporal_on_uninferable {temporal_on_uninferable!r}. "
+            f"Choose one of {sorted(allowed)}."
+        )
 
     def decorate(fn: Callable[..., Any]) -> Callable[..., Any]:
         walk_signature(fn, _refuse_stray_markers)
@@ -221,16 +211,12 @@ def enforce(
 
         def _apply_output(value: Any, decl: Declared, name: str) -> Any:
             # Units first, so structure and frequency are checked on what the
-            # caller receives.  apply_output_units may return a *new* array (a
-            # converted quantified one), so its result is always used.
+            # caller receives.  apply_output_units returns a *new* labelled array,
+            # so its result is always used.
             if not isinstance(value, xr.DataArray):
-                if decl.unit is not None:
-                    require_dataarray(value, decl.unit, name, units_on_output, qualname)
                 return value
             if decl.unit is not None:
-                value = apply_output_units(
-                    value, decl.unit, name, units_on_output, qualname
-                )
+                value = apply_output_units(value, decl.unit, name, qualname)
             if markers := decl.schema:
                 check_schema(value, markers, name, qualname=qualname)
             if decl.freq is not None:
@@ -249,10 +235,8 @@ def enforce(
             if isinstance(output, dict):
                 if isinstance(result, dict):
                     for name, decl in output.items():
-                        # A missing key is checked as None, so "require" sees it.
-                        applied = _apply_output(result.get(name), decl, name)
                         if name in result:
-                            result[name] = applied
+                            result[name] = _apply_output(result[name], decl, name)
                 elif dataclasses.is_dataclass(result):
                     changes = {}
                     for name, decl in output.items():
@@ -261,10 +245,6 @@ def enforce(
                         if applied is not value:
                             changes[name] = applied
                     return _with_fields(result, changes)
-                else:
-                    # Not the declared container, so every declared field is missing.
-                    for name, decl in output.items():
-                        _apply_output(None, decl, name)
             return result
 
         def _inputs(args: Any, kwargs: Any) -> tuple[Any, Any]:
@@ -296,7 +276,7 @@ def enforce(
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             if not resolve_enabled():
-                # Switched off: a total no-op, conversion and stamping included.
+                # Switched off: a total no-op, conversion included.
                 return fn(*args, **kwargs)
             args, kwargs = _inputs(args, kwargs)
             return _outputs(fn(*args, **kwargs))
