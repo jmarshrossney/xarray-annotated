@@ -45,8 +45,6 @@ class TestMarkers:
         assert Dims("time", ordered=True).ordered is True
         assert Coords("lat").names == ("lat",)
         assert Dtype("float64").dtype == "float64"
-        assert Dtype("float64").exact is False
-        assert Dtype("f4", exact=True).exact is True
 
     def test_repr_roundtrips_eval(self):
         markers = [
@@ -56,7 +54,7 @@ class TestMarkers:
             Coords("time", "lat"),
             Coords("time", "x"),
             Dtype("float64"),
-            Dtype("int32", exact=True),
+            Dtype("float"),
         ]
         for marker in markers:
             assert eval(repr(marker)) == marker
@@ -64,7 +62,7 @@ class TestMarkers:
     def test_equality_and_hash_include_options(self):
         assert Dims("time") == Dims("time")
         assert Dims("time") != Dims("time", ordered=True)
-        assert Dtype("f8") != Dtype("f8", exact=True)
+        assert Dtype("f8") != Dtype("float")
         assert Dims("time") != Coords("time")  # distinct marker types
         assert Dims("time") != "time"  # not equal to a bare string
         assert Dtype("f8") != "f8"
@@ -110,17 +108,56 @@ class TestCheckCoords:
 
 
 class TestCheckDtype:
-    def test_kind_match_ignores_width(self):
-        _run(_da(dtype="float32"), Dtype("float64"))  # kind 'f' == 'f'
+    def test_a_width_means_that_width(self):
+        _run(_da(dtype="float64"), Dtype("float64"))
+        with pytest.raises(schema.SchemaError, match="expected float64, got float32"):
+            _run(_da(dtype="float32"), Dtype("float64"))
 
-    def test_kind_mismatch_fails(self):
-        with pytest.raises(schema.SchemaError, match="dtype kind mismatch"):
+    def test_a_width_mismatch_names_the_marker_that_accepts_it(self):
+        with pytest.raises(schema.SchemaError, match=r"Dtype\('float'\) would accept"):
+            _run(_da(dtype="float32"), Dtype("float64"))
+
+    def test_a_kind_mismatch_suggests_no_marker(self):
+        with pytest.raises(schema.SchemaError) as info:
             _run(_da(dtype="int64"), Dtype("float64"))
+        assert "would accept" not in str(info.value)
 
-    def test_exact_requires_precise_dtype(self):
-        _run(_da(dtype="float64"), Dtype("float64", exact=True))
-        with pytest.raises(schema.SchemaError, match="dtype mismatch"):
-            _run(_da(dtype="float32"), Dtype("float64", exact=True))
+    @pytest.mark.parametrize(
+        ("declared", "actual"),
+        [
+            ("float", "float32"),
+            ("float", "float64"),
+            ("int", "int8"),
+            ("int", "int64"),
+            ("uint", "uint8"),
+            ("complex", "complex64"),
+            ("str", "U5"),
+            ("datetime64", "datetime64[ns]"),
+            ("timedelta64", "timedelta64[s]"),
+        ],
+    )
+    def test_a_name_with_no_width_means_any_of_that_kind(self, declared, actual):
+        _run(_da(dtype=actual), Dtype(declared))
+
+    @pytest.mark.parametrize(
+        ("declared", "actual"),
+        [("float", "int64"), ("int", "uint8"), ("uint", "int8"), ("int", "bool")],
+    )
+    def test_any_of_a_kind_is_still_a_kind(self, declared, actual):
+        with pytest.raises(schema.SchemaError, match=f"expected any {declared}"):
+            _run(_da(dtype=actual), Dtype(declared))
+
+    @pytest.mark.parametrize("actual", [">f8", "<f8"])
+    def test_byte_order_is_not_part_of_the_dtype(self, actual):
+        # NetCDF-3 files are big-endian.
+        _run(_da(dtype=actual), Dtype("float64"))
+        _run(_da(dtype=actual), Dtype("float"))
+        with pytest.raises(schema.SchemaError):
+            _run(_da(dtype=actual), Dtype("float32"))
+
+    def test_exact_is_gone(self):
+        with pytest.raises(TypeError, match="exact"):
+            Dtype("float64", exact=True)  # type: ignore[call-arg]
 
 
 # ---------------------------------------------------------------------------
@@ -153,19 +190,23 @@ class TestDtypeCompatible:
         assert schema.dtype_compatible is _check.dtype_compatible
 
     def test_same_kind_different_width(self):
-        assert schema.dtype_compatible(Dtype("float64"), Dtype("float32"))
+        assert not schema.dtype_compatible(Dtype("float64"), Dtype("float32"))
+
+    def test_same_dtype_any_spelling(self):
+        assert schema.dtype_compatible(Dtype("float64"), Dtype("f8"))
+        assert schema.dtype_compatible(Dtype(">f8"), Dtype("f8"))
 
     def test_different_kind(self):
         assert not schema.dtype_compatible(Dtype("float64"), Dtype("int64"))
 
-    def test_both_exact_differ(self):
-        a = Dtype("float64", exact=True)
-        b = Dtype("float32", exact=True)
-        assert not schema.dtype_compatible(a, b)
+    def test_a_kind_is_compatible_with_any_width_of_it(self):
+        assert schema.dtype_compatible(Dtype("float"), Dtype("float32"))
+        assert schema.dtype_compatible(Dtype("float32"), Dtype("float"))
+        assert schema.dtype_compatible(Dtype("float"), Dtype("float"))
 
-    def test_one_side_loose(self):
-        # Only one side requires exact → width mismatch is not provably inconsistent.
-        assert schema.dtype_compatible(Dtype("float64", exact=True), Dtype("float32"))
+    def test_a_kind_is_not_compatible_with_another(self):
+        assert not schema.dtype_compatible(Dtype("float"), Dtype("int32"))
+        assert not schema.dtype_compatible(Dtype("int"), Dtype("uint"))
 
 
 # ---------------------------------------------------------------------------

@@ -20,6 +20,12 @@ import xarray as xr
 from .._config import resolve_enabled
 from ._annotations import Coords, Dims, Dtype, SchemaMarker
 
+#: Dtype names meaning any dtype of that kind.  numpy reads each as one dtype, whose
+#: kind is the one meant: `np.dtype("float")` is `float64`, of kind `f`.
+_KIND_NAMES = frozenset(
+    {"float", "int", "uint", "complex", "str", "datetime64", "timedelta64"}
+)
+
 
 class SchemaError(Exception):
     """Raised for a structural mismatch.
@@ -83,20 +89,38 @@ def _check_coords(da: xr.DataArray, marker: Coords) -> tuple[bool, str]:
     return not missing, detail
 
 
+def _kind(marker: Dtype) -> str:
+    """The numpy kind a `Dtype` marker declares."""
+    return np.dtype(marker.dtype).kind
+
+
+def _is_exact(marker: Dtype) -> bool:
+    """Whether a `Dtype` marker names a precise dtype, rather than a kind."""
+    return marker.dtype not in _KIND_NAMES
+
+
+def _same_dtype(a: np.dtype, b: np.dtype) -> bool:
+    """Whether two dtypes are the same, ignoring byte order.
+
+    Files often hold big-endian data, as NetCDF-3 always does, and that says nothing
+    about what the array is.
+    """
+    return a.newbyteorder("=") == b.newbyteorder("=")
+
+
 def _check_dtype(da: xr.DataArray, marker: Dtype) -> tuple[bool, str]:
     """Check a DataArray's dtype against a `Dtype` marker. Returns (ok, detail)."""
-    declared = np.dtype(marker.dtype)
     actual = da.dtype
-    if marker.exact:
-        ok = actual == declared
-        detail = f"dtype mismatch: expected exactly {declared}, got {actual}"
-    else:
-        ok = actual.kind == declared.kind
-        detail = (
-            f"dtype kind mismatch: expected kind {declared.kind!r} "
-            f"(like {declared}), got {actual}"
+    if not _is_exact(marker):
+        return actual.kind == _kind(marker), (
+            f"dtype mismatch: expected any {marker.dtype}, got {actual}"
         )
-    return ok, detail
+    declared = np.dtype(marker.dtype)
+    detail = f"dtype mismatch: expected {declared}, got {actual}"
+    kind_name = next((k for k in _KIND_NAMES if np.dtype(k).kind == actual.kind), None)
+    if actual.kind == declared.kind and kind_name is not None:
+        detail += f"; Dtype({kind_name!r}) would accept any width"
+    return _same_dtype(actual, declared), detail
 
 
 def dims_compatible(a: Dims, b: Dims) -> bool:
@@ -134,11 +158,10 @@ def dtype_compatible(a: Dtype, b: Dtype) -> bool:
     """Return whether two `Dtype` declarations can describe the same array.
 
     The marker-vs-marker counterpart to validating an array against a `Dtype`
-    declaration (no array in hand): two
-    declarations are *provably inconsistent* only if their numpy **kinds** differ
-    (float vs int), or if both require the exact dtype (`exact=True`) and those
-    dtypes differ (`f8` vs `f4`).  A kind-only declaration matches any width, so
-    it never conflicts on width alone.
+    declaration (no array in hand): two declarations are *provably inconsistent* if
+    their numpy **kinds** differ (float vs int), or if both name a precise dtype and
+    those differ (`f8` vs `f4`).  A declaration of a kind (`Dtype("float")`) matches any
+    width, so it never conflicts on width alone.
 
     Args:
         a: A `Dtype` marker.
@@ -149,16 +172,18 @@ def dtype_compatible(a: Dtype, b: Dtype) -> bool:
 
     Examples:
         >>> from xarray_annotated.schema import Dtype, dtype_compatible
-        >>> dtype_compatible(Dtype("float64"), Dtype("float32"))
+        >>> dtype_compatible(Dtype("float"), Dtype("float32"))
         True
-        >>> dtype_compatible(Dtype("float64"), Dtype("int64"))
+        >>> dtype_compatible(Dtype("float64"), Dtype("float32"))
         False
-        >>> dtype_compatible(Dtype("float64", exact=True), Dtype("float32", exact=True))
+        >>> dtype_compatible(Dtype("float"), Dtype("int"))
         False
     """
-    if np.dtype(a.dtype).kind != np.dtype(b.dtype).kind:
+    if _kind(a) != _kind(b):
         return False
-    return not (a.exact and b.exact and np.dtype(a.dtype) != np.dtype(b.dtype))
+    if not (_is_exact(a) and _is_exact(b)):
+        return True
+    return _same_dtype(np.dtype(a.dtype), np.dtype(b.dtype))
 
 
 # There is deliberately no `coords_compatible`: two `Coords` declarations are

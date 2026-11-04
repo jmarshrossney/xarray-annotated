@@ -101,7 +101,7 @@ class TestComposeSchemaMarkers:
         with pytest.raises(schema.SchemaError, match="dims mismatch"):
             f(_da(("time",), coords=("time",)))
         # dtype wrong, dims/coords fine
-        with pytest.raises(schema.SchemaError, match="dtype kind mismatch"):
+        with pytest.raises(schema.SchemaError, match="dtype mismatch"):
             f(_da(("time", "x"), coords=("time",), dtype="int64"))
 
 

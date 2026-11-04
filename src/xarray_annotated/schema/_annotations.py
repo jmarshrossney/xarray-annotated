@@ -8,7 +8,6 @@ The structural counterpart to ``units._annotations``: the properties every
     Annotated[xr.DataArray, Dims("time", "lat", "lon")]
     Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64")]
 
-Each marker carries the *strictness* of its own check (dims order, exact dtype).
 The markers are immutable (``__slots__``) and hashable so an annotation carrying
 them stays hashable/cacheable; ``eq``/``repr`` cover all fields, so
 ``eval(repr(m)) == m``.
@@ -91,46 +90,37 @@ class Coords:
 
 
 class Dtype:
-    """Declare the expected dtype of a DataArray, e.g. ``Dtype("float64")``.
+    """Declare the expected dtype of a DataArray.
 
-    By default the check is by numpy *kind*: any float satisfies
-    ``Dtype("float64")`` and any signed integer ``Dtype("int32")`` — enough to catch
-    an int/float or bool/float mix-up without firing on ``f8`` vs ``f4``.  Pass
-    ``exact=True`` to
-    require the precise dtype (e.g. to pin memory footprint or a typed sink).
+    ``Dtype("float64")`` means ``float64``, in either byte order, so a marker always
+    means what it reads.  A name with no width means any dtype of that kind:
+    ``Dtype("float")`` passes ``float32`` and ``float64``, and ``Dtype("int")`` passes
+    any signed integer, unlike ``np.dtype("float")``, which is ``float64``.  The names
+    are ``float``, ``int``, ``uint``, ``complex``, ``str``, ``datetime64`` and
+    ``timedelta64``.
     """
 
     _dtype: str
-    _exact: bool
-    __slots__ = ("_dtype", "_exact")
+    __slots__ = ("_dtype",)
 
-    def __init__(self, dtype: str, *, exact: bool = False) -> None:
+    def __init__(self, dtype: str) -> None:
         self._dtype = dtype
-        self._exact = exact
 
     @property
     def dtype(self) -> str:
         """The declared dtype string."""
         return self._dtype
 
-    @property
-    def exact(self) -> bool:
-        """Whether the exact dtype (not just its kind) must match."""
-        return self._exact
-
     def __repr__(self) -> str:
-        parts = [repr(self._dtype)]
-        if self._exact:
-            parts.append("exact=True")
-        return f"Dtype({', '.join(parts)})"
+        return f"Dtype({self._dtype!r})"
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Dtype):
-            return (self._dtype, self._exact) == (other._dtype, other._exact)
+            return self._dtype == other._dtype
         return NotImplemented
 
     def __hash__(self) -> int:
-        return hash((self._dtype, self._exact))
+        return hash(self._dtype)
 
 
 #: Any one schema marker.

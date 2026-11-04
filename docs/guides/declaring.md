@@ -28,7 +28,7 @@ def weekly_mean(
 |---|---|---|
 | `Dims(*names)` | The array has exactly these dims, in any order | `ordered=True` pins the order |
 | `Coords(*names)` | These coordinates are present (extras are fine) | |
-| `Dtype(dtype)` | The numpy kind matches: `float32` passes `Dtype("float64")`, `uint8` fails `Dtype("int32")` | `exact=True` requires the precise dtype |
+| `Dtype(dtype)` | The array has this dtype, in either byte order; `Dtype("float")` means any float, as do `int`, `uint`, `complex`, `str`, `datetime64` and `timedelta64` for their own kinds | |
 | `Unit(unit)` | The array is in this unit, however it is spelled | |
 | `Freq(freq)` | [The time axis](#which-coordinate-is-the-time-axis) has this spacing, and this phase [where spelled](#what-the-same-frequency-means) | `dim=`, `anchored=` |
 
