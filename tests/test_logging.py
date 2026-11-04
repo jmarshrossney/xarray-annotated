@@ -8,8 +8,6 @@ conversion, since conversion is always opted into.
 import logging
 from typing import Annotated
 
-import numpy as np
-import pint
 import pint_xarray  # noqa: F401  (registers the .pint accessor)
 import pytest
 import xarray as xr
@@ -81,54 +79,27 @@ class TestUnreadableInputs:
 
 
 class TestOutputs:
-    def test_stamp_over_different_label_is_debug(self, audit):
-        units.apply_output_units(_da("hPa"), "Pa", "return", "stamp")
-        [(level, msg)] = _records(audit, UNITS)
-        assert level == logging.DEBUG
-        assert "over label 'hPa'" in msg
-
-    def test_stamp_over_unparseable_label_is_debug(self, audit):
-        units.apply_output_units(_da("not_a_unit"), "Pa", "return", "stamp")
-        [(level, _)] = _records(audit, UNITS)
-        assert level == logging.DEBUG
-
-    @pytest.mark.parametrize("label", [None, "Pa", "pascal"])
-    def test_stamp_over_no_or_same_label_is_not_logged(self, audit, label):
+    @pytest.mark.parametrize("label", ["Pa", "pascal"])
+    def test_a_matching_output_is_not_logged(self, audit, label):
         units.apply_output_units(_da(label), "Pa", "return")
         assert _records(audit, UNITS) == []
 
-    def test_quantified_output_conversion_is_debug(self, audit):
-        out = units.apply_output_units(
-            _da().pint.quantify(), Unit("Pa", convert=True), "return"
-        )
-        np.testing.assert_allclose(out.pint.magnitude, [100.0])
-        [(level, msg)] = _records(audit, UNITS)
-        assert level == logging.DEBUG
-        assert "quantified 'hPa' -> declared 'Pa'" in msg
-
-    @pytest.mark.parametrize("on_output", ["stamp", "strict"])
-    def test_quantified_output_in_a_foreign_unit_is_info(self, audit, on_output):
-        foreign = pint.UnitRegistry(force_ndarray_like=True)
-        foreign.define("widget = [thing]")
-        da = _da(None).pint.quantify("widget", unit_registry=foreign)
-        assert units.apply_output_units(da, "Pa", "return", on_output) is da
-        [(level, msg)] = _records(audit, UNITS)
-        assert level == logging.INFO
-        assert "'widget'" in msg
-        assert "unchecked" in msg
-
-    @pytest.mark.parametrize("label", ["not_a_unit", "e" * 300])
-    def test_strict_over_unverifiable_label_is_info(self, audit, label):
-        out = units.apply_output_units(_da(label), "Pa", "return", "strict")
-        assert out.attrs["units"] == "Pa"
-        [(level, msg)] = _records(audit, UNITS)
-        assert level == logging.INFO
-        assert "stamped unchecked" in msg
-        assert "e" * 300 not in msg
-
-    def test_strict_over_no_label_is_not_logged(self, audit):
-        units.apply_output_units(_da(None), "Pa", "return", "strict")
+    @pytest.mark.parametrize("label", [None, "hPa", "not_a_unit", "e" * 300])
+    def test_a_mismatched_output_raises_and_is_not_logged(self, audit, label):
+        with pytest.raises(ValueError, match="output 'return'"):
+            units.apply_output_units(_da(label), "Pa", "return")
         assert _records(audit, UNITS) == []
+
+    def test_over_long_label_is_neither_parsed_nor_echoed(self, monkeypatch):
+        label = "e" * 300
+
+        def fail(*_):
+            raise AssertionError("over-long label reached the parser")
+
+        monkeypatch.setattr(units._check, "get_registry", fail)
+        with pytest.raises(ValueError, match="over-long") as info:
+            units.apply_output_units(_da(label), "Pa", "return")
+        assert label not in str(info.value)
 
 
 class TestIgnoredMismatches:
@@ -158,7 +129,7 @@ class TestQuietByDefault:
     def test_nothing_reaches_a_warning_level_handler(self, caplog):
         caplog.set_level(logging.WARNING, logger="xarray_annotated")
         units.check_units(_da(), Unit("Pa", convert=True), "p")
-        units.apply_output_units(_da(), "Pa", "return", "stamp")
+        units.apply_output_units(_da("pascal"), "Pa", "return")
         assert caplog.records == []
 
     def test_switched_off_logs_nothing(self, audit):
@@ -166,18 +137,3 @@ class TestQuietByDefault:
             units.check_units(_da(), Unit("Pa", convert=True), "p")
             schema.check_schema(_da(), Dims("time"), "p", on_mismatch="ignore")
         assert audit.records == []
-
-
-class TestOverLongLabelUnderStamp:
-    def test_is_neither_parsed_nor_echoed(self, audit, monkeypatch):
-        label = "e" * 300
-
-        def fail(*_):
-            raise AssertionError("over-long label reached the parser")
-
-        monkeypatch.setattr(units._check, "units_equal", fail)
-        out = units.apply_output_units(_da(label), "Pa", "return", "stamp")
-        assert out.attrs["units"] == "Pa"
-        [(level, msg)] = _records(audit, UNITS)
-        assert level == logging.DEBUG
-        assert label not in msg

@@ -4,20 +4,9 @@ Pure `typing` metadata with no dependency on the active registry or configuratio
 the unit string is validated later, by the checking layer.
 """
 
-from collections.abc import Callable
-
-from ._config import (
-    OnOutput,
-    _validate_convert,
-    _validate_on_output,
-)
+from ._config import _validate_convert
 
 __all__ = ["Unit"]
-
-
-def _optional[T: str](validate: Callable[[str], T], value: T | None) -> T | None:
-    """Validate an optional override at construction; `None` means no override."""
-    return None if value is None else validate(value)
 
 
 class Unit:
@@ -45,46 +34,37 @@ class Unit:
     Equivalent spellings (`"pascal"` for `"Pa"`) never need `convert=True`,
     since the values do not change.
 
-    `on_output` can be set for this declaration too, and beats the decorator
-    keyword, which beats the default; switching the package off
-    (`enabled(False)`) still disables everything.  `convert` applies to an input
-    and to a pint-quantified output, but never to an `attrs` label on an output,
-    which may be stale.  `on_output` applies only where the
-    marker declares an output and is ignored elsewhere, so one marker can be reused
-    on both sides.
+    `convert` applies only where the marker declares an input, and is ignored on an
+    output, so one marker can be reused on both sides.  A returned value must already
+    match its declaration, and a body that wants another unit converts it itself.
 
     An input with no parseable unit always raises: the declaration cannot be
     checked, so attach the unit where the data enters.
 
-    Equality and hashing include the overrides, as for every other marker:
+    Equality and hashing include `convert`, as for every other marker's settings:
     `Unit("Pa", convert=True) != Unit("Pa")`.  To compare only the units,
     compare `.unit`, or use `units_equal` to compare spellings by meaning.
 
     Args:
         unit: The declared unit string.
-        convert: Convert a compatible value into `unit` instead of raising.
-        on_output: Override the on-output axis for this declaration.
+        convert: Convert a compatible input into `unit` instead of raising.
 
     Raises:
         TypeError: If `convert` is not a bool.
-        ValueError: If `on_output` is not a valid value.
     """
 
     _unit: str
     _convert: bool
-    _on_output: OnOutput | None
-    __slots__ = ("_convert", "_on_output", "_unit")
+    __slots__ = ("_convert", "_unit")
 
     def __init__(
         self,
         unit: str,
         *,
         convert: bool = False,
-        on_output: OnOutput | None = None,
     ) -> None:
         self._unit = unit
         self._convert = _validate_convert(convert)
-        self._on_output = _optional(_validate_on_output, on_output)
 
     @property
     def unit(self) -> str:
@@ -93,23 +73,16 @@ class Unit:
 
     @property
     def convert(self) -> bool:
-        """Whether this declaration converts a compatible value."""
+        """Whether this declaration converts a compatible input."""
         return self._convert
 
-    @property
-    def on_output(self) -> OnOutput | None:
-        """This declaration's on-output override, or `None`."""
-        return self._on_output
-
-    def _key(self) -> tuple[str, bool, str | None]:
-        return (self._unit, self._convert, self._on_output)
+    def _key(self) -> tuple[str, bool]:
+        return (self._unit, self._convert)
 
     def __repr__(self) -> str:
         parts = [repr(self._unit)]
         if self._convert:
             parts.append("convert=True")
-        if self._on_output is not None:
-            parts.append(f"on_output={self._on_output!r}")
         return f"Unit({', '.join(parts)})"
 
     def __str__(self) -> str:

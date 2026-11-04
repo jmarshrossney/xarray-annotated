@@ -64,7 +64,7 @@ def enabled(value: bool) -> Generator[None]:
     """Switch xarray-annotated on or off for a block.
 
     Off means the package does nothing: no checks, no input conversion and no
-    output stamping, so a body declaring `"Pa"` can receive `"hPa"`.
+    output checks, so a body declaring `"Pa"` can receive `"hPa"`.
     Declarations are still validated when a function is decorated.
 
     The block beats `XARRAY_ANNOTATED_ENABLED` in both directions, and is

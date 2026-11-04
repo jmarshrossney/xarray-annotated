@@ -1,12 +1,10 @@
-"""Per-declaration units behaviour: overrides carried on the ``Unit`` marker (#17).
+"""Per-declaration units behaviour: ``convert`` carried on the ``Unit`` marker (#17).
 
 Whether a value-changing conversion is acceptable is a property of a parameter,
-not of the process.  A ``Unit`` marker may override each units axis, and the
-override beats the decorator keyword and the default; only the package-wide
-switch beats it.
+not of the process.  Only the package-wide switch beats the marker.
 """
 
-from typing import Annotated, TypedDict
+from typing import Annotated
 
 import numpy as np
 import pint_xarray  # noqa: F401  (registers the .pint accessor)
@@ -26,9 +24,9 @@ def _da(value=1.0, unit: str | None = "hPa") -> xr.DataArray:
 
 
 class TestMarker:
-    def test_invalid_override_rejected_at_construction(self):
-        with pytest.raises(ValueError, match="Invalid on_output 'bogus'"):
-            Unit("Pa", on_output="bogus")  # type: ignore[arg-type]
+    def test_on_output_is_gone(self):
+        with pytest.raises(TypeError, match="on_output"):
+            Unit("Pa", on_output="stamp")  # type: ignore[call-arg]
 
     def test_on_missing_is_gone(self):
         with pytest.raises(TypeError, match="on_missing"):
@@ -40,8 +38,8 @@ class TestMarker:
             Unit("Pa", convert=value)  # type: ignore[arg-type]
 
     def test_overrides_exposed(self):
-        u = Unit("Pa", convert=True, on_output="strict")
-        assert (u.unit, u.convert, u.on_output) == ("Pa", True, "strict")
+        u = Unit("Pa", convert=True)
+        assert (u.unit, u.convert) == ("Pa", True)
         assert Unit("Pa").convert is False
 
     def test_repr_shows_only_set_overrides(self):
@@ -52,9 +50,7 @@ class TestMarker:
     def test_overrides_take_part_in_equality_and_hash(self):
         assert Unit("Pa", convert=True) != Unit("Pa")
         assert Unit("Pa", convert=True) == Unit("Pa", convert=True)
-        assert hash(Unit("Pa", on_output="strict")) == hash(
-            Unit("Pa", on_output="strict")
-        )
+        assert hash(Unit("Pa", convert=True)) == hash(Unit("Pa", convert=True))
 
     def test_overrides_must_be_keywords(self):
         with pytest.raises(TypeError):
@@ -99,47 +95,9 @@ class TestThroughEnforce:
         with pytest.raises(ValueError, match="no 'units' attribute"):
             f(_da(unit=None))
 
-    def test_on_output_override(self):
-        @xra.enforce
-        def f() -> Annotated[xr.DataArray, Unit("Pa", on_output="strict")]:
-            return _da(unit="hPa")
-
-        with pytest.raises(ValueError, match="on_output='strict'"):
-            f()
-
-    def test_on_output_override_on_a_typeddict_field(self):
-        class Out(TypedDict):
-            p: Annotated[xr.DataArray, Unit("Pa")]
-            q: Annotated[xr.DataArray, Unit("Pa", on_output="stamp")]
-
-        @xra.enforce
-        def f() -> Out:
-            return {"p": _da(unit="Pa"), "q": _da(unit="hPa")}
-
-        out = f()  # q is only stamped; p matched the strict default
-        assert out["q"].attrs["units"] == "Pa"
-
-    def test_convert_refuses_a_labelled_output_like_any_other(self):
-        @xra.enforce
-        def f() -> Annotated[xr.DataArray, Unit("Pa", convert=True)]:
-            return _da(unit="hPa")
-
-        with pytest.raises(ValueError, match="on_output='strict'"):
-            f()
-
-    def test_convert_does_not_convert_a_labelled_output(self):
-        # A label may be stale, so convert must not act on it.
-        @xra.enforce
-        def f() -> Annotated[xr.DataArray, Unit("Pa", convert=True, on_output="stamp")]:
-            return _da(unit="hPa")
-
-        out = f()
-        assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, _da(unit="hPa").values)
-
     def test_master_switch_beats_marker(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray, Unit("Pa", on_output="require")]):
+        def f(p: Annotated[xr.DataArray, Unit("Pa")]):
             return p
 
         with xra.enabled(False):
@@ -162,13 +120,7 @@ class TestPrimitivesAcceptTheMarker:
             units.check_units(_da(unit=None), Unit("Pa"), "p")
 
     def test_apply_output_units(self):
-        with pytest.raises(ValueError, match="on_output='strict'"):
-            units.apply_output_units(_da(), Unit("Pa", on_output="strict"), "r")
-
-    def test_apply_output_units_marker_beats_argument(self):
-        out = units.apply_output_units(
-            _da(), Unit("Pa", on_output="stamp"), "r", on_output="strict"
-        )
+        out = units.apply_output_units(_da(unit="pascal"), Unit("Pa"), "r")
         assert out.attrs["units"] == "Pa"
 
     def test_numpy_bool_convert_is_accepted(self):
@@ -183,7 +135,7 @@ class TestPrimitivesAcceptTheMarker:
 
 class TestReaders:
     def test_declarations_from_signature_keeps_overrides(self):
-        marker = Unit("Pa", convert=True, on_output="strict")
+        marker = Unit("Pa", convert=True)
 
         def f(
             p: Annotated[xr.DataArray, marker],

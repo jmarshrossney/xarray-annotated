@@ -174,21 +174,20 @@ class TestComposeDecorators:
         assert out.attrs["units"] == "Pa"
         np.testing.assert_allclose(out.values, np.full(out.shape, 1000.0))
 
-    def test_output_stamped_and_validated(self):
+    def test_output_checked_and_validated(self):
         @xra.enforce
         def f(n: int) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
-            return _da(("time", "x"), fill=5.0)  # raw output, no units attr
+            return _da(("time", "x"), unit="pascal", fill=5.0)
 
         out = f(1)
-        assert out.attrs["units"] == "Pa"  # stamped by units
+        assert out.attrs["units"] == "Pa"
         np.testing.assert_allclose(out.values, np.full(out.shape, 5.0))  # not converted
 
     def test_output_dims_mismatch_raises(self):
         @xra.enforce
         def f(n: int) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
-            return _da(("time",), fill=5.0)
+            return _da(("time",), unit="Pa", fill=5.0)
 
-        # inner schema validates the output before outer units stamps it
         with pytest.raises(schema.SchemaError, match="dims mismatch"):
             f(1)
 
