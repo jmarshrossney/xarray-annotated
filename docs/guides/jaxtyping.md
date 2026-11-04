@@ -38,6 +38,11 @@ def total(
     It then sees the call as the caller made it, with `@xra.enforce` converting underneath.
 
 Naming the array type (`Pressure`) rather than spelling it inline keeps pyright quiet, since it reads a shape string in an annotation as a forward reference.
+A `type` statement counts as an annotation here, so name the array type with an assignment, then use it in `type` statements as usual:
+
+```python
+type PascalPressure = Annotated[Pressure, Unit("Pa")]
+```
 
 ## What to use for what
 

@@ -11,7 +11,7 @@ import inspect
 import typing
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, TypedDict
+from typing import Annotated, NotRequired, TypedDict
 
 import numpy as np
 import pandas as pd
@@ -21,8 +21,8 @@ import pytest
 import xarray as xr
 
 import xarray_annotated as xra
-from xarray_annotated import schema, temporal, units
-from xarray_annotated.schema import Dims, Dtype
+from xarray_annotated import Declared, schema, temporal, units
+from xarray_annotated.schema import Dims, Dtype, SchemaError
 from xarray_annotated.temporal import Freq
 from xarray_annotated.units import Unit
 
@@ -367,6 +367,11 @@ type _Recursive = dict[str, _Recursive] | list[_Recursive] | str
 type _RecursiveGeneric[T] = list[_RecursiveGeneric[T]] | T
 type _StrayRecursive = list[_StrayRecursive] | list[_PA]
 type _DeclaredRecursive = _PA | list[_DeclaredRecursive]
+type _AliasOfAlias = _Alias
+type _DA = xr.DataArray
+type _OptionalDA = xr.DataArray | None
+type _Extended = Annotated[_Alias, Dims("x")]
+type _FloatAlias = Annotated[float, Unit("Pa")]
 
 
 class _Fields(TypedDict):
@@ -407,6 +412,9 @@ class TestStrayMarkers:
             _StrayGenericAlias,
             _Generic[_PA],
             _StrayRecursive,
+            Annotated[_FloatAlias, Dims("x")],
+            Annotated[_StrayGeneric[xr.DataArray], Dims("x")],
+            Annotated[_OptionalAlias, Dims("x")],
         ],
     )
     @pytest.mark.parametrize("side", ["param", "ret"])
@@ -460,6 +468,53 @@ class TestTypeAliases:
     def test_return_is_stamped(self):
         f = xra.enforce(_annotated(ret=_Alias))
         assert f(xr.DataArray([1.0])).attrs["units"] == "Pa"
+
+    @pytest.mark.parametrize(
+        ("hint", "expected"),
+        [
+            (Annotated[_Alias, Dims("x")], Declared(Unit("Pa"), Dims("x"))),
+            (Annotated[_AliasOfAlias, Dims("x")], Declared(Unit("Pa"), Dims("x"))),
+            (_Extended, Declared(Unit("Pa"), Dims("x"))),
+            (
+                Annotated[_Extended, Dtype("float64")],
+                Declared(Unit("Pa"), Dims("x"), Dtype("float64")),
+            ),
+            (Annotated[_Alias, "a description"], Declared(Unit("Pa"))),
+            (Annotated[_DA, Unit("Pa")], Declared(Unit("Pa"))),
+            (Annotated[_OptionalDA, Unit("Pa")], Declared(Unit("Pa"))),
+            (
+                NotRequired[Annotated[_Alias, Dims("x")]],
+                Declared(Unit("Pa"), Dims("x")),
+            ),
+        ],
+    )
+    def test_markers_merge_through_an_alias(self, hint, expected):
+        assert xra.declaration_from_hint(hint) == expected
+
+    def test_merged_markers_match_an_assignment_alias(self):
+        assert xra.declaration_from_hint(
+            Annotated[_Alias, Dims("x")]
+        ) == xra.declaration_from_hint(Annotated[_PA, Dims("x")])
+
+    @pytest.mark.parametrize(
+        "hint", [Annotated[_Alias, Unit("K")], Annotated[_PA, Unit("K")]]
+    )
+    def test_a_marker_cannot_be_overridden_through_an_alias(self, hint):
+        with pytest.raises(ValueError, match="declares 2 Unit"):
+            xra.declaration_from_hint(hint)
+
+    def test_merged_markers_are_all_enforced(self):
+        f = xra.enforce(_annotated(param=Annotated[_Alias, Dims("x")]))
+        f(xr.DataArray([1.0], dims="x", attrs={"units": "Pa"}))
+        with pytest.raises(ValueError, match="differs from declared"):
+            f(xr.DataArray([1.0], dims="x", attrs={"units": "hPa"}))
+        with pytest.raises(SchemaError):
+            f(xr.DataArray([1.0], dims="y", attrs={"units": "Pa"}))
+
+    def test_annotate_extends_an_alias(self):
+        assert xra.declaration_from_hint(xra.annotate(_Alias, dims="x")) == Declared(
+            Unit("Pa"), Dims("x")
+        )
 
     def test_aliased_typeddict_return_is_read_per_field(self):
         f = xra.enforce(_annotated(ret=_FieldsAlias))

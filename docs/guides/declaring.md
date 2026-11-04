@@ -92,8 +92,17 @@ An axis with fewer than three timestamps or irregular spacing has no inferable f
 
 ## Reusing a declaration
 
-Name a declaration with an assignment or a `type` statement:
+Name a declaration with a `type` statement or an assignment:
 
 ```python
-Pressure = Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x")]
+type Pressure = Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x")]
 ```
+
+Wrap a named declaration to add markers to it:
+
+```python
+type TypedPressure = Annotated[Pressure, Dtype("float64")]
+```
+
+It declares `Unit`, `Dims` and `Dtype`.
+A marker cannot be replaced this way, so a second `Unit` raises `ValueError`.

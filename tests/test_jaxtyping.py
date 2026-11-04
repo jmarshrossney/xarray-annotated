@@ -39,6 +39,9 @@ Float = jaxtyping.Float
 #: cleanly.  Purely a static-analysis accommodation — the runtime object is identical.
 FloatDA = Float[xr.DataArray, "time x"]
 
+type FloatAlias = FloatDA
+type PascalAlias = Annotated[FloatDA, Unit("Pa")]
+
 
 def _da(dims=("time", "x"), dtype="float64", unit=None, fill=1.0):
     shape = tuple(range(2, 2 + len(dims)))
@@ -87,6 +90,45 @@ class TestReaders:
         def f() -> Annotated[FloatDA, Unit("Pa")]: ...
 
         assert declarations_from_signature(f)[1] == Declared(unit=Unit("Pa"))
+
+
+class TestTypeAliases:
+    @pytest.mark.parametrize(
+        "hint",
+        [Annotated[FloatAlias, Unit("Pa")], PascalAlias, Annotated[PascalAlias, "doc"]],
+    )
+    def test_reader_sees_through_an_alias(self, hint):
+        assert xra.declaration_from_hint(hint) == Declared(unit=Unit("Pa"))
+
+    def test_markers_merge_through_an_alias(self):
+        assert xra.declaration_from_hint(
+            Annotated[PascalAlias, Dims("time", "x")]
+        ) == Declared(unit=Unit("Pa"), dims=Dims("time", "x"))
+
+    @staticmethod
+    def _stack():
+        beartype = pytest.importorskip("beartype").beartype
+
+        @jaxtyping.jaxtyped(typechecker=beartype)
+        @xra.enforce
+        def f(
+            x: Annotated[PascalAlias, Dims("time", "x")],
+        ) -> PascalAlias:
+            return x
+
+        return f
+
+    def test_full_stack_accepts_good_input(self):
+        out = self._stack()(_da(unit="Pa"))
+        assert out.attrs["units"] == "Pa"
+
+    def test_full_stack_catches_wrong_dtype(self):
+        with pytest.raises(jaxtyping.TypeCheckError):
+            self._stack()(_da(dtype="int64", unit="Pa"))
+
+    def test_full_stack_catches_wrong_dim_names(self):
+        with pytest.raises(SchemaError):
+            self._stack()(_da(dims=("time", "y"), unit="Pa"))
 
 
 class TestDecorators:

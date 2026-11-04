@@ -76,6 +76,24 @@ class Declared:
         return [m for m in (self.dims, self.dtype, self.coords) if m is not None]
 
 
+def _flatten_aliases(base: Any, metadata: list[Any]) -> tuple[Any, list[Any]]:
+    """Unwrap `type` aliases in `Annotated`'s base slot, keeping their metadata.
+
+    `Annotated` flattens a nested `Annotated`, inner metadata first, but cannot see
+    inside a lazy alias, so this does the same for one.
+
+    Returns:
+        The first base that is not a `type` alias, and the merged metadata.
+    """
+    if not isinstance(base, TypeAliasType):
+        return base, metadata
+    value = base.__value__
+    if get_origin(value) is Annotated:
+        value, *inner = get_args(value)
+        metadata = [*inner, *metadata]
+    return _flatten_aliases(value, metadata)
+
+
 def declaration_from_hint(hint: Any) -> Declared | None:
     """Read every facet declared on one type hint into a `Declared`.
 
@@ -86,7 +104,8 @@ def declaration_from_hint(hint: Any) -> Declared | None:
     Reads through a union (`Annotated[DataArray, ...] | None`) and the `TypedDict`
     qualifiers (`NotRequired[Annotated[DataArray, ...]]`, or the other way round), so
     every way of spelling an optional value declares the same thing, and through a
-    `type` alias.
+    `type` alias, whose markers merge with any written around it
+    (`Annotated[Alias, Dims("x")]`).
 
     Args:
         hint: A type hint, typically from `get_type_hints(..., include_extras=True)`.
@@ -129,6 +148,7 @@ def declaration_from_hint(hint: Any) -> Declared | None:
     base, *metadata = get_args(hint)
     if get_origin(base) in _QUALIFIERS:
         base = get_args(base)[0]
+    base, metadata = _flatten_aliases(base, metadata)
     if not _is_dataarray_type(base):
         return None
     declared = Declared(
