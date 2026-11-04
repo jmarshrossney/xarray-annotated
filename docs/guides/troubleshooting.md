@@ -53,4 +53,4 @@ Malformed declarations still raise when a function is decorated.
 
 - **For a process:** set `XARRAY_ANNOTATED_ENABLED` to `0`, `false`, `no` or `off`.
 - **Precedence:** a block beats the variable in both directions, and the innermost block wins.
-- **Scope:** a block applies to the current thread or async task only.
+- **Scope:** a block applies to the current thread or async task only, and to dask's threaded and synchronous schedulers when it surrounds `.compute()`. It does not reach a new thread or another process.
