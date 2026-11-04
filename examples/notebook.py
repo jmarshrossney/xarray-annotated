@@ -544,7 +544,8 @@ def _(mo):
     6. The docstring's *"assumes tair in degC"*, made real. Kelvin is now converted at the
        boundary instead of blowing up the Q10 exponent inside the body. Conversion is
        opt-in (`convert=True`): it is right for a temperature, but a declaration without
-       it refuses to turn an annual total into a daily rate.
+       it refuses to turn an annual total into a daily rate. See
+       [Converting units](guides/conversion.md) for the risks.
     7. Aggregation changes the frequency and nothing else, so this stage declares a
        frequency and says nothing at all about units — it means whatever it is handed, and
        the silence is the statement.

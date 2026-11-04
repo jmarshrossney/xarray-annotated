@@ -78,12 +78,10 @@ The tabs on this page switch together, so you can compare the code and each resu
         tair: Annotated[
             xr.DataArray,
             Dims("time", "site"),  # (2)!
-            Unit("degC", convert=True),  # (3)!
+            Unit("degC"),  # (3)!
             Freq("h"),  # (4)!
         ],
-        rh: Annotated[
-            xr.DataArray, Dims("time", "site"), Unit("percent", convert=True), Freq("h")
-        ],
+        rh: Annotated[xr.DataArray, Dims("time", "site"), Unit("percent"), Freq("h")],
     ) -> Annotated[xr.DataArray, Dims("time", "site"), Unit("kPa"), Freq("D")]:  # (5)!
         """Daily mean vapour pressure deficit."""
         es = 0.6108 * np.exp(17.27 * tair / (tair + 237.3))
@@ -92,7 +90,7 @@ The tabs on this page switch together, so you can compare the code and each resu
 
     1.  `enforce` reads the declarations from the signature and checks them on every call.
     2.  These dimensions must be present, in any order, and no others.
-    3.  The body always sees `degC`. `convert=True` lets a compatible unit such as `K` be converted first; without it, a different unit raises.
+    3.  The body always sees `degC`. A different unit such as `K` raises, even though it could be converted: see [Converting units](guides/conversion.md).
     4.  The `time` coordinate must be hourly.
     5.  The return value is checked too. `kPa` is stamped on the result, which takes the body's word for it: see [`on_output`](guides/policy.md#units-on_output) for stricter options.
 
@@ -122,7 +120,7 @@ rh = hourly(60.0, "percent")
 ### Temperature in kelvin
 
 The plain function treats 293.15 as a Celsius temperature and returns a VPD of 3411 kPa, with no error.
-The annotated function converts the input before the body runs, and returns the right answer.
+The annotated function refuses the input, because `K` is not the declared `degC`.
 
 === "Plain xarray"
 
@@ -141,8 +139,21 @@ The annotated function converts the input before the body runs, and returns the 
 
 === "With xarray-annotated"
 
+    <!-- docs-test: raises ValueError -->
     ```python
     daily_vpd(hourly(293.15, "K"), rh).round(3)
+    ```
+    ```
+    ValueError: [daily_vpd] input 'tair': unit 'K' differs from declared 'degC'.
+      Converting would change the values; if that is correct for this quantity,
+      declare Unit('degC', convert=True).
+    ```
+
+    Temperature is safe to convert here, so convert it with pint and try again:
+
+    ```python
+    tair_k = hourly(293.15, "K")
+    daily_vpd(tair_k.pint.quantify().pint.to("degC"), rh).round(3)
     ```
     ```
     <xarray.DataArray (time: 3, site: 2)> Size: 48B
@@ -156,7 +167,7 @@ The annotated function converts the input before the body runs, and returns the 
         units:    kPa
     ```
 
-Conversion is opt-in: without `convert=True` the `K` input would have raised, because a compatible unit is not always the right one.
+A declaration can also [opt in to converting](guides/conversion.md#opting-in) inputs itself, but it is off by default, because a compatible unit is not always the right one.
 
 ### Humidity with no units
 
@@ -246,8 +257,8 @@ type DailyBySite = Annotated[xr.DataArray, Dims("time", "site"), Freq("D")]
 
 @xra.enforce
 def daily_vpd(
-    tair: Annotated[HourlyBySite, Unit("degC", convert=True)],
-    rh: Annotated[HourlyBySite, Unit("percent", convert=True)],
+    tair: Annotated[HourlyBySite, Unit("degC")],
+    rh: Annotated[HourlyBySite, Unit("percent")],
 ) -> Annotated[DailyBySite, Unit("kPa")]:
     """Daily mean vapour pressure deficit."""
     es = 0.6108 * np.exp(17.27 * tair / (tair + 237.3))

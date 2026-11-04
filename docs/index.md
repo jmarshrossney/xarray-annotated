@@ -3,7 +3,7 @@
 `xarray-annotated` checks `xarray.DataArray` arguments and return values against properties declared in the function signature with [`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated):
 
 - **structure**: dimensions, coordinates and dtype;
-- **physical units**, converting inputs to the declared unit where the declaration allows it;
+- **physical units**;
 - **time frequency** and phase.
 
 Making signatures the single source of truth has several advantages: the same declaration
@@ -48,7 +48,7 @@ The tabs switch together across these docs.
 
     @xra.enforce
     def daily_mean_pressure(
-        p: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa", convert=True)],
+        p: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")],
     ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa"), Freq("D")]:
         """Daily mean pressure."""
         return p.resample(time="D").mean()
@@ -65,12 +65,12 @@ Add markers to the `Annotated` hint of each `DataArray` parameter or return valu
 Decorate the function with `enforce`, or wrap an existing one: `xra.enforce(daily_mean_pressure)`.
 
 On each call, `enforce` checks inputs against their declared units with [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io).
-Where the declaration opts in with `convert=True`, a compatible unit is converted, so the function body sees `Pa` whether the caller passed `Pa` or `hPa`; otherwise a different unit raises.
-Structure and frequency are then checked on the converted arrays, and again on the return value.
+A different unit raises, so the function body sees `Pa` or does not run at all.
+Structure and frequency are then checked, and everything is checked again on the return value.
 
-Whether a structure or frequency violation raises, warns or is ignored is configurable; a unit that cannot be checked or converted always raises.
+Whether a structure or frequency violation raises, warns or is ignored is configurable; a unit that is wrong or cannot be checked always raises.
 
-See [Getting started](getting_started.md) for a worked walkthrough, [Declaring properties](guides/declaring.md) for each marker in detail, and [Configuring validation](guides/policy.md) for the settings.
+See [Getting started](getting_started.md) for a worked walkthrough, [Declaring properties](guides/declaring.md) for each marker in detail, [Configuring validation](guides/policy.md) for the settings, and [Converting units](guides/conversion.md) for what to do when the units differ.
 
 ## Motivations
 

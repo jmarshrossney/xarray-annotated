@@ -8,6 +8,7 @@
 | `ValueError: ... is not a recognised unit`, at import | A typo, or a CF string on the default registry | Fix the typo, or [activate the CF registry](registry.md) before importing the module |
 | `ValueError: ... has no 'units' attribute` | The array has no label to check | Attach the unit where the data enters, or use [`xra.enabled(False)`](policy.md#enabled) while prototyping; no setting lets it through, because an unchecked unit looks like a checked one downstream |
 | `ValueError: ... which enforce cannot apply`, at import | A marker somewhere it cannot be checked: inside a `tuple`, `list`, `dict` or `Callable`, on a base type other than `DataArray`, or in a generic alias such as `type Generic[T] = Annotated[T, Unit("Pa")]` | Move it onto an `Annotated[xr.DataArray, ...]`, and return several arrays as a `TypedDict` or dataclass |
+| `ValueError: ... differs from declared` | The unit is compatible with the declared one but not equal to it | [Convert it, or opt in on the declaration](conversion.md) |
 | `DimensionalityError` | The units cannot be converted, and `convert=True` does not change that | Fix the data or the declaration |
 | Checks stopped everywhere | The package is switched off | Check `XARRAY_ANNOTATED_ENABLED`, and look for an `xra.enabled(False)` block |
 

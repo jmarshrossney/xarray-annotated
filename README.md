@@ -9,7 +9,7 @@
 `xarray-annotated` checks `xarray.DataArray` arguments and return values against properties declared in the function signature with [`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated):
 
 - **structure**: dimensions, coordinates and dtype;
-- **physical units**, converting inputs to the declared unit where the declaration allows it;
+- **physical units**;
 - **time frequency** and phase.
 
 Making signatures the single source of truth has several advantages: the same declaration
@@ -18,7 +18,7 @@ Making signatures the single source of truth has several advantages: the same de
 - appears in generated documentation without needing to be hand-written;
 - provides rich context for AI coding agents.
 
-For validating and converting physical units we lean on the excellent [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io).
+For physical units we lean on the excellent [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io).
 ([cf-xarray](https://cf-xarray.readthedocs.io) is an optional dependency for CF/UDUNITS unit strings.)
 
 For full user documentation please visit **[https://jmarshrossney.github.io/xarray-annotated/](https://jmarshrossney.github.io/xarray-annotated/)**.
@@ -80,7 +80,7 @@ from xarray_annotated import Dims, Unit
 
 @xra.enforce
 def altitude(
-    p: Annotated[xr.DataArray, Dims("time"), Unit("Pa", convert=True)],
+    p: Annotated[xr.DataArray, Dims("time"), Unit("Pa")],
 ) -> Annotated[xr.DataArray, Dims("time"), Unit("m")]:
     """Barometric altitude."""
     return 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
@@ -88,6 +88,16 @@ def altitude(
 
 p = xr.DataArray([1013.0, 1000.0], dims=["time"], attrs={"units": "hPa"})
 altitude(p)
+# ValueError: [altitude] input 'p': unit 'hPa' differs from declared 'Pa'.
+#   Converting would change the values; if that is correct for this quantity,
+#   declare Unit('Pa', convert=True).
+```
+
+The wrong unit is now an error rather than a wrong answer.
+Pressure is safe to convert, so we can do that explicitly with pint:
+
+```python
+altitude(p.pint.quantify().pint.to("Pa"))
 ```
 ```
 <xarray.DataArray (time: 2)> Size: 16B
@@ -97,9 +107,8 @@ Attributes:
     units:    m
 ```
 
-Now the outputs are physical and carry the correct units attribute.
-The `hPa` input was converted to `Pa` before the body ran, and the result was stamped with the unit the signature promised.
-Conversion is opt-in: without `convert=True` the `hPa` input would have raised, because whether a conversion is correct depends on the quantity, and a compatible unit is not always the right one.
+Now the outputs are physical, and the result is stamped with the unit the signature promised.
+A declaration can also [opt in to converting](https://jmarshrossney.github.io/xarray-annotated/guides/conversion.html) its inputs, but this is off by default: whether a conversion is correct depends on the quantity, and a compatible unit is not always the right one.
 The docstring no longer needs to say "assumes Pa", because the signature does --- and unlike the docstring, it is actually enforced.
 
 If we had handed the function an array whose units were _dimensionally_ wrong, or with an extra dimension, this would have failed gracefully:
@@ -109,7 +118,9 @@ altitude(xr.DataArray([1.0, 2.0], dims=["time"], attrs={"units": "kg"}))
 # DimensionalityError: Cannot convert from 'kilogram' ([mass])
 #   to 'pascal' ([mass] / [length] / [time] ** 2)
 
-altitude(xr.DataArray([[1013.0, 1000.0]], dims=["run", "time"], attrs={"units": "hPa"}))
+altitude(
+    xr.DataArray([[101300.0, 100000.0]], dims=["run", "time"], attrs={"units": "Pa"})
+)
 # SchemaError: [altitude] 'p' dims mismatch: expected ('time',) in any order, got ('run', 'time')
 ```
 

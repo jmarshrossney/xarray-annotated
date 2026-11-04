@@ -7,7 +7,7 @@ Behaviour is set only where it is declared, so reading a signature and its decor
 | Structure mismatch | `on_mismatch` | `error`, `warn`, `ignore` | yes | no | `check_schema` |
 | Frequency mismatch, or no unambiguous time axis | `on_mismatch` | `error`, `warn`, `ignore` | yes | no | `check_freq` |
 | Short or irregular time axis | `on_uninferable` | `warn`, `error`, `ignore` | no | `temporal_on_uninferable` | `check_freq` |
-| Compatible but different unit, on an input or a quantified output | `convert` | `False`, `True` | yes | no | no (pass the marker) |
+| Compatible but different unit, on an input or a quantified output | [`convert`](conversion.md#opting-in) | `False`, `True` | yes | no | no (pass the marker) |
 | Declared output unit | `on_output` | `stamp`, `strict`, `require` | yes | `units_on_output` | `apply_output_units` |
 | Dimensionally wrong input unit | none | always raises `DimensionalityError` | | | |
 | Missing, unparseable or over-long input unit | none | always raises `ValueError` | | | |
@@ -31,21 +31,6 @@ To silence short test fixtures while leaving real mismatches visible:
 [tool.pytest.ini_options]
 filterwarnings = ["ignore::xarray_annotated.temporal.UninferableFreqWarning"]
 ```
-
-## `convert` { #units-convert }
-
-Equivalent spellings (`"pascal"` for `"Pa"`) always pass.
-Anything that would change the values needs opting into, because whether that is correct depends on the quantity:
-
-```python
-@xra.enforce
-def partition(
-    tair: Annotated[xr.DataArray, Unit("degC", convert=True)],
-    total: Annotated[xr.DataArray, Unit("g m-2 yr-1")],
-) -> xr.DataArray: ...
-```
-
-Kelvin should convert here, but a daily mean is dimensionally compatible with an annual total and converting would silently scale it by 365.25.
 
 ## `on_output` { #units-on_output }
 

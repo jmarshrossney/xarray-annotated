@@ -27,15 +27,15 @@ Pressure = Float[xr.DataArray, "time x"]
 @jaxtyped(typechecker=beartype)
 @xra.enforce
 def total(
-    p: Annotated[Pressure, Unit("Pa", convert=True), Dims("time", "x")],
-    q: Annotated[Pressure, Unit("Pa", convert=True), Dims("time", "x")],
+    p: Annotated[Pressure, Unit("Pa"), Dims("time", "x")],
+    q: Annotated[Pressure, Unit("Pa"), Dims("time", "x")],
 ) -> Annotated[Pressure, Unit("Pa")]:
     return p + q
 ```
 
 !!! warning "Put `@jaxtyped` outermost"
 
-    It then sees the call as the caller made it, with `@xra.enforce` converting underneath.
+    It then sees the call as the caller made it, with `@xra.enforce` checking underneath.
 
 Naming the array type (`Pressure`) rather than spelling it inline keeps pyright quiet, since it reads a shape string in an annotation as a forward reference.
 A `type` statement counts as an annotation here, so name the array type with an assignment, then use it in `type` statements as usual:

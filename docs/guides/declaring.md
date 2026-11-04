@@ -17,7 +17,7 @@ def weekly_mean(
         Dims("time"),
         Coords("time"),
         Dtype("float64"),
-        Unit("degC", convert=True),
+        Unit("degC"),
         Freq("D"),
     ],
 ) -> Annotated[xr.DataArray, Dims("time"), Unit("degC"), Freq("W-SUN")]:
@@ -42,7 +42,7 @@ def weekly_mean(
 - **One of each:** a second marker of the same kind on one hint raises `ValueError`, so write `Coords("time", "lat")`.
 - **Nowhere else:** a marker `enforce` cannot apply raises `ValueError`, such as inside a `tuple[...]` return or on `Annotated[xr.Dataset, ...]`.
 - **Fail fast:** a malformed declaration (a typo'd unit, an unparseable dtype or frequency) raises `ValueError` when the function is decorated.
-- **Units first:** inputs are converted before their other markers are checked, and output units are applied before theirs, so checks see what the body and the caller see.
+- **Units first:** input units are checked (and converted, if opted into) before other markers, and output units are applied before theirs, so checks see what the body and the caller see.
 - **Only `Unit` changes an array:** the other markers just check it.
 
 A few hints are silently not declarations; see [Troubleshooting](troubleshooting.md#a-declaration-is-silently-ignored).
@@ -50,7 +50,7 @@ A few hints are silently not declarations; see [Troubleshooting](troubleshooting
 ## Units
 
 **Inputs are checked.**
-A different unit in the same dimension (`"hPa"` where `"Pa"` is declared) raises unless the declaration says `convert=True`, and a dimensionally wrong, missing or unparseable unit always raises.
+A different unit in the same dimension (`"hPa"` where `"Pa"` is declared) raises unless [the declaration opts in to converting it](conversion.md), and a dimensionally wrong, missing or unparseable unit always raises.
 
 **Outputs are stamped.**
 A declared return has `attrs["units"]` overwritten with the declared unit, and its values are never inspected.
