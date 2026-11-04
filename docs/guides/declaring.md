@@ -68,7 +68,7 @@ That index is in memory, so the check reads nothing from disk; building it reads
 |---|---|---|
 | A `time` dimension | `time` | |
 | A 1-D `time` with no index: `time(obs)`, `create_default_indexes=False`, `.drop_indexes("time")` | `FreqError` | `.set_xindex("time")`, which keeps the dimensions |
-| A scalar `time`, as from `.isel(time=0)` | `FreqError` | `.isel(time=[0])` or `.expand_dims("time")`; a short axis then [warns](#what-the-same-frequency-means) |
+| A scalar `time`, as from `.isel(time=0)` | `FreqError` | `.isel(time=[0])` or `.expand_dims("time")`; a one-point axis [passes](#what-the-same-frequency-means) |
 | A custom index on `time` | `FreqError` | `.drop_indexes("time").set_xindex("time")` |
 | Numbers rather than datetimes, as from `decode_times=False` | `FreqError` | Decode the times |
 | Two indexed datetime coordinates | `FreqError` | Name one with `Freq("7D", dim="time")` |
@@ -118,7 +118,17 @@ Unlike pandas, an unspelled anchor means "any" rather than a default.
 
 A quarterly anchor names four dates rather than one month, so `"QE-MAR"` and `"QE-DEC"` are the same, while `"QE-MAR"` and `"QE-NOV"` conflict.
 
-An axis with fewer than three timestamps or irregular spacing has no inferable frequency, so by default it warns instead of raising.
+Every axis is tested, whatever its length:
+
+| The axis has | Result |
+|---|---|
+| Three or more timestamps, regularly spaced | Compared as above |
+| Three or more timestamps, irregularly spaced, such as a missing or duplicated one | `FreqError` |
+| Two timestamps | Their spacing and phase are compared directly; business-day and custom frequencies pass, having nothing to compare |
+| Zero or one timestamp | Passes, as there is no spacing to contradict |
+
+`Freq` therefore only fits an axis a pandas frequency describes.
+Monthly means stamped at month midpoints are not described by one, so leave `Freq` off those.
 
 ## Reusing a declaration
 

@@ -29,20 +29,14 @@ check of a producer/consumer edge.
 from ._annotations import Freq
 from ._check import (
     FreqError,
-    FreqWarning,
-    UninferableFreqWarning,
     assert_valid_freq,
     check_freq,
     freq_compatible,
 )
-from ._config import OnUninferable
 
 __all__ = [
     "Freq",
     "FreqError",
-    "FreqWarning",
-    "OnUninferable",
-    "UninferableFreqWarning",
     "assert_valid_freq",
     "check_freq",
     "freq_compatible",

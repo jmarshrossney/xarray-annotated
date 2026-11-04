@@ -28,7 +28,7 @@ import pytest
 import xarray as xr
 
 import xarray_annotated as xra
-from xarray_annotated import Declared, schema, temporal, units
+from xarray_annotated import Declared, schema, units
 from xarray_annotated.schema import Dims, Dtype, SchemaError
 from xarray_annotated.temporal import Freq
 from xarray_annotated.units import Unit
@@ -106,17 +106,7 @@ class TestOrdering:
         assert units.units_equal(f"{f().p.pint.units:~P}", "Pa")
 
 
-class TestKeywords:
-    @pytest.mark.parametrize(
-        "kwarg",
-        [
-            "temporal_on_uninferable",
-        ],
-    )
-    def test_bad_value_rejected_at_decoration(self, kwarg):
-        with pytest.raises(ValueError, match=f"^Invalid {kwarg} 'bogus'"):
-            xra.enforce(**{kwarg: "bogus"})  # type: ignore[arg-type]
-
+class TestNoOptions:
     def test_missing_unit_raises(self):
         @xra.enforce
         def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
@@ -124,18 +114,10 @@ class TestKeywords:
         with pytest.raises(ValueError, match="no 'units' attribute"):
             f(_int_da(unit=None))
 
-    @pytest.mark.parametrize("kwarg", ["schema_on_mismatch", "temporal_on_mismatch"])
-    def test_mismatch_severity_has_no_keyword(self, kwarg):
-        # Loosening a check is stated on the marker it applies to.
+    @pytest.mark.parametrize("kwarg", ["temporal_on_uninferable", "units_on_output"])
+    def test_enforce_has_no_keywords(self, kwarg):
         with pytest.raises(TypeError, match=kwarg):
             xra.enforce(**{kwarg: "warn"})  # type: ignore[call-arg]
-
-    def test_temporal_on_uninferable_keyword(self):
-        @xra.enforce(temporal_on_uninferable="error")
-        def f(p: Annotated[xr.DataArray, Freq("7D")]): ...
-
-        with pytest.raises(temporal.FreqError):
-            f(_int_da().isel(time=slice(0, 2)))  # too short to infer
 
 
 class TestDecorationTime:

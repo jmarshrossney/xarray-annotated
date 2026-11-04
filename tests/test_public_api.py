@@ -164,9 +164,14 @@ def test_version_matches_pyproject():
     assert xra.__version__ == expected
 
 
-class TestEveryMismatchRaises:
-    """A mismatch cannot be softened: a softened marker reads the same as a checked one
-    to everything downstream, and `xra.enabled(False)` covers prototyping."""
+class TestEveryFailedCheckRaises:
+    """A declaration holds or raises, so a passing array means a checked one.
+
+    Severity settings were removed on purpose: a softened marker reads the same as a
+    checked one to everything downstream, and `xra.enabled(False)` covers prototyping.
+    """
+
+    SEVERITIES = ("on_mismatch", "on_uninferable", "on_missing", "on_output")
 
     @pytest.mark.parametrize(
         "item",
@@ -175,10 +180,21 @@ class TestEveryMismatchRaises:
             xra.Coords,
             xra.Dtype,
             xra.Freq,
+            xra.Unit,
             xra.schema.check_schema,
             xra.temporal.check_freq,
+            xra.units.check_units,
+            xra.units.apply_output_units,
         ],
         ids=lambda item: item.__name__,
     )
-    def test_no_on_mismatch_parameter(self, item):
-        assert "on_mismatch" not in inspect.signature(item).parameters
+    def test_no_severity_parameter(self, item):
+        assert not set(inspect.signature(item).parameters) & set(self.SEVERITIES)
+
+    def test_enforce_takes_only_the_function(self):
+        assert list(inspect.signature(xra.enforce).parameters) == ["func"]
+
+    def test_no_warnings_are_emitted(self):
+        src = pathlib.Path(xra.__file__).parent
+        hits = [p.name for p in src.rglob("*.py") if "warnings.warn" in p.read_text()]
+        assert hits == []

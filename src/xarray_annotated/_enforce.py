@@ -43,7 +43,6 @@ from ._reader import Declared, declaration_from_hint, declarations_from_signatur
 from .schema import Coords, Dims, Dtype
 from .schema._check import assert_valid_schema, check_schema
 from .temporal import Freq
-from .temporal import _config as _temporal
 from .temporal._check import assert_valid_freq, check_freq
 from .units import Unit
 from .units._check import (
@@ -182,11 +181,7 @@ def _with_fields(result: Any, changes: dict[str, xr.DataArray]) -> Any:
     return updated
 
 
-def enforce(
-    func: Callable[..., Any] | None = None,
-    *,
-    temporal_on_uninferable: _temporal.OnUninferable | None = None,
-) -> Callable[..., Any]:
+def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
     """Apply every facet declared on a function's signature at runtime.
 
     Reads the decorated function's type hints once: parameters annotated
@@ -211,29 +206,24 @@ def enforce(
     **at decoration time**, so a malformed unit, marker or offset string fails
     at import even when switched off.
 
-    Each keyword sets one axis for this function, and is named
-    `<domain>_<axis>`.  Per axis, a marker's own override beats the keyword,
-    which beats the built-in default.  A mismatch always raises, and a conversion
-    is allowed on the marker it applies to (`Unit("Pa", convert=True)`).
+    There are no options: a conversion is allowed on the marker it applies to
+    (`Unit("Pa", convert=True)`), and every other failed check raises.  Applied bare,
+    as `@xra.enforce`.
 
-    Usable bare (`@xra.enforce`) or called
-    (`@xra.enforce(temporal_on_uninferable=...)`).
     On an `async def`, the checks run when the coroutine is awaited, and outputs
     are applied to the awaited result.
 
     Args:
-        func: The function to decorate (when used bare); `None` when called with
-            keyword arguments, in which case a parametrised decorator is returned.
-        temporal_on_uninferable: Overrides `temporal` `on_uninferable`.
+        func: The function to decorate.
 
     Returns:
-        The wrapped function, or a decorator when `func` is `None`.
+        The wrapped function.
 
     Raises:
-        ValueError: If a keyword or a declaration is malformed, a `*args` or
-            `**kwargs` parameter carries a declaration, or a hint carries a marker
-            that cannot apply, such as in a tuple, on a `Dataset`, on a field of a
-            `NamedTuple` return, or on a class nested in a field (at decoration).
+        ValueError: If a declaration is malformed, a `*args` or `**kwargs` parameter
+            carries a declaration, or a hint carries a marker that cannot apply, such
+            as in a tuple, on a `Dataset`, on a field of a `NamedTuple` return, or on a
+            class nested in a field (at decoration).
 
     Example:
         >>> from typing import Annotated
@@ -248,125 +238,99 @@ def enforce(
         >>> to_pa(xr.DataArray([1.0], dims="x", attrs={"units": "hPa"})).values
         array([100.])
     """
-    # Checked here rather than by the domain validator, which names the unprefixed
-    # axis (`on_uninferable`) instead of the keyword the caller passed.
-    allowed = get_args(_temporal.OnUninferable)
-    if temporal_on_uninferable is not None and temporal_on_uninferable not in allowed:
-        raise ValueError(
-            f"Invalid temporal_on_uninferable {temporal_on_uninferable!r}. "
-            f"Choose one of {sorted(allowed)}."
-        )
+    walk_signature(func, _refuse_stray_markers)
+    inputs, output = declarations_from_signature(func)
+    return_hint = get_type_hints(func, include_extras=True).get("return")
+    record = _record_type(return_hint)
+    if record is None:
+        _refuse_unread_fields(return_hint)
+    else:
+        for field in get_type_hints(record, include_extras=True).values():
+            _refuse_unread_fields(field)
+    sig = inspect.signature(func)
+    qualname = getattr(func, "__qualname__", repr(func))
 
-    def decorate(fn: Callable[..., Any]) -> Callable[..., Any]:
-        walk_signature(fn, _refuse_stray_markers)
-        inputs, output = declarations_from_signature(fn)
-        return_hint = get_type_hints(fn, include_extras=True).get("return")
-        record = _record_type(return_hint)
-        if record is None:
-            _refuse_unread_fields(return_hint)
-        else:
-            for field in get_type_hints(record, include_extras=True).values():
-                _refuse_unread_fields(field)
-        sig = inspect.signature(fn)
-        qualname = getattr(fn, "__qualname__", repr(fn))
+    for name, decl in inputs.items():
+        _assert_valid(decl, f"{qualname} input {name!r}")
+        if sig.parameters[name].kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            raise ValueError(
+                f"{qualname} input {name!r}: enforce cannot check a declaration "
+                f"on a variadic parameter, since it binds a tuple or dict rather "
+                f"than a DataArray. Use named parameters, or call the checkers "
+                f"on each element in the function body."
+            )
+    if isinstance(output, Declared):
+        _assert_valid(output, f"{qualname} output")
+    elif isinstance(output, dict):
+        for name, decl in output.items():
+            _assert_valid(decl, f"{qualname} output {name!r}")
 
-        for name, decl in inputs.items():
-            _assert_valid(decl, f"{qualname} input {name!r}")
-            if sig.parameters[name].kind in (
-                inspect.Parameter.VAR_POSITIONAL,
-                inspect.Parameter.VAR_KEYWORD,
-            ):
-                raise ValueError(
-                    f"{qualname} input {name!r}: enforce cannot check a declaration "
-                    f"on a variadic parameter, since it binds a tuple or dict rather "
-                    f"than a DataArray. Use named parameters, or call the checkers "
-                    f"on each element in the function body."
-                )
-        if isinstance(output, Declared):
-            _assert_valid(output, f"{qualname} output")
-        elif isinstance(output, dict):
-            for name, decl in output.items():
-                _assert_valid(decl, f"{qualname} output {name!r}")
-
-        def _apply_output(value: Any, decl: Declared, name: str) -> Any:
-            # Units first, so structure and frequency are checked on what the
-            # caller receives.  apply_output_units returns a *new* labelled array,
-            # so its result is always used.
-            if not isinstance(value, xr.DataArray):
-                return value
-            if decl.unit is not None:
-                value = apply_output_units(value, decl.unit, name, qualname)
-            if markers := decl.schema:
-                check_schema(value, markers, name, qualname=qualname)
-            if decl.freq is not None:
-                check_freq(
-                    value,
-                    decl.freq,
-                    name,
-                    on_uninferable=temporal_on_uninferable,
-                    qualname=qualname,
-                )
+    def _apply_output(value: Any, decl: Declared, name: str) -> Any:
+        # Units first, so structure and frequency are checked on what the
+        # caller receives.  apply_output_units returns a *new* labelled array,
+        # so its result is always used.
+        if not isinstance(value, xr.DataArray):
             return value
+        if decl.unit is not None:
+            value = apply_output_units(value, decl.unit, name, qualname)
+        if markers := decl.schema:
+            check_schema(value, markers, name, qualname=qualname)
+        if decl.freq is not None:
+            check_freq(value, decl.freq, name, qualname=qualname)
+        return value
 
-        def _outputs(result: Any) -> Any:
-            if isinstance(output, Declared):
-                return _apply_output(result, output, "return")
-            is_dict = isinstance(result, dict)
-            if isinstance(output, dict) and (
-                is_dict or dataclasses.is_dataclass(result)
-            ):
-                changes = {}
-                for name, decl in output.items():
-                    value = result.get(name) if is_dict else getattr(result, name, None)
-                    applied = _apply_output(value, decl, name)
-                    if applied is not value:
-                        changes[name] = applied
-                return _with_fields(result, changes)
-            return result
+    def _outputs(result: Any) -> Any:
+        if isinstance(output, Declared):
+            return _apply_output(result, output, "return")
+        is_dict = isinstance(result, dict)
+        if isinstance(output, dict) and (is_dict or dataclasses.is_dataclass(result)):
+            changes = {}
+            for name, decl in output.items():
+                value = result.get(name) if is_dict else getattr(result, name, None)
+                applied = _apply_output(value, decl, name)
+                if applied is not value:
+                    changes[name] = applied
+            return _with_fields(result, changes)
+        return result
 
-        def _inputs(args: Any, kwargs: Any) -> tuple[Any, Any]:
-            if not inputs:
-                return args, kwargs
-            bound = sig.bind_partial(*args, **kwargs)
-            # bind_partial omits parameters left at their default; apply
-            # them so a declared default is checked (and converted) too.
-            bound.apply_defaults()
-            for name, val in list(bound.arguments.items()):
-                decl = inputs.get(name)
-                if decl is None or not isinstance(val, xr.DataArray):
-                    continue
-                if decl.unit is not None:
-                    val = check_units(val, decl.unit, name, qualname=qualname)
-                    bound.arguments[name] = val
-                if markers := decl.schema:
-                    check_schema(val, markers, name, qualname=qualname)
-                if decl.freq is not None:
-                    check_freq(
-                        val,
-                        decl.freq,
-                        name,
-                        on_uninferable=temporal_on_uninferable,
-                        qualname=qualname,
-                    )
-            return bound.args, bound.kwargs
+    def _inputs(args: Any, kwargs: Any) -> tuple[Any, Any]:
+        if not inputs:
+            return args, kwargs
+        bound = sig.bind_partial(*args, **kwargs)
+        # bind_partial omits parameters left at their default; apply
+        # them so a declared default is checked (and converted) too.
+        bound.apply_defaults()
+        for name, val in list(bound.arguments.items()):
+            decl = inputs.get(name)
+            if decl is None or not isinstance(val, xr.DataArray):
+                continue
+            if decl.unit is not None:
+                val = check_units(val, decl.unit, name, qualname=qualname)
+                bound.arguments[name] = val
+            if markers := decl.schema:
+                check_schema(val, markers, name, qualname=qualname)
+            if decl.freq is not None:
+                check_freq(val, decl.freq, name, qualname=qualname)
+        return bound.args, bound.kwargs
 
-        @functools.wraps(fn)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            if not resolve_enabled():
-                # Switched off: a total no-op, conversion included.
-                return fn(*args, **kwargs)
-            args, kwargs = _inputs(args, kwargs)
-            return _outputs(fn(*args, **kwargs))
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        if not resolve_enabled():
+            # Switched off: a total no-op, conversion included.
+            return func(*args, **kwargs)
+        args, kwargs = _inputs(args, kwargs)
+        return _outputs(func(*args, **kwargs))
 
-        @functools.wraps(fn)
-        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-            if not resolve_enabled():
-                return await fn(*args, **kwargs)
-            args, kwargs = _inputs(args, kwargs)
-            return _outputs(await fn(*args, **kwargs))
+    @functools.wraps(func)
+    async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+        if not resolve_enabled():
+            return await func(*args, **kwargs)
+        args, kwargs = _inputs(args, kwargs)
+        return _outputs(await func(*args, **kwargs))
 
-        chosen = async_wrapper if inspect.iscoroutinefunction(fn) else wrapper
-        chosen.__annotations__ = dict(fn.__annotations__)
-        return chosen
-
-    return decorate if func is None else decorate(func)
+    chosen = async_wrapper if inspect.iscoroutinefunction(func) else wrapper
+    chosen.__annotations__ = dict(func.__annotations__)
+    return chosen

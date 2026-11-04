@@ -27,10 +27,8 @@ Known limitation: `Day` is DST-aware in pandas while `24h` is not, so treating t
 the same spacing is an approximation for timezone-aware axes.
 """
 
-import logging
-import warnings
-
 import numpy as np
+import pandas as pd
 import xarray as xr
 from pandas.tseries.frequencies import to_offset
 from pandas.tseries.offsets import (
@@ -49,28 +47,8 @@ from xarray.indexes import PandasIndex
 
 from .._config import resolve_enabled
 from ._annotations import Freq
-from ._config import (
-    DEFAULT_ON_UNINFERABLE,
-    OnUninferable,
-    _validate_on_uninferable,
-)
-
-_log = logging.getLogger("xarray_annotated.temporal")
 
 _NANOS_PER_DAY = 86_400_000_000_000
-
-
-class FreqWarning(UserWarning):
-    """Base class for frequency warnings."""
-
-
-class UninferableFreqWarning(FreqWarning):
-    """Warning issued when a time axis is too short or irregular to check.
-
-    A warnings filter can silence short test fixtures:
-
-        filterwarnings = ["ignore::xarray_annotated.temporal.UninferableFreqWarning"]
-    """
 
 
 class FreqError(Exception):
@@ -283,96 +261,126 @@ def _locate_axis(da: xr.DataArray, marker: Freq) -> tuple[str | None, str]:
 
 
 def _infer(coord: xr.DataArray) -> str | None:
-    """The frequency of a time coordinate, or `None` if it has none.
+    """The frequency of a time coordinate of 3+ points, or `None` if it has none.
 
     `xarray.infer_freq` (not pandas') so a `CFTimeIndex` — a 360-day or noleap
-    calendar — works too.  It *raises* on fewer than three points and *returns* `None`
-    on irregular spacing; both mean the same thing here: uninferable.
+    calendar — works too.  It returns `None` on irregular spacing.
     """
-    try:
-        # Type comes from pd.infer_freq's stub, but xarray sets
-        # future.infer_freq_returns_offset=False, so it is always str | None.
-        return xr.infer_freq(coord)  # pyright: ignore[reportReturnType]
-    except ValueError:
+    # Type comes from pd.infer_freq's stub, but xarray sets
+    # future.infer_freq_returns_offset=False, so it is always str | None.
+    return xr.infer_freq(coord)  # pyright: ignore[reportReturnType]
+
+
+def _on_declared_weekday(marker: Freq, coord: xr.DataArray) -> bool:
+    """Whether a weekly axis falls on the weekday its declaration spells, if any."""
+    _, anchor = _phase(marker)
+    if anchor is None or not isinstance(to_offset(marker.freq), Week):
+        return True
+    return coord.dt.dayofweek.values[0] == anchor
+
+
+def _two_points_conform(marker: Freq, coord: xr.DataArray) -> bool:
+    """Whether two timestamps can be consecutive on the declared time axis.
+
+    `xarray.infer_freq` needs three points, but two already have a spacing and a phase,
+    so they are compared under the same model as `freq_compatible`.  Business days and
+    custom offsets have no reduction to compare, so they pass.
+    """
+    offset = to_offset(marker.freq)
+    kind, spacing = _spacing(offset)
+    if kind == "opaque":
+        return True
+    if kind == "fixed":
+        times = coord.to_index()
+        step = pd.Timedelta(times[1] - times[0])
+        if step != pd.Timedelta(spacing, "ns"):  # pyright: ignore[reportArgumentType]
+            return False
+        return _on_declared_weekday(marker, coord)
+
+    convention, anchor = _phase(marker)
+    years, months = coord.dt.year.values, coord.dt.month.values
+    if 12 * (years[1] - years[0]) + months[1] - months[0] != spacing:
+        return False
+    time_of_day = (coord - coord.dt.floor("D")).values
+    if time_of_day[0] != time_of_day[1]:
+        return False
+    expected_day = coord.dt.days_in_month.values if convention == "end" else 1
+    if not (coord.dt.day.values == expected_day).all():
+        return False
+    if anchor is None:
+        return True
+    is_quarterly = isinstance(offset, (QuarterEnd, QuarterBegin))
+    return (months[0] % 3 if is_quarterly else months[0]) == anchor
+
+
+def _mismatch(marker: Freq, coord: xr.DataArray) -> str | None:
+    """How a time axis contradicts a declaration, or `None` if it does not.
+
+    An axis of zero or one point has no spacing, so nothing can contradict it.
+    """
+    if coord.size < 2:
         return None
-
-
-def _report_uninferable(severity: OnUninferable, message: str) -> None:
-    """Act on an uninferable axis under the resolved severity."""
-    if severity == "ignore":
-        _log.info("%s (ignored)", message)
-        return
-    if severity == "error":
-        raise FreqError(message)
-    # stacklevel=3 targets a direct check_freq call; via enforce it
-    # lands on the wrapper line, still identified by the [qualname] prefix.
-    warnings.warn(message, UninferableFreqWarning, stacklevel=3)
+    if coord.size == 2:
+        if _two_points_conform(marker, coord):
+            return None
+        first, second = coord.to_index()
+        return f"{first} then {second}"
+    inferred = _infer(coord)
+    if inferred is None:
+        return "irregular spacing"
+    if not freq_compatible(marker, Freq(inferred)):
+        return repr(inferred)
+    # On a cftime axis `infer_freq` says `7D` where pandas says `W-WED`.
+    return (
+        None if _on_declared_weekday(marker, coord) else f"{inferred!r} on another day"
+    )
 
 
 def check_freq(
     da: xr.DataArray,
     declared: Freq | list[Freq],
     name: str,
-    on_uninferable: OnUninferable | None = None,
     qualname: str | None = None,
 ) -> xr.DataArray:
     """Validate `da`'s time axis against its declared frequency; return it unchanged.
 
     Locates the time coordinate, reading nothing from disk (see
-    `docs/guides/declaring.md` for which coordinates count), infers its frequency with
-    `xarray.infer_freq`, and
-    compares that with the declaration via `freq_compatible`.  Because pandas always
+    `docs/guides/declaring.md` for which coordinates count), and compares it with the
+    declaration via `freq_compatible`, using `xarray.infer_freq`.  Because pandas always
     hands back a fully-anchored string (`"W-WED"`, never `"7D"`), the *declaration*
     alone decides how strict the comparison is — `Freq("7D")` accepts any weekday,
     `Freq("W-SUN")` accepts only Sundays.
 
-    A frequency that contradicts the declaration is a **mismatch**, as is an array
-    with no (or an ambiguous) time axis, and both raise.  An axis whose
-    frequency cannot be inferred at all — fewer than three points, or irregular
-    spacing — is **uninferable**: the declaration was not violated, it was never
-    tested, and by default that warns rather than raises.
-
-    `on_uninferable` defaults to `"warn"`, and an event passed under `"ignore"` is
-    logged at INFO to `xarray_annotated.temporal`.  When xarray-annotated is switched
-    off (`enabled(False)`) this is a total no-op.
+    An array with no (or an ambiguous) time axis is a mismatch, and so is irregular
+    spacing, which no declared frequency describes.  Two points are compared directly,
+    as `infer_freq` needs three, and an axis of zero or one point always passes.  When
+    xarray-annotated is switched off (`enabled(False)`) this is a total no-op.
 
     Args:
         da: The DataArray to validate.
         declared: A single `Freq` or a list of them declared for `da`.
         name: The parameter/field name, for error messages.
-        on_uninferable: Per-call severity for an uninferable axis, overriding the
-            default.
         qualname: Optional qualified function name, prefixed to messages.
 
     Returns:
         `da`, unchanged (validation never mutates).
 
     Raises:
-        FreqError: On a mismatch, or an uninferable axis under ``"error"``.
+        FreqError: On a mismatch.
     """
     if not resolve_enabled():
         return da
-    if on_uninferable is not None:
-        on_uninferable = _validate_on_uninferable(on_uninferable)
 
     markers = [declared] if isinstance(declared, Freq) else declared
-    uninferable = on_uninferable or DEFAULT_ON_UNINFERABLE
     prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
     for marker in markers:
         dim, detail = _locate_axis(da, marker)
         if dim is None:
             raise FreqError(f"{prefix} {detail}")
-        inferred = _infer(da[dim])
-        if inferred is None:
-            _report_uninferable(
-                uninferable,
-                f"{prefix} frequency of {dim!r} is uninferable (fewer than three "
-                f"points, or irregular spacing), so {marker!r} was not checked",
-            )
-            continue
-        if not freq_compatible(marker, Freq(inferred)):
+        got = _mismatch(marker, da[dim])
+        if got is not None:
             raise FreqError(
                 f"{prefix} frequency mismatch on {dim!r}: expected {marker.freq!r}, "
-                f"got {inferred!r}"
+                f"got {got}"
             )
     return da

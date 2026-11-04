@@ -1,8 +1,7 @@
 """The package-wide master switch, the only global setting.
 
-Behaviour (`convert`, `on_uninferable`) is declared on markers or passed to
-`enforce` / the `check_*` primitives, never configured globally, so that how a
-function validates can be read off its signature.  What remains global is
+Behaviour (`convert`) is declared on markers, never configured globally, so that how
+a function validates can be read off its signature.  What remains global is
 whether xarray-annotated does anything at all.
 
 The switch resolves on every call as: an `enabled(...)` block, then the

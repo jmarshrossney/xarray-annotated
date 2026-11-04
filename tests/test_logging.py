@@ -1,7 +1,7 @@
 """The audit trail: every non-trivial action is logged.
 
-INFO marks an untestable frequency check let through under ``ignore``; DEBUG marks every
-conversion, since conversion is always opted into.
+DEBUG marks every conversion, which is always opted into.  A failed check raises, so
+it has nothing to log.
 """
 
 import logging
@@ -12,10 +12,9 @@ import pytest
 import xarray as xr
 
 import xarray_annotated as xra
-from xarray_annotated import Dims, Freq, Unit, schema, temporal, units
+from xarray_annotated import Dims, Unit, schema, units
 
 UNITS = "xarray_annotated.units"
-TEMPORAL = "xarray_annotated.temporal"
 
 
 def _da(unit: str | None = "hPa") -> xr.DataArray:
@@ -98,19 +97,6 @@ class TestOutputs:
         with pytest.raises(ValueError, match="over-long") as info:
             units.apply_output_units(_da(label), "Pa", "return")
         assert label not in str(info.value)
-
-
-class TestIgnoredMismatches:
-    def test_temporal_uninferable_ignore_is_info(self, audit):
-        da = xr.DataArray(
-            [1.0, 2.0],
-            dims="time",
-            coords={"time": xr.date_range("2020-01-01", periods=2, freq="D")},
-        )
-        temporal.check_freq(da, Freq("D"), "p", on_uninferable="ignore")
-        [(level, msg)] = _records(audit, TEMPORAL)
-        assert level == logging.INFO
-        assert "uninferable" in msg
 
 
 class TestQuietByDefault:

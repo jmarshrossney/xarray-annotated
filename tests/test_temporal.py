@@ -20,7 +20,7 @@ from xarray.core import indexing
 import xarray_annotated as xra
 from xarray_annotated import temporal
 from xarray_annotated.schema import Dims
-from xarray_annotated.temporal import Freq, _config
+from xarray_annotated.temporal import Freq
 
 
 def _two_time_dims():
@@ -184,28 +184,6 @@ class TestCheckFreq:
         with pytest.raises(temporal.FreqError, match="expected 'W-SUN', got 'W-WED'"):
             temporal.check_freq(da, Freq("W-SUN"), "x")
 
-    def test_too_few_points_is_uninferable(self):
-        da = _da(pd.date_range("2020-01-01", periods=2, freq="D"))
-        with pytest.warns(temporal.FreqWarning, match="uninferable"):
-            assert temporal.check_freq(da, Freq("D"), "x") is da
-        with pytest.raises(temporal.FreqError, match="uninferable"):
-            temporal.check_freq(da, Freq("D"), "x", on_uninferable="error")
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            temporal.check_freq(da, Freq("D"), "x", on_uninferable="ignore")
-
-    def test_uninferable_has_its_own_category(self):
-        da = _da(pd.date_range("2020-01-01", periods=2, freq="D"))
-        with pytest.warns(temporal.UninferableFreqWarning):
-            temporal.check_freq(da, Freq("D"), "x")
-        assert issubclass(temporal.UninferableFreqWarning, temporal.FreqWarning)
-
-    def test_irregular_spacing_is_uninferable(self):
-        da = _da(pd.to_datetime(["2020-01-01", "2020-01-02", "2020-01-05"]))
-        assert xr.infer_freq(da["time"]) is None
-        with pytest.warns(temporal.FreqWarning, match="uninferable"):
-            temporal.check_freq(da, Freq("D"), "x")
-
     def test_no_datetime_coord_is_a_mismatch(self):
         da = xr.DataArray(np.zeros(3), dims=("time",))
         with pytest.raises(temporal.FreqError, match="no indexed datetime coordinate"):
@@ -252,24 +230,6 @@ class TestCheckFreq:
         da = _da(pd.date_range("2020-01-01", periods=5, freq="D"))
         with xra.enabled(False):
             assert temporal.check_freq(da, Freq("ME"), "x") is da  # would raise
-
-    def test_invalid_severity_arguments(self):
-        da = _da(pd.date_range("2020-01-01", periods=5, freq="D"))
-        with pytest.raises(ValueError, match="Invalid on_uninferable"):
-            temporal.check_freq(da, Freq("D"), "x", on_uninferable="bogus")  # type: ignore[arg-type]
-
-
-# ---------------------------------------------------------------------------
-# Axis defaults
-# ---------------------------------------------------------------------------
-
-
-class TestAxes:
-    def test_defaults(self):
-        assert _config.DEFAULT_ON_UNINFERABLE == "warn"
-
-    def test_axis_types_are_public(self):
-        assert temporal.OnUninferable is _config.OnUninferable
 
 
 # ---------------------------------------------------------------------------
@@ -361,14 +321,6 @@ class TestDeclareFreq:
         with pytest.raises(temporal.FreqError, match="frequency mismatch"):
             f()
 
-    def test_decorator_on_uninferable_kwarg(self):
-        @xra.enforce(temporal_on_uninferable="error")
-        def f(x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
-            return x
-
-        with pytest.raises(temporal.FreqError, match="uninferable"):
-            f(_da(pd.date_range("2020-01-01", periods=2, freq="D")))
-
     def test_wraps_metadata_preserved(self):
         @xra.enforce
         def f(x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
@@ -386,13 +338,6 @@ class TestDeclareFreq:
         da = _da(pd.date_range("2020-01-01", periods=5, freq="D"))
         with xra.enabled(False):
             assert f(da) is da
-
-    def test_invalid_decorator_kwargs(self):
-        with pytest.raises(ValueError, match="Invalid temporal_on_uninferable"):
-
-            @xra.enforce(temporal_on_uninferable="bogus")  # type: ignore[arg-type]
-            def g(x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
-                return x
 
     def test_fail_fast_bad_input_declaration(self):
         with pytest.raises(ValueError, match="invalid frequency"):
@@ -627,8 +572,7 @@ class TestErrorsNameTheFix:
         with pytest.raises(temporal.FreqError, match=r"\.expand_dims\('time'\)"):
             temporal.check_freq(da, Freq("D", dim=dim), "x")
         fixed = da.expand_dims("time")
-        with pytest.warns(temporal.UninferableFreqWarning):
-            temporal.check_freq(fixed, Freq("D", dim=dim), "x")
+        assert temporal.check_freq(fixed, Freq("D", dim=dim), "x") is fixed
 
     def test_2d_coord_is_named_as_such(self):
         valid = np.tile(_TIMES.values[:, None], (1, 2))
@@ -694,3 +638,123 @@ class TestAnAuxCoordCanBeTheAxis:
     def test_naming_the_other_one_checks_that(self):
         da = self._both()
         assert temporal.check_freq(da, Freq("D", dim="time"), "x") is da
+
+
+def _cftime(start, periods, freq, calendar="360_day"):
+    return xr.date_range(
+        start, periods=periods, freq=freq, calendar=calendar, use_cftime=True
+    )
+
+
+_DAILY = pd.date_range("2020-01-01", periods=30, freq="D")
+_MONTH_ENDS = pd.date_range("2020-01-31", periods=14, freq="ME")
+
+
+class TestEveryAxisIsTested:
+    """An axis either conforms or raises: nothing is left untested."""
+
+    @pytest.mark.parametrize("n", [0, 1])
+    def test_no_spacing_to_contradict(self, n):
+        da = _da(_DAILY[:n])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert temporal.check_freq(da, Freq("D"), "x") is da
+
+    @pytest.mark.parametrize(
+        ("declared", "index"),
+        [
+            ("D", _DAILY.delete(10)),
+            ("D", pd.to_datetime(["2020-01-01", "2020-01-02", "2020-01-02"])),
+            ("D", pd.to_datetime(["2020-01-02", "2020-01-01", "2020-01-03"])),
+            ("ME", _MONTH_ENDS.delete(5)),
+            ("ME", _MONTH_ENDS - pd.Timedelta(days=1)),
+            ("ME", _MONTH_ENDS + pd.to_timedelta(np.arange(14) % 2, unit="h")),
+            ("ME", _cftime("2000-01-01", 14, "ME").delete(5)),
+        ],
+    )
+    def test_irregular_spacing_is_a_mismatch(self, declared, index):
+        with pytest.raises(temporal.FreqError, match="got irregular spacing"):
+            temporal.check_freq(_da(index), Freq(declared), "x")
+
+    @pytest.mark.parametrize(
+        "time",
+        [
+            _MONTH_ENDS + pd.Timedelta(hours=12),
+            _MONTH_ENDS + pd.Timedelta(hours=23, minutes=59, seconds=59),
+            _MONTH_ENDS.as_unit("s"),
+            _cftime("2000-01-01", 14, "ME"),
+            _cftime("2000-01-01", 14, "ME", "noleap"),
+        ],
+    )
+    def test_month_ends_conform_at_any_time_of_day_or_calendar(self, time):
+        temporal.check_freq(_da(time), Freq("ME"), "x")
+
+
+class TestTwoPoints:
+    @pytest.mark.parametrize(
+        ("declared", "first", "second"),
+        [
+            ("D", "2020-01-01", "2020-01-02"),
+            ("24h", "2020-01-01", "2020-01-02"),
+            ("7D", "2020-01-01", "2020-01-08"),
+            ("W", "2020-01-01", "2020-01-08"),
+            ("W-WED", "2020-01-01", "2020-01-08"),
+            ("ME", "2020-01-31", "2020-02-29"),
+            ("ME", "2020-12-31", "2021-01-31"),
+            ("ME", "2020-01-31 12:00", "2020-02-29 12:00"),
+            ("MS", "2020-01-01", "2020-02-01"),
+            ("QE", "2020-03-31", "2020-06-30"),
+            ("QE-DEC", "2020-03-31", "2020-06-30"),
+            ("QS-FEB", "2020-02-01", "2020-05-01"),
+            ("YE", "2020-12-31", "2021-12-31"),
+            ("YE-JUN", "2020-06-30", "2021-06-30"),
+            ("B", "2020-01-03", "2020-01-20"),  # no reduction to compare
+        ],
+    )
+    def test_conforming(self, declared, first, second):
+        da = _da(pd.to_datetime([first, second]))
+        assert temporal.check_freq(da, Freq(declared), "x") is da
+
+    @pytest.mark.parametrize(
+        ("declared", "first", "second"),
+        [
+            ("D", "2020-01-01", "2020-01-06"),
+            ("D", "2020-01-01 00:00", "2020-01-01 01:00"),
+            ("D", "2020-01-02", "2020-01-01"),
+            ("D", "2020-01-01", "2020-01-01"),
+            ("W-SUN", "2020-01-01", "2020-01-08"),
+            ("ME", "2020-01-31", "2020-03-31"),
+            ("ME", "2020-01-30", "2020-02-29"),
+            ("ME", "2020-01-31", "2020-02-28"),
+            ("ME", "2020-01-31 00:00", "2020-02-29 12:00"),
+            ("ME", "2020-02-29", "2020-01-31"),
+            ("MS", "2020-01-31", "2020-02-29"),
+            ("QE-JAN", "2020-03-31", "2020-06-30"),
+            ("YE-JUN", "2020-12-31", "2021-12-31"),
+        ],
+    )
+    def test_contradicting(self, declared, first, second):
+        da = _da(pd.to_datetime([first, second]))
+        with pytest.raises(temporal.FreqError, match=r"frequency mismatch.* then "):
+            temporal.check_freq(da, Freq(declared), "x")
+
+    @pytest.mark.parametrize("calendar", ["360_day", "noleap", "standard"])
+    def test_cftime(self, calendar):
+        time = _cftime("2000-01-01", 2, "ME", calendar)
+        temporal.check_freq(_da(time), Freq("ME"), "x")
+        with pytest.raises(temporal.FreqError, match="frequency mismatch"):
+            temporal.check_freq(_da(time), Freq("MS"), "x")
+
+    def test_cftime_weekday_anchor_on_a_longer_axis(self):
+        # `infer_freq` says "7D" on cftime, where pandas names the weekday.
+        monday = _cftime("2024-01-01", 5, "7D", "standard")
+        temporal.check_freq(_da(monday), Freq("W-MON"), "x")
+        temporal.check_freq(_da(monday), Freq("W"), "x")
+        with pytest.raises(temporal.FreqError, match="on another day"):
+            temporal.check_freq(_da(monday), Freq("W-SUN"), "x")
+
+    def test_cftime_weekday_anchor(self):
+        monday = _cftime("2024-01-01", 2, "7D", "standard")
+        temporal.check_freq(_da(monday), Freq("W-MON"), "x")
+        with pytest.raises(temporal.FreqError, match="frequency mismatch"):
+            temporal.check_freq(_da(monday), Freq("W-SUN"), "x")

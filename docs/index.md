@@ -68,7 +68,7 @@ On each call, `enforce` checks inputs against their declared units with [pint](h
 A different unit raises, so the function body sees `Pa` or does not run at all.
 Structure and frequency are then checked, and everything is checked again on the return value.
 
-A structure, frequency or unit that does not match its declaration raises.
+Anything that does not match its declaration raises.
 
 See [Getting started](getting_started.md) for a worked walkthrough, [Declaring properties](guides/declaring.md) for each marker in detail, [Configuring validation](guides/policy.md) for the settings, and [Converting units](guides/conversion.md) for what to do when the units differ.
 
