@@ -35,16 +35,12 @@ from ._check import (
     check_freq,
     freq_compatible,
 )
-from ._config import (
-    OnMismatch,
-    OnUninferable,
-)
+from ._config import OnUninferable
 
 __all__ = [
     "Freq",
     "FreqError",
     "FreqWarning",
-    "OnMismatch",
     "OnUninferable",
     "UninferableFreqWarning",
     "assert_valid_freq",

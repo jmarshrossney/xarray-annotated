@@ -27,23 +27,17 @@ from ._annotations import (
 )
 from ._check import (
     SchemaError,
-    SchemaWarning,
     assert_valid_schema,
     check_schema,
     dims_compatible,
     dtype_compatible,
-)
-from ._config import (
-    OnMismatch,
 )
 
 __all__ = [
     "Coords",
     "Dims",
     "Dtype",
-    "OnMismatch",
     "SchemaError",
-    "SchemaWarning",
     "assert_valid_schema",
     "check_schema",
     "dims_compatible",

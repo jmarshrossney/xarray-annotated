@@ -8,6 +8,7 @@ internal leaks.
 """
 
 import importlib
+import inspect
 import pathlib
 
 import pytest
@@ -80,8 +81,7 @@ class TestInternalHelpersStayInternal:
 
 class TestMarkersAtRoot:
     """Markers are the one domain name re-exported from the root: they are
-    unique across domains and mixed in one hint. Axis types are not, since
-    they collide (``OnMismatch``)."""
+    unique across domains and mixed in one hint."""
 
     @pytest.mark.parametrize(
         ("domain", "name"),
@@ -162,3 +162,23 @@ def test_version_matches_pyproject():
     pyproject = Path(__file__).parent.parent / "pyproject.toml"
     expected = tomllib.loads(pyproject.read_text())["project"]["version"]
     assert xra.__version__ == expected
+
+
+class TestEveryMismatchRaises:
+    """A mismatch cannot be softened: a softened marker reads the same as a checked one
+    to everything downstream, and `xra.enabled(False)` covers prototyping."""
+
+    @pytest.mark.parametrize(
+        "item",
+        [
+            xra.Dims,
+            xra.Coords,
+            xra.Dtype,
+            xra.Freq,
+            xra.schema.check_schema,
+            xra.temporal.check_freq,
+        ],
+        ids=lambda item: item.__name__,
+    )
+    def test_no_on_mismatch_parameter(self, item):
+        assert "on_mismatch" not in inspect.signature(item).parameters

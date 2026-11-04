@@ -50,11 +50,8 @@ from xarray.indexes import PandasIndex
 from .._config import resolve_enabled
 from ._annotations import Freq
 from ._config import (
-    DEFAULT_ON_MISMATCH,
     DEFAULT_ON_UNINFERABLE,
-    OnMismatch,
     OnUninferable,
-    _validate_on_mismatch,
     _validate_on_uninferable,
 )
 
@@ -64,21 +61,20 @@ _NANOS_PER_DAY = 86_400_000_000_000
 
 
 class FreqWarning(UserWarning):
-    """Warning issued for a frequency mismatch or an uninferable time axis."""
+    """Base class for frequency warnings."""
 
 
 class UninferableFreqWarning(FreqWarning):
     """Warning issued when a time axis is too short or irregular to check.
 
-    A subclass so a warnings filter can silence short test fixtures without
-    also hiding genuine mismatches:
+    A warnings filter can silence short test fixtures:
 
         filterwarnings = ["ignore::xarray_annotated.temporal.UninferableFreqWarning"]
     """
 
 
 class FreqError(Exception):
-    """Raised for a frequency mismatch under ``on_mismatch="error"``.
+    """Raised for a frequency mismatch.
 
     Deliberately **not** a ``ValueError``: a mismatch (the *data* fails the
     declaration) is a distinct event from a malformed *declaration* (an unparseable
@@ -301,30 +297,22 @@ def _infer(coord: xr.DataArray) -> str | None:
         return None
 
 
-def _report(
-    ok: bool,
-    severity: OnMismatch | OnUninferable,
-    message: str,
-    category: type[FreqWarning] = FreqWarning,
-) -> None:
-    """Act on a check result under the resolved severity."""
-    if ok:
-        return
+def _report_uninferable(severity: OnUninferable, message: str) -> None:
+    """Act on an uninferable axis under the resolved severity."""
     if severity == "ignore":
         _log.info("%s (ignored)", message)
         return
     if severity == "error":
         raise FreqError(message)
-    # stacklevel=3 targets a direct check_freq call (via _report); via enforce it
+    # stacklevel=3 targets a direct check_freq call; via enforce it
     # lands on the wrapper line, still identified by the [qualname] prefix.
-    warnings.warn(message, category, stacklevel=3)
+    warnings.warn(message, UninferableFreqWarning, stacklevel=3)
 
 
 def check_freq(
     da: xr.DataArray,
     declared: Freq | list[Freq],
     name: str,
-    on_mismatch: OnMismatch | None = None,
     on_uninferable: OnUninferable | None = None,
     qualname: str | None = None,
 ) -> xr.DataArray:
@@ -338,24 +326,20 @@ def check_freq(
     alone decides how strict the comparison is — `Freq("7D")` accepts any weekday,
     `Freq("W-SUN")` accepts only Sundays.
 
-    Two events, two axes.  A frequency that contradicts the declaration is a
-    **mismatch**, as is an array with no (or an ambiguous) time axis.  An axis whose
+    A frequency that contradicts the declaration is a **mismatch**, as is an array
+    with no (or an ambiguous) time axis, and both raise.  An axis whose
     frequency cannot be inferred at all — fewer than three points, or irregular
     spacing — is **uninferable**: the declaration was not violated, it was never
     tested, and by default that warns rather than raises.
 
-    Severity resolves per marker as: the marker's own `on_mismatch` override, else the
-    `on_mismatch` argument, else the default, `"error"`; `on_uninferable` defaults to
-    `"warn"`.  An event passed under `"ignore"` is logged at INFO to
-    `xarray_annotated.temporal`.  When xarray-annotated is switched off
-    (`enabled(False)`) this is a total no-op.
+    `on_uninferable` defaults to `"warn"`, and an event passed under `"ignore"` is
+    logged at INFO to `xarray_annotated.temporal`.  When xarray-annotated is switched
+    off (`enabled(False)`) this is a total no-op.
 
     Args:
         da: The DataArray to validate.
         declared: A single `Freq` or a list of them declared for `da`.
         name: The parameter/field name, for error messages.
-        on_mismatch: Per-call severity for a mismatch, overriding the default but
-            overridden by a marker's own `on_mismatch`.
         on_uninferable: Per-call severity for an uninferable axis, overriding the
             default.
         qualname: Optional qualified function name, prefixed to messages.
@@ -364,12 +348,10 @@ def check_freq(
         `da`, unchanged (validation never mutates).
 
     Raises:
-        FreqError: On a mismatch when the effective severity is ``"error"``.
+        FreqError: On a mismatch, or an uninferable axis under ``"error"``.
     """
     if not resolve_enabled():
         return da
-    if on_mismatch is not None:
-        on_mismatch = _validate_on_mismatch(on_mismatch)
     if on_uninferable is not None:
         on_uninferable = _validate_on_uninferable(on_uninferable)
 
@@ -377,26 +359,20 @@ def check_freq(
     uninferable = on_uninferable or DEFAULT_ON_UNINFERABLE
     prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
     for marker in markers:
-        severity = marker.on_mismatch or on_mismatch or DEFAULT_ON_MISMATCH
         dim, detail = _locate_axis(da, marker)
         if dim is None:
-            _report(False, severity, f"{prefix} {detail}")
-            continue
+            raise FreqError(f"{prefix} {detail}")
         inferred = _infer(da[dim])
         if inferred is None:
-            _report(
-                False,
+            _report_uninferable(
                 uninferable,
                 f"{prefix} frequency of {dim!r} is uninferable (fewer than three "
                 f"points, or irregular spacing), so {marker!r} was not checked",
-                UninferableFreqWarning,
             )
             continue
-        ok = freq_compatible(marker, Freq(inferred))
-        _report(
-            ok,
-            severity,
-            f"{prefix} frequency mismatch on {dim!r}: expected {marker.freq!r}, "
-            f"got {inferred!r}",
-        )
+        if not freq_compatible(marker, Freq(inferred)):
+            raise FreqError(
+                f"{prefix} frequency mismatch on {dim!r}: expected {marker.freq!r}, "
+                f"got {inferred!r}"
+            )
     return da

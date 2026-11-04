@@ -32,8 +32,6 @@ def weekly_mean(
 | `Unit(unit)` | The array is in this unit, however it is spelled | `convert=True` |
 | `Freq(freq)` | [The time axis](#which-coordinate-is-the-time-axis) has this spacing, and this phase [where spelled](#what-the-same-frequency-means) | `dim=`, `anchored=` |
 
-`Dims`, `Coords`, `Dtype` and `Freq` also take `on_mismatch=`; see [Configuring validation](policy.md).
-
 ## Rules
 
 - **Where markers go:** on a parameter, on a return, or on the fields of a `TypedDict` or dataclass return.
@@ -78,7 +76,6 @@ That index is in memory, so the check reads nothing from disk; building it reads
 
 The last row means a scalar, 2-D or auxiliary coordinate is silently left unchecked, and a forecast with `init`, `step` and a 2-D `valid_time` has `init` checked.
 `cftime` follows the same rules, but an error cannot name an unindexed one, because its dtype does not show it without reading it.
-A `FreqError` here follows [`on_mismatch`](policy.md), and softening it to `warn` or `ignore` skips the check.
 
 ```python
 times = xr.date_range("2024-01-01", periods=5, freq="D")

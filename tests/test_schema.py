@@ -5,7 +5,6 @@ checkers, the policy, and `enforce` over schema markers.  Structural validation
 never mutates, so the checks assert/raise/warn but return arrays unchanged.
 """
 
-import warnings
 from dataclasses import dataclass
 from typing import Annotated, TypedDict
 
@@ -15,7 +14,7 @@ import xarray as xr
 
 import xarray_annotated as xra
 from xarray_annotated import schema
-from xarray_annotated.schema import Coords, Dims, Dtype, _check, _config
+from xarray_annotated.schema import Coords, Dims, Dtype, _check
 
 
 def _da(dims=("time", "x"), dtype="float64", coords=()):
@@ -28,9 +27,9 @@ def _da(dims=("time", "x"), dtype="float64", coords=()):
     return xr.DataArray(arr, dims=dims, coords=coord_map)
 
 
-def _run(da, marker, on_mismatch: _config.OnMismatch = "error"):
-    """Run check_schema for one marker under a fixed severity."""
-    return schema.check_schema(da, marker, "x", on_mismatch=on_mismatch)
+def _run(da, marker):
+    """Run check_schema for one marker."""
+    return schema.check_schema(da, marker, "x")
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +42,6 @@ class TestMarkers:
         d = Dims("time", "x")
         assert d.names == ("time", "x")
         assert d.ordered is False
-        assert d.on_mismatch is None
         assert Dims("time", ordered=True).ordered is True
         assert Coords("lat").names == ("lat",)
         assert Dtype("float64").dtype == "float64"
@@ -54,11 +52,11 @@ class TestMarkers:
         markers = [
             Dims("time", "x"),
             Dims("time", ordered=True),
-            Dims("time", on_mismatch="warn"),
+            Dims("time", ordered=True),
             Coords("time", "lat"),
-            Coords("time", on_mismatch="ignore"),
+            Coords("time", "x"),
             Dtype("float64"),
-            Dtype("int32", exact=True, on_mismatch="warn"),
+            Dtype("int32", exact=True),
         ]
         for marker in markers:
             assert eval(repr(marker)) == marker
@@ -75,13 +73,9 @@ class TestMarkers:
     def test_markers_hashable_in_annotations(self):
         assert {Dims("time"), Coords("lat"), Dtype("int32")}
 
-    def test_invalid_on_mismatch_rejected_at_construction(self):
-        with pytest.raises(ValueError, match="Invalid on_mismatch"):
-            Dims("time", on_mismatch="bogus")  # type: ignore[arg-type]
-
 
 # ---------------------------------------------------------------------------
-# Per-property checkers (via check_schema, on_mismatch="error")
+# Per-property checkers (via check_schema)
 # ---------------------------------------------------------------------------
 
 
@@ -104,13 +98,6 @@ class TestCheckDims:
     def test_scalar_dims(self):
         _run(_da(()), Dims())
 
-    def test_warn_and_ignore(self):
-        with pytest.warns(schema.SchemaWarning, match="dims mismatch"):
-            _run(_da(("time",)), Dims("time", "x"), on_mismatch="warn")
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            _run(_da(("time",)), Dims("time", "x"), on_mismatch="ignore")
-
 
 class TestCheckCoords:
     def test_present_passes_extras_ok(self):
@@ -120,10 +107,6 @@ class TestCheckCoords:
         # dims present but no coordinate labels attached
         with pytest.raises(schema.SchemaError, match="missing coords"):
             _run(_da(("time", "x")), Coords("time"))
-
-    def test_warn(self):
-        with pytest.warns(schema.SchemaWarning, match="missing coords"):
-            _run(_da(("time",)), Coords("time"), on_mismatch="warn")
 
 
 class TestCheckDtype:
@@ -195,21 +178,12 @@ class TestCheckSchema:
         da = _da(("time", "x"))
         assert schema.check_schema(da, Dims("time", "x"), "x") is da
 
-    def test_marker_override_beats_argument(self):
-        da = _da(("time",))
-        # argument says error, but the marker says warn → warns, no raise
-        with pytest.warns(schema.SchemaWarning):
-            schema.check_schema(
-                da, Dims("time", "x", on_mismatch="warn"), "x", on_mismatch="error"
-            )
-
     def test_qualname_prefix_in_message(self):
         with pytest.raises(schema.SchemaError, match=r"\[myfunc\] 'x'"):
             schema.check_schema(
                 _da(("time",)),
                 Dims("time", "x"),
                 "x",
-                on_mismatch="error",
                 qualname="myfunc",
             )
 
@@ -220,13 +194,7 @@ class TestCheckSchema:
     def test_list_of_markers(self):
         da = _da(("time", "x"), dtype="int64")
         with pytest.raises(schema.SchemaError, match="dtype"):
-            schema.check_schema(
-                da, [Dims("time", "x"), Dtype("float64")], "x", on_mismatch="error"
-            )
-
-    def test_invalid_on_mismatch_argument(self):
-        with pytest.raises(ValueError, match="Invalid on_mismatch"):
-            schema.check_schema(_da(), Dims("time", "x"), "x", on_mismatch="bogus")  # type: ignore[arg-type]
+            schema.check_schema(da, [Dims("time", "x"), Dtype("float64")], "x")
 
 
 # ---------------------------------------------------------------------------
@@ -251,19 +219,6 @@ class TestAssertValidSchema:
         _check.assert_valid_schema(Dims("time", "x"), "ctx")
         _check.assert_valid_schema(Coords("time"), "ctx")
         _check.assert_valid_schema(Dtype("float64"), "ctx")
-
-
-# ---------------------------------------------------------------------------
-# Axis default
-# ---------------------------------------------------------------------------
-
-
-class TestAxis:
-    def test_default(self):
-        assert _config.DEFAULT_ON_MISMATCH == "error"
-
-    def test_axis_type_is_public(self):
-        assert schema.OnMismatch is _config.OnMismatch
 
 
 # ---------------------------------------------------------------------------
@@ -311,18 +266,6 @@ class TestDeclareSchema:
         with pytest.raises(schema.SchemaError, match="dims mismatch"):
             f()  # x left at its non-conforming default
 
-    def test_declared_default_honours_on_mismatch(self):
-        @xra.enforce
-        def f(
-            x: Annotated[xr.DataArray, Dims("time", "x", on_mismatch="warn")] = _da(
-                ("time",)
-            ),
-        ) -> xr.DataArray:
-            return x
-
-        with pytest.warns(schema.SchemaWarning, match="dims mismatch"):
-            f()
-
     def test_varargs_and_kwargs_survive_apply_defaults(self):
         @xra.enforce
         def f(
@@ -365,16 +308,6 @@ class TestDeclareSchema:
 
         with pytest.raises(schema.SchemaError, match="dims mismatch"):
             f()
-
-    def test_marker_on_mismatch_softens(self):
-        @xra.enforce
-        def f(
-            x: Annotated[xr.DataArray, Dims("time", "x", on_mismatch="warn")],
-        ) -> xr.DataArray:
-            return x
-
-        with pytest.warns(schema.SchemaWarning):
-            f(_da(("time",)))
 
     def test_disabled_is_total_noop(self):
         @xra.enforce

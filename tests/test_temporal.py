@@ -52,7 +52,6 @@ class TestFreqMarker:
         assert f.freq == "7D"
         assert f.dim is None
         assert f.anchored is None
-        assert f.on_mismatch is None
         assert Freq("W", dim="time", anchored=True).dim == "time"
         assert Freq("W", anchored=True).anchored is True
 
@@ -66,8 +65,8 @@ class TestFreqMarker:
             Freq("7D"),
             Freq("W-WED", dim="time"),
             Freq("W", anchored=True),
-            Freq("ME", anchored=False, on_mismatch="warn"),
-            Freq("QE-MAR", dim="t", anchored=True, on_mismatch="ignore"),
+            Freq("ME", anchored=False),
+            Freq("QE-MAR", dim="t", anchored=True),
         ]
         for marker in markers:
             assert eval(repr(marker)) == marker
@@ -77,7 +76,6 @@ class TestFreqMarker:
         assert Freq("7D") != Freq("W-WED")
         assert Freq("W") != Freq("W", anchored=True)
         assert Freq("W") != Freq("W", dim="time")
-        assert Freq("W") != Freq("W", on_mismatch="warn")
         assert Freq("7D") != "7D"  # not equal to a bare string
         assert Freq("7D") != Dims("time")  # nor to another domain's marker
 
@@ -85,10 +83,6 @@ class TestFreqMarker:
         assert hash(Freq("W", anchored=True)) == hash(Freq("W", anchored=True))
         assert {Freq("7D"), Freq("W-WED")}
         assert hash(Annotated[xr.DataArray, Freq("7D")])
-
-    def test_invalid_on_mismatch_rejected_at_construction(self):
-        with pytest.raises(ValueError, match="Invalid on_mismatch"):
-            Freq("7D", on_mismatch="bogus")  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -206,16 +200,6 @@ class TestCheckFreq:
             temporal.check_freq(da, Freq("D"), "x")
         assert issubclass(temporal.UninferableFreqWarning, temporal.FreqWarning)
 
-    def test_filtering_uninferable_keeps_mismatch_warnings(self):
-        short = _da(pd.date_range("2020-01-01", periods=2, freq="D"))
-        weekly = _da(pd.date_range("2020-01-05", periods=4, freq="W-SUN"))
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            warnings.simplefilter("ignore", temporal.UninferableFreqWarning)
-            temporal.check_freq(short, Freq("D"), "x")
-            temporal.check_freq(weekly, Freq("D"), "x", on_mismatch="warn")
-        assert [type(w.message) for w in caught] == [temporal.FreqWarning]
-
     def test_irregular_spacing_is_uninferable(self):
         da = _da(pd.to_datetime(["2020-01-01", "2020-01-02", "2020-01-05"]))
         assert xr.infer_freq(da["time"]) is None
@@ -226,13 +210,6 @@ class TestCheckFreq:
         da = xr.DataArray(np.zeros(3), dims=("time",))
         with pytest.raises(temporal.FreqError, match="no indexed datetime coordinate"):
             temporal.check_freq(da, Freq("D"), "x")
-
-    def test_no_datetime_coord_under_warn(self):
-        # The "no axis to check" mismatch is routed through on_mismatch, so `warn`
-        # (and `ignore`) really do soften it rather than raising regardless.
-        da = xr.DataArray(np.zeros(3), dims=("time",))
-        with pytest.warns(temporal.FreqWarning, match="no indexed datetime coordinate"):
-            assert temporal.check_freq(da, Freq("D"), "x", on_mismatch="warn") is da
 
     def test_two_indexed_datetime_coords_are_ambiguous(self):
         with pytest.raises(temporal.FreqError, match="ambiguous") as excinfo:
@@ -261,13 +238,6 @@ class TestCheckFreq:
         with pytest.raises(temporal.FreqError, match="frequency mismatch"):
             temporal.check_freq(da, Freq("ME"), "x")
 
-    def test_marker_override_beats_argument(self):
-        da = _da(pd.date_range("2020-01-01", periods=5, freq="D"))
-        with pytest.warns(temporal.FreqWarning):
-            temporal.check_freq(
-                da, Freq("7D", on_mismatch="warn"), "x", on_mismatch="error"
-            )
-
     def test_qualname_prefix_in_message(self):
         da = _da(pd.date_range("2020-01-01", periods=5, freq="D"))
         with pytest.raises(temporal.FreqError, match=r"\[myfunc\] 'x'"):
@@ -285,8 +255,6 @@ class TestCheckFreq:
 
     def test_invalid_severity_arguments(self):
         da = _da(pd.date_range("2020-01-01", periods=5, freq="D"))
-        with pytest.raises(ValueError, match="Invalid on_mismatch"):
-            temporal.check_freq(da, Freq("D"), "x", on_mismatch="bogus")  # type: ignore[arg-type]
         with pytest.raises(ValueError, match="Invalid on_uninferable"):
             temporal.check_freq(da, Freq("D"), "x", on_uninferable="bogus")  # type: ignore[arg-type]
 
@@ -298,11 +266,9 @@ class TestCheckFreq:
 
 class TestAxes:
     def test_defaults(self):
-        assert _config.DEFAULT_ON_MISMATCH == "error"
         assert _config.DEFAULT_ON_UNINFERABLE == "warn"
 
     def test_axis_types_are_public(self):
-        assert temporal.OnMismatch is _config.OnMismatch
         assert temporal.OnUninferable is _config.OnUninferable
 
 
@@ -351,18 +317,6 @@ class TestDeclareFreq:
         with pytest.raises(temporal.FreqError, match="frequency mismatch"):
             f()  # x left at its non-conforming default
 
-    def test_declared_default_honours_on_mismatch(self):
-        @xra.enforce
-        def f(
-            x: Annotated[xr.DataArray, Freq("D", on_mismatch="warn")] = _da(
-                pd.date_range("2020-01-01", periods=5, freq="7D")
-            ),
-        ) -> xr.DataArray:
-            return x
-
-        with pytest.warns(temporal.FreqWarning, match="frequency mismatch"):
-            f()
-
     def test_varargs_and_kwargs_survive_apply_defaults(self):
         @xra.enforce
         def f(
@@ -406,16 +360,6 @@ class TestDeclareFreq:
 
         with pytest.raises(temporal.FreqError, match="frequency mismatch"):
             f()
-
-    def test_marker_on_mismatch_softens(self):
-        @xra.enforce
-        def f(
-            x: Annotated[xr.DataArray, Freq("D", on_mismatch="warn")],
-        ) -> xr.DataArray:
-            return x
-
-        with pytest.warns(temporal.FreqWarning, match="frequency mismatch"):
-            f(_da(pd.date_range("2020-01-01", periods=5, freq="7D")))
 
     def test_decorator_on_uninferable_kwarg(self):
         @xra.enforce(temporal_on_uninferable="error")

@@ -17,8 +17,6 @@ and hashable so an annotation carrying them stays hashable; ``eq``/``repr`` cove
 fields, so ``eval(repr(m)) == m``.
 """
 
-from ._config import OnMismatch, _validate_on_mismatch
-
 
 class Freq:
     """Declare the expected temporal frequency of a DataArray's time axis.
@@ -45,8 +43,7 @@ class Freq:
     _freq: str
     _dim: str | None
     _anchored: bool | None
-    _on_mismatch: OnMismatch | None
-    __slots__ = ("_anchored", "_dim", "_freq", "_on_mismatch")
+    __slots__ = ("_anchored", "_dim", "_freq")
 
     def __init__(
         self,
@@ -54,14 +51,10 @@ class Freq:
         *,
         dim: str | None = None,
         anchored: bool | None = None,
-        on_mismatch: OnMismatch | None = None,
     ) -> None:
         self._freq = freq
         self._dim = dim
         self._anchored = anchored
-        self._on_mismatch = (
-            None if on_mismatch is None else _validate_on_mismatch(on_mismatch)
-        )
 
     @property
     def freq(self) -> str:
@@ -78,30 +71,22 @@ class Freq:
         """Whether the anchor is binding, or `None` to infer it from the spelling."""
         return self._anchored
 
-    @property
-    def on_mismatch(self) -> OnMismatch | None:
-        """Per-marker severity override, or `None` to defer to the call/default."""
-        return self._on_mismatch
-
     def __repr__(self) -> str:
         parts = [repr(self._freq)]
         if self._dim is not None:
             parts.append(f"dim={self._dim!r}")
         if self._anchored is not None:
             parts.append(f"anchored={self._anchored!r}")
-        if self._on_mismatch is not None:
-            parts.append(f"on_mismatch={self._on_mismatch!r}")
         return f"Freq({', '.join(parts)})"
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Freq):
-            return (self._freq, self._dim, self._anchored, self._on_mismatch) == (
+            return (self._freq, self._dim, self._anchored) == (
                 other._freq,
                 other._dim,
                 other._anchored,
-                other._on_mismatch,
             )
         return NotImplemented
 
     def __hash__(self) -> int:
-        return hash((self._freq, self._dim, self._anchored, self._on_mismatch))
+        return hash((self._freq, self._dim, self._anchored))

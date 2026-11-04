@@ -1,7 +1,6 @@
 """The audit trail: every non-trivial action is logged.
 
-INFO marks a failed or untestable check let through (a schema or frequency
-check under ``ignore``, or an output unit that could not be checked); DEBUG marks chosen or routine actions, including every
+INFO marks an untestable frequency check let through under ``ignore``; DEBUG marks every
 conversion, since conversion is always opted into.
 """
 
@@ -16,7 +15,6 @@ import xarray_annotated as xra
 from xarray_annotated import Dims, Freq, Unit, schema, temporal, units
 
 UNITS = "xarray_annotated.units"
-SCHEMA = "xarray_annotated.schema"
 TEMPORAL = "xarray_annotated.temporal"
 
 
@@ -103,16 +101,6 @@ class TestOutputs:
 
 
 class TestIgnoredMismatches:
-    def test_schema_ignore_is_info(self, audit):
-        schema.check_schema(_da(), Dims("time"), "p", on_mismatch="ignore")
-        [(level, msg)] = _records(audit, SCHEMA)
-        assert level == logging.INFO
-        assert msg.endswith("(ignored)")
-
-    def test_schema_match_is_not_logged(self, audit):
-        schema.check_schema(_da(), Dims("x"), "p", on_mismatch="ignore")
-        assert _records(audit, SCHEMA) == []
-
     def test_temporal_uninferable_ignore_is_info(self, audit):
         da = xr.DataArray(
             [1.0, 2.0],
@@ -135,5 +123,5 @@ class TestQuietByDefault:
     def test_switched_off_logs_nothing(self, audit):
         with xra.enabled(False):
             units.check_units(_da(), Unit("Pa", convert=True), "p")
-            schema.check_schema(_da(), Dims("time"), "p", on_mismatch="ignore")
+            schema.check_schema(_da(), Dims("time"), "p")
         assert audit.records == []

@@ -8,20 +8,11 @@ The structural counterpart to ``units._annotations``: the properties every
     Annotated[xr.DataArray, Dims("time", "lat", "lon")]
     Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64")]
 
-Each marker carries the *strictness* of its own check (dims order, exact dtype)
-and an optional per-marker ``on_mismatch`` severity override, because the three
-properties have different natural defaults and a wrong dtype is often less severe
-than a wrong set of dims.  The markers are immutable (``__slots__``) and hashable
-so an annotation carrying them stays hashable/cacheable; ``eq``/``repr`` cover all
-fields, so ``eval(repr(m)) == m``.
+Each marker carries the *strictness* of its own check (dims order, exact dtype).
+The markers are immutable (``__slots__``) and hashable so an annotation carrying
+them stays hashable/cacheable; ``eq``/``repr`` cover all fields, so
+``eval(repr(m)) == m``.
 """
-
-from ._config import OnMismatch, _validate_on_mismatch
-
-
-def _check_on_mismatch(value: OnMismatch | None) -> OnMismatch | None:
-    """Validate a marker's optional ``on_mismatch`` override at construction."""
-    return None if value is None else _validate_on_mismatch(value)
 
 
 class Dims:
@@ -36,18 +27,11 @@ class Dims:
 
     _names: tuple[str, ...]
     _ordered: bool
-    _on_mismatch: OnMismatch | None
-    __slots__ = ("_names", "_on_mismatch", "_ordered")
+    __slots__ = ("_names", "_ordered")
 
-    def __init__(
-        self,
-        *names: str,
-        ordered: bool = False,
-        on_mismatch: OnMismatch | None = None,
-    ) -> None:
+    def __init__(self, *names: str, ordered: bool = False) -> None:
         self._names = tuple(names)
         self._ordered = ordered
-        self._on_mismatch = _check_on_mismatch(on_mismatch)
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -59,30 +43,19 @@ class Dims:
         """Whether dim order (not just the set) must match."""
         return self._ordered
 
-    @property
-    def on_mismatch(self) -> OnMismatch | None:
-        """Per-marker severity override, or `None` to defer to the call/default."""
-        return self._on_mismatch
-
     def __repr__(self) -> str:
         parts = [repr(n) for n in self._names]
         if self._ordered:
             parts.append("ordered=True")
-        if self._on_mismatch is not None:
-            parts.append(f"on_mismatch={self._on_mismatch!r}")
         return f"Dims({', '.join(parts)})"
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Dims):
-            return (self._names, self._ordered, self._on_mismatch) == (
-                other._names,
-                other._ordered,
-                other._on_mismatch,
-            )
+            return (self._names, self._ordered) == (other._names, other._ordered)
         return NotImplemented
 
     def __hash__(self) -> int:
-        return hash((self._names, self._ordered, self._on_mismatch))
+        return hash((self._names, self._ordered))
 
 
 class Coords:
@@ -94,43 +67,27 @@ class Coords:
     """
 
     _names: tuple[str, ...]
-    _on_mismatch: OnMismatch | None
-    __slots__ = ("_names", "_on_mismatch")
+    __slots__ = ("_names",)
 
-    def __init__(
-        self,
-        *names: str,
-        on_mismatch: OnMismatch | None = None,
-    ) -> None:
+    def __init__(self, *names: str) -> None:
         self._names = tuple(names)
-        self._on_mismatch = _check_on_mismatch(on_mismatch)
 
     @property
     def names(self) -> tuple[str, ...]:
         """The declared coordinate names."""
         return self._names
 
-    @property
-    def on_mismatch(self) -> OnMismatch | None:
-        """Per-marker severity override, or `None` to defer to the call/default."""
-        return self._on_mismatch
-
     def __repr__(self) -> str:
         parts = [repr(n) for n in self._names]
-        if self._on_mismatch is not None:
-            parts.append(f"on_mismatch={self._on_mismatch!r}")
         return f"Coords({', '.join(parts)})"
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Coords):
-            return (self._names, self._on_mismatch) == (
-                other._names,
-                other._on_mismatch,
-            )
+            return self._names == other._names
         return NotImplemented
 
     def __hash__(self) -> int:
-        return hash((self._names, self._on_mismatch))
+        return hash(self._names)
 
 
 class Dtype:
@@ -145,19 +102,11 @@ class Dtype:
 
     _dtype: str
     _exact: bool
-    _on_mismatch: OnMismatch | None
-    __slots__ = ("_dtype", "_exact", "_on_mismatch")
+    __slots__ = ("_dtype", "_exact")
 
-    def __init__(
-        self,
-        dtype: str,
-        *,
-        exact: bool = False,
-        on_mismatch: OnMismatch | None = None,
-    ) -> None:
+    def __init__(self, dtype: str, *, exact: bool = False) -> None:
         self._dtype = dtype
         self._exact = exact
-        self._on_mismatch = _check_on_mismatch(on_mismatch)
 
     @property
     def dtype(self) -> str:
@@ -169,30 +118,19 @@ class Dtype:
         """Whether the exact dtype (not just its kind) must match."""
         return self._exact
 
-    @property
-    def on_mismatch(self) -> OnMismatch | None:
-        """Per-marker severity override, or `None` to defer to the call/default."""
-        return self._on_mismatch
-
     def __repr__(self) -> str:
         parts = [repr(self._dtype)]
         if self._exact:
             parts.append("exact=True")
-        if self._on_mismatch is not None:
-            parts.append(f"on_mismatch={self._on_mismatch!r}")
         return f"Dtype({', '.join(parts)})"
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Dtype):
-            return (self._dtype, self._exact, self._on_mismatch) == (
-                other._dtype,
-                other._exact,
-                other._on_mismatch,
-            )
+            return (self._dtype, self._exact) == (other._dtype, other._exact)
         return NotImplemented
 
     def __hash__(self) -> int:
-        return hash((self._dtype, self._exact, self._on_mismatch))
+        return hash((self._dtype, self._exact))
 
 
 #: Any one schema marker.

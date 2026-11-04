@@ -4,8 +4,8 @@ Behaviour is set only where it is declared, so reading a signature and its decor
 
 | Event | Setting | Values (default first) | On the marker | `enforce` keyword | `check_*` argument |
 |---|---|---|---|---|---|
-| Structure mismatch | `on_mismatch` | `error`, `warn`, `ignore` | yes | no | `check_schema` |
-| Frequency mismatch, or no unambiguous time axis | `on_mismatch` | `error`, `warn`, `ignore` | yes | no | `check_freq` |
+| Structure mismatch | none | always raises `SchemaError` | | | |
+| Frequency mismatch, or no unambiguous time axis | none | always raises `FreqError` | | | |
 | Short or irregular time axis | `on_uninferable` | `warn`, `error`, `ignore` | no | `temporal_on_uninferable` | `check_freq` |
 | Compatible but different input unit | [`convert`](conversion.md#opting-in) | `False`, `True` | yes | no | no (pass the marker) |
 | Dimensionally wrong input unit | none | always raises `DimensionalityError` | | | |
@@ -13,19 +13,23 @@ Behaviour is set only where it is declared, so reading a signature and its decor
 | [Output unit that does not match](#units-outputs) | none | always raises | | | |
 
 The marker beats the keyword or argument, which beats the default.
-A mismatch can only be softened, and a conversion only allowed, on the marker it applies to.
+A conversion is only allowed on the marker it applies to.
+`SchemaError` and `FreqError` are not `ValueError`s, so catching a mismatch never swallows a malformed declaration.
+
+A declaration that does not hold for all of a function's inputs should be corrected or removed.
+A string in `Annotated` [declares nothing](declaring.md), so it can describe a property that is not checked:
 
 ```python
-Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64", on_mismatch="warn")]
+Annotated[xr.DataArray, Dims("time", "x"), "usually float64"]
 ```
 
-What each severity does:
+What each `on_uninferable` value does:
 
-- **`error`** raises `SchemaError` or `FreqError`. Neither is a `ValueError`, so catching a mismatch never swallows a malformed declaration.
-- **`warn`** emits `SchemaWarning`, `FreqWarning` or, for a short or irregular axis, its subclass `UninferableFreqWarning`.
+- **`warn`** emits `UninferableFreqWarning`.
+- **`error`** raises `FreqError`.
 - **`ignore`** passes the array through and [logs](#auditing) at `INFO`.
 
-To silence short test fixtures while leaving real mismatches visible:
+To silence short test fixtures:
 
 ```toml
 [tool.pytest.ini_options]
@@ -100,7 +104,7 @@ Malformed declarations still raise when a function is decorated.
 ## Logging { #auditing }
 
 Nothing is logged at `WARNING` or above, so this is silent by default.
-The loggers are `xarray_annotated.units`, `.schema` and `.temporal`.
+The loggers are `xarray_annotated.units` and `.temporal`.
 
 ```python
 import logging
@@ -111,7 +115,7 @@ logging.getLogger("xarray_annotated").setLevel(logging.DEBUG)
 
 | Event | Level |
 |---|---|
-| Schema or frequency event passed under `ignore` | `INFO` |
+| Short or irregular time axis passed under `ignore` | `INFO` |
 | Input converted under `convert=True` | `DEBUG` |
 
 Records are emitted on every call, not once per call site like warnings.

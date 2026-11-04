@@ -1,19 +1,16 @@
 """Runtime structural validation of a DataArray against declared markers.
 
 The "usage side" of the schema domain: given a `DataArray` and the `Dims` /
-`Coords` / `Dtype` markers declared for it, check each one under its resolved
-`on_mismatch`.
-Unlike the units domain this **never mutates** — it asserts and (per `on_mismatch`)
-raises, warns, or ignores, then returns the array unchanged, so a decorator can
-drop it into an argument-validation pass symmetrically with `check_units`.
+`Coords` / `Dtype` markers declared for it, check each one.
+Unlike the units domain this **never mutates** — it raises on a mismatch, or returns
+the array unchanged, so a decorator can drop it into an argument-validation pass
+symmetrically with `check_units`.
 
 The per-property checks are independent functions dispatched by marker type, so a
 new structural property is added by writing one checker and one dispatch entry —
 nothing else here changes.
 """
 
-import logging
-import warnings
 from collections.abc import Callable
 from typing import Any
 
@@ -22,17 +19,10 @@ import xarray as xr
 
 from .._config import resolve_enabled
 from ._annotations import Coords, Dims, Dtype, SchemaMarker
-from ._config import DEFAULT_ON_MISMATCH, OnMismatch, _validate_on_mismatch
-
-_log = logging.getLogger("xarray_annotated.schema")
-
-
-class SchemaWarning(UserWarning):
-    """Warning issued for a structural mismatch under ``on_mismatch="warn"``."""
 
 
 class SchemaError(Exception):
-    """Raised for a structural mismatch under ``on_mismatch="error"``.
+    """Raised for a structural mismatch.
 
     Deliberately **not** a ``ValueError``: a structural mismatch (the *data* fails
     the declaration) is a distinct event from a malformed *declaration* (an
@@ -183,58 +173,36 @@ _CHECKERS: dict[type, Callable[[xr.DataArray, Any], tuple[bool, str]]] = {
 }
 
 
-def _report(ok: bool, severity: OnMismatch, message: str) -> None:
-    """Act on a check result under the resolved severity."""
-    if ok:
-        return
-    if severity == "ignore":
-        _log.info("%s (ignored)", message)
-        return
-    if severity == "error":
-        raise SchemaError(message)
-    # stacklevel=3 targets a direct check_schema call (via _report); via enforce it
-    # lands on the wrapper line, still identified by the [qualname] prefix.
-    warnings.warn(message, SchemaWarning, stacklevel=3)
-
-
 def check_schema(
     da: xr.DataArray,
     declared: SchemaMarker | list[SchemaMarker],
     name: str,
-    on_mismatch: OnMismatch | None = None,
     qualname: str | None = None,
 ) -> xr.DataArray:
     """Validate `da` against its declared schema marker(s); return it unchanged.
 
-    Runs each marker's checker under the effective severity, resolved per marker
-    as: the marker's own `on_mismatch` override, else the `on_mismatch` argument,
-    else the default, `"error"`.  A mismatch passed under `"ignore"` is logged at
-    INFO to `xarray_annotated.schema`.  When xarray-annotated is switched off
+    Runs each marker's checker in turn.  When xarray-annotated is switched off
     (`enabled(False)`) this is a total no-op.
 
     Args:
         da: The DataArray to validate.
         declared: A single marker or a list of markers declared for `da`.
         name: The parameter/field name, for error messages.
-        on_mismatch: Per-call severity, overriding the default but overridden
-            by a marker's own `on_mismatch`.
         qualname: Optional qualified function name, prefixed to messages.
 
     Returns:
         `da`, unchanged (validation never mutates).
 
     Raises:
-        SchemaError: On a mismatch when the effective severity is ``"error"``.
+        SchemaError: On a mismatch.
     """
     if not resolve_enabled():
         return da
-    if on_mismatch is not None:
-        on_mismatch = _validate_on_mismatch(on_mismatch)
 
     markers = [declared] if isinstance(declared, (Dims, Coords, Dtype)) else declared
     prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
     for marker in markers:
         ok, detail = _CHECKERS[type(marker)](da, marker)
-        severity = marker.on_mismatch or on_mismatch or DEFAULT_ON_MISMATCH
-        _report(ok, severity, f"{prefix} {detail}")
+        if not ok:
+            raise SchemaError(f"{prefix} {detail}")
     return da

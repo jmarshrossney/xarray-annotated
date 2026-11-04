@@ -137,16 +137,6 @@ class TestKeywords:
         with pytest.raises(temporal.FreqError):
             f(_int_da().isel(time=slice(0, 2)))  # too short to infer
 
-    def test_marker_overrides_are_independent_per_domain(self):
-        # A schema marker's on_mismatch must not leak into the temporal domain.
-        @xra.enforce
-        def f(
-            p: Annotated[xr.DataArray, Dims("x", on_mismatch="ignore"), Freq("7D")],
-        ): ...
-
-        with pytest.raises(temporal.FreqError):
-            f(_int_da())
-
 
 class TestDecorationTime:
     def test_bad_unit_raises(self):

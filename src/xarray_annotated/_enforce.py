@@ -213,10 +213,8 @@ def enforce(
 
     Each keyword sets one axis for this function, and is named
     `<domain>_<axis>`.  Per axis, a marker's own override beats the keyword,
-    which beats the built-in default.  Mismatch severity and unit conversion
-    have no keyword: loosen a structural or frequency check, or allow a
-    conversion, on the marker it applies to (`Dims(..., on_mismatch="warn")`,
-    `Unit("Pa", convert=True)`).
+    which beats the built-in default.  A mismatch always raises, and a conversion
+    is allowed on the marker it applies to (`Unit("Pa", convert=True)`).
 
     Usable bare (`@xra.enforce`) or called
     (`@xra.enforce(temporal_on_uninferable=...)`).

@@ -238,7 +238,7 @@ Whether that matters depends on the analysis, and the annotated function makes i
     FreqError: [daily_vpd] 'tair' frequency mismatch on 'time': expected 'h', got '3h'
     ```
 
-Whether a schema or frequency violation raises, warns or is ignored is [configurable](guides/policy.md).
+A violation always raises; to check nothing while prototyping, [switch the package off](guides/policy.md#enabled).
 
 ## Shorter signatures
 
