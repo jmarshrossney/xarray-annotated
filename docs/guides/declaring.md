@@ -50,7 +50,7 @@ A few hints are silently not declarations; see [Troubleshooting](troubleshooting
 ## Units
 
 Inputs and outputs must both already be in the declared unit, and anything else raises.
-See [Units](units.md) for what happens in each case, how to convert an input, and how a body states the unit it returns.
+See [Units](units.md) for what happens in each case and how to convert an input, and [Computing with pint](pint.md) for how a body gets the unit it returns.
 
 ## Frequency
 

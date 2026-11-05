@@ -112,7 +112,7 @@ def daily_vpd(
 3.  The body always sees `degC`. A different unit such as `K` raises, even though it could be converted.
 4.  The `time` coordinate must be hourly.
 5.  The return value is checked too, and has to match.
-6.  xarray would otherwise leave a misleading label on the result, so the body states its unit: see [Output units](guides/units.md#outputs).
+6.  xarray would otherwise leave a misleading label on the result, so the body states its unit. This formula is an empirical fit on the bare numbers; elsewhere, prefer [computing with pint](guides/pint.md).
 
 ### Temperature in kelvin
 

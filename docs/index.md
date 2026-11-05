@@ -69,7 +69,7 @@ Structure and frequency are then checked, and everything is checked again on the
 
 Anything that does not match its declaration raises.
 
-See [Getting started](getting_started.md) for a worked walkthrough, [Declaring properties](guides/declaring.md) for each marker in detail, and [Units](guides/units.md) for what to do when the units differ.
+See [Getting started](getting_started.md) for a worked walkthrough, [Declaring properties](guides/declaring.md) for each marker in detail, [Units](guides/units.md) for what to do when the units differ, and [Computing with pint](guides/pint.md) for getting the units right in the first place.
 
 ## Motivations
 

@@ -11,7 +11,7 @@
 | `ValueError: ... holds fields carrying ...`, at import | A parameter, a return such as a `NamedTuple`, `list[R]` or `R1 \| R2`, or a field of a return, holds a class whose fields carry markers, which `enforce` cannot check | Return one `TypedDict` or dataclass, optionally `\| None`, with its arrays as direct fields, and declare a parameter's arrays as parameters of their own |
 | `ValueError: type alias ... refers to itself`, at import | A `type` alias contains itself outside a container, such as `type R = R \| None` | Remove the self-reference |
 | `ValueError: input ... differs from declared` | The unit is compatible with the declared one but not equal to it | [Convert it](units.md#converting-an-input) where you call the function |
-| `ValueError: output ... differs from declared`, or an output with no `units` | The body returned another unit, left a stale label, or returned no label | Fix the body, or [state the unit it returns](units.md#outputs) |
+| `ValueError: output ... differs from declared`, or an output with no `units` | The body returned another unit, left a stale label, or returned no label | [Compute with pint](pint.md), or for bare numbers [state the unit it returns](pint.md#plain-arrays) |
 | `SchemaError`, or `FreqError: ... frequency mismatch` | The array does not match its `Dims`, `Coords`, `Dtype` or `Freq`, or its time axis is irregular | Fix the data, or correct the declaration |
 | `TypeError: ... declared a DataArray, got ...`, when called | The value is `None`, an ndarray, a `Dataset` or something else, as after `.values` in a body | Pass or return a `DataArray`, or add what the value may be to the hint, such as `\| None` |
 | `DimensionalityError` | The units cannot be converted | Fix the data or the declaration |
@@ -37,6 +37,7 @@ A string can describe a property that is not checked, as in `Annotated[xr.DataAr
 ## A wrong result passes every check
 
 A body's output label is taken on trust; see [What a label cannot catch](units.md#what-a-label-cannot-catch).
+A quantified result can still be the wrong calculation; see [What pint cannot catch](pint.md#what-pint-cannot-catch).
 
 ## Switching the package off { #enabled }
 
