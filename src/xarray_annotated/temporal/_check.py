@@ -199,6 +199,9 @@ def freq_compatible(a: Freq, b: Freq) -> bool:
     `check_freq` that refuses an axis with holes when the data arrives, as it does for
     `"W"` into `"W-SUN"`.
 
+    Two declarations naming different `dim`s describe different axes, which one array
+    can have, so they never conflict.
+
     Args:
         a: A `Freq` marker.
         b: Another `Freq` marker.
@@ -225,8 +228,13 @@ def freq_compatible(a: Freq, b: Freq) -> bool:
         True
         >>> freq_compatible(Freq("D", gaps_ok=True), Freq("D"))  # gaps_ok not compared
         True
+        >>> freq_compatible(Freq("D", dim="a"), Freq("7D", dim="b"))  # two axes
+        True
     """
-    if _declared_spacing(a.freq) != _declared_spacing(b.freq):
+    spacing_a, spacing_b = _declared_spacing(a.freq), _declared_spacing(b.freq)
+    if a.dim is not None and b.dim is not None and a.dim != b.dim:
+        return True
+    if spacing_a != spacing_b:
         return False
     (conv_a, anchor_a), (conv_b, anchor_b) = _phase(a), _phase(b)
     if conv_a is not None and conv_b is not None and conv_a != conv_b:

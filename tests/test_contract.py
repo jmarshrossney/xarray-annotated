@@ -208,6 +208,20 @@ class TestDeclarationConflicts:
             xra.declaration_conflicts(malformed, Declared(unit=Unit("Pa")))
 
 
+class TestDeclarationConflictsOnTwoAxes:
+    def test_different_dims_do_not_conflict_as_one_array_can_pass_both(self):
+        a = Declared(freq=Freq("D", dim="a"))
+        b = Declared(freq=Freq("7D", dim="b"))
+        assert xra.declaration_conflicts(a, b) == []
+        times = {
+            "a": pd.date_range("2000-01-01", periods=4, freq="D"),
+            "b": pd.date_range("2000-01-01", periods=4, freq="7D"),
+        }
+        both = xr.DataArray(np.ones((4, 4)), dims=("a", "b"), coords=times)
+        for declared in (a, b):
+            assert xra.check_declared(both, declared, "p") is both
+
+
 class TestMalformedDeclaration:
     """Malformed means `ValueError`, before any array is looked at."""
 

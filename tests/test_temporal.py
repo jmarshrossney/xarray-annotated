@@ -1129,3 +1129,22 @@ class TestAnyDayProperty:
     def test_is_not_part_of_the_marker_state(self):
         assert Freq("month") == Freq("month")
         assert repr(Freq("month")) == "Freq('month')"
+
+
+class TestFreqCompatibleOnDim:
+    def test_different_dims_never_conflict(self):
+        a, b = Freq("D", dim="a"), Freq("7D", dim="b")
+        assert temporal.freq_compatible(a, b)
+        assert temporal.freq_compatible(b, a)
+
+    def test_the_same_dim_is_compared(self):
+        assert not temporal.freq_compatible(Freq("D", dim="a"), Freq("7D", dim="a"))
+
+    @pytest.mark.parametrize("dim", ["a", None])
+    def test_a_dim_on_one_side_is_compared(self, dim):
+        a, b = Freq("D", dim=dim), Freq("7D")
+        assert not temporal.freq_compatible(a, b)
+
+    def test_an_unparseable_frequency_still_raises(self):
+        with pytest.raises(ValueError, match="bogus"):
+            temporal.freq_compatible(Freq("bogus", dim="a"), Freq("D", dim="b"))
