@@ -22,6 +22,10 @@ the classic resample footgun of a series landing on Wednesdays:
     ) -> Annotated[xr.DataArray, Freq("W-SUN")]:
         return x.resample(time="W-SUN").mean()
 
+``Freq("month")`` declares a calendar step on any day, such as monthly means stamped at
+midpoints, and ``Freq("D", gaps_ok=True)`` declares a sampling period on an axis that
+may have holes.
+
 ``freq_compatible`` is the same comparison with no array in hand, for a build-time
 check of a producer/consumer edge.
 """

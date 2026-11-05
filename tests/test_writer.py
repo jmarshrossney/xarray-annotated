@@ -67,6 +67,11 @@ class TestMarkers:
         assert get_args(annotate(dtype="int32"))[1:] == (Dtype("int32"),)
         assert get_args(annotate(freq="ME"))[1:] == (Freq("ME"),)
 
+    def test_freq_marker_keeps_gaps_ok(self):
+        marker = Freq("D", gaps_ok=True)
+        assert get_args(annotate(freq=marker))[1:] == (marker,)
+        assert get_args(annotate(freq=marker))[1] != Freq("D")
+
 
 class TestRoundTrip:
     def test_reads_back_through_signature_reader(self):
