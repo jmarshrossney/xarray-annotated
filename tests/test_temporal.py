@@ -6,6 +6,7 @@ markers.  Frequency validation never mutates: the checks assert/raise/warn but
 return arrays unchanged.
 """
 
+import itertools
 import warnings
 from dataclasses import dataclass
 from typing import Annotated, TypedDict
@@ -65,15 +66,29 @@ class TestFreqMarker:
             Freq("W"),
             Freq("ME"),
             Freq("QE-MAR", dim="t"),
+            Freq("D", gaps_ok=True),
+            Freq("3month", dim="t", gaps_ok=True),
         ]
         for marker in markers:
             assert eval(repr(marker)) == marker
+
+    def test_gaps_ok_defaults_to_false_and_is_keyword_only(self):
+        assert Freq("D").gaps_ok is False
+        assert Freq("D", gaps_ok=True).gaps_ok is True
+        assert repr(Freq("D")) == "Freq('D')"
+        with pytest.raises(TypeError):
+            Freq("D", "time")  # type: ignore[misc]
+
+    def test_any_day_spelling_is_kept(self):
+        assert Freq("3month").freq == "3month"
 
     def test_equality_includes_all_fields(self):
         assert Freq("7D") == Freq("7D")
         assert Freq("7D") != Freq("W-WED")
         assert Freq("W") != Freq("W", dim="time")
         assert Freq("W") != Freq("W", dim="time")
+        assert Freq("D") != Freq("D", gaps_ok=True)
+        assert hash(Freq("D", gaps_ok=True)) == hash(Freq("D", gaps_ok=True))
         assert Freq("7D") != "7D"  # not equal to a bare string
         assert Freq("7D") != Dims("time")  # nor to another domain's marker
 
@@ -109,6 +124,22 @@ COMPATIBILITY_TABLE = [
     # The year anchor behaves like the quarter one.
     (Freq("YE-JUN"), Freq("YE-DEC"), False),
     (Freq("YE"), Freq("YE-DEC"), True),
+    # An any-day spelling has a month spacing and no phase.
+    (Freq("month"), Freq("ME"), True),
+    (Freq("month"), Freq("MS"), True),
+    (Freq("month"), Freq("month"), True),
+    (Freq("month"), Freq("QE"), False),
+    (Freq("3month"), Freq("QE"), True),
+    (Freq("12month"), Freq("year"), True),
+    (Freq("year"), Freq("YE"), True),
+    (Freq("year"), Freq("YE-JUN"), True),
+    (Freq("2year"), Freq("YE"), False),
+    (Freq("month"), Freq("30D"), False),
+    # `gaps_ok` is not compared; spacing and phase still are.
+    (Freq("D", gaps_ok=True), Freq("D"), True),
+    (Freq("D", gaps_ok=True), Freq("2D"), False),
+    (Freq("ME", gaps_ok=True), Freq("MS"), False),
+    (Freq("month", gaps_ok=True), Freq("ME"), True),
 ]
 
 
@@ -156,6 +187,29 @@ class TestAssertValidFreq:
         temporal.assert_valid_freq(Freq("7D"), "ctx")
         temporal.assert_valid_freq(Freq("W-WED", dim="time"), "ctx")
         temporal.assert_valid_freq(Freq("QE-MAR"), "ctx")
+
+    @pytest.mark.parametrize("freq", ["month", "3month", "year", "3year"])
+    def test_any_day_spellings_pass(self, freq):
+        temporal.assert_valid_freq(Freq(freq), "ctx")
+        temporal.assert_valid_freq(Freq(freq, gaps_ok=True), "ctx")
+
+    @pytest.mark.parametrize(
+        "freq", ["0month", "0year", "months", "Month", "1.5month", "month-JAN"]
+    )
+    def test_malformed_any_day_spellings(self, freq):
+        with pytest.raises(ValueError, match="ctx: invalid frequency"):
+            temporal.assert_valid_freq(Freq(freq), "ctx")
+
+    @pytest.mark.parametrize("gaps_ok", [1, "yes", None])
+    def test_gaps_ok_must_be_a_bool(self, gaps_ok):
+        with pytest.raises(ValueError, match="gaps_ok must be a bool"):
+            temporal.assert_valid_freq(Freq("D", gaps_ok=gaps_ok), "ctx")
+
+    @pytest.mark.parametrize("freq", ["B", "-1D", "-1ME"])
+    def test_gaps_ok_needs_a_positive_step(self, freq):
+        with pytest.raises(ValueError, match="gaps_ok needs a positive step"):
+            temporal.assert_valid_freq(Freq(freq, gaps_ok=True), "ctx")
+        temporal.assert_valid_freq(Freq(freq), "ctx")
 
 
 # ---------------------------------------------------------------------------
@@ -752,3 +806,312 @@ class TestTwoPoints:
         temporal.check_freq(_da(monday), Freq("W-MON"), "x")
         with pytest.raises(temporal.FreqError, match="frequency mismatch"):
             temporal.check_freq(_da(monday), Freq("W-SUN"), "x")
+
+
+CALENDARS = ["standard", "noleap", "360_day"]
+
+_TWO_JANUARIES = pd.DatetimeIndex(
+    pd.date_range("2025-01-01", "2025-01-31").append(
+        pd.date_range("2026-01-01", "2026-01-31")
+    )
+)
+
+
+def _gappy_cftime(calendar):
+    """Two runs of daily values a year apart, joined as a user would."""
+    runs = [_da(_cftime(f"{year}-01-01", 30, "D", calendar)) for year in (2025, 2026)]
+    return xr.concat(runs, "time")
+
+
+def _midpoints(start, periods, freq, calendar="standard"):
+    """Timestamps at the middle of each period, as a climate model stamps its means."""
+    edges = _cftime(start, periods + 1, freq, calendar)
+    return xr.CFTimeIndex([a + (b - a) / 2 for a, b in itertools.pairwise(edges)])
+
+
+_GappyDaily = Annotated[xr.DataArray, Freq("D", gaps_ok=True)]
+
+
+class TestGapsOk:
+    """`gaps_ok` declares the sampling period without a gap-free axis (#29)."""
+
+    def test_the_declaration_it_replaces_still_raises(self):
+        with pytest.raises(temporal.FreqError, match="got irregular spacing"):
+            temporal.check_freq(_da(_TWO_JANUARIES), Freq("D"), "x")
+
+    @pytest.mark.parametrize(
+        ("declared", "index"),
+        [
+            ("D", _TWO_JANUARIES),
+            ("D", _TWO_JANUARIES.as_unit("s")),
+            ("D", _TWO_JANUARIES + pd.Timedelta(hours=12)),
+            ("D", _DAILY),  # a regular axis is a gappy axis with no gaps
+            ("24h", _TWO_JANUARIES),
+            ("30min", pd.date_range("2020", periods=4, freq="30min").delete(2)),
+            ("W-WED", pd.date_range("2020-01-01", periods=9, freq="7D").delete(4)),
+            ("7D", pd.date_range("2020-01-01", periods=9, freq="7D").delete(4)),
+            ("ME", _MONTH_ENDS.delete(5)),
+            ("MS", pd.date_range("2020-01-01", periods=14, freq="MS").delete(5)),
+            ("QE-DEC", pd.date_range("2020-03-31", periods=9, freq="QE").delete(4)),
+            ("YE-JUN", pd.date_range("2020-06-30", periods=9, freq="YE-JUN").delete(4)),
+        ],
+    )
+    def test_conforming(self, declared, index):
+        da = _da(index)
+        assert temporal.check_freq(da, Freq(declared, gaps_ok=True), "x") is da
+
+    @pytest.mark.parametrize(
+        ("declared", "index", "got"),
+        [
+            ("D", pd.date_range("2025", periods=9, freq="30min"), " then "),
+            ("D", pd.date_range("2025", periods=9, freq="2D"), "no step that short"),
+            ("D", pd.date_range("2025", periods=9, freq="7D"), "no step that short"),
+            ("D", pd.date_range("2025", periods=9, freq="MS"), "no step that short"),
+            ("D", _TWO_JANUARIES.append(_TWO_JANUARIES[-1:]), " then "),  # duplicate
+            ("D", _TWO_JANUARIES[::-1], " then "),
+            ("D", pd.to_datetime(["2020-01-01", "2020-01-02", "NaT"]), " then "),
+            (
+                "D",
+                _TWO_JANUARIES.append(pd.to_datetime(["2026-02-01 12:00"])),
+                " then ",
+            ),
+            ("W-SUN", pd.date_range("2020-01-01", periods=9, freq="7D"), " then "),
+            ("ME", _MONTH_ENDS.delete(5) - pd.Timedelta(days=1), " then "),
+            ("ME", pd.date_range("2020-01-01", periods=9, freq="MS"), " then "),
+            (
+                "ME",
+                _MONTH_ENDS.delete(5) + pd.to_timedelta(np.arange(13) % 2, unit="h"),
+                " then ",
+            ),
+            ("ME", _MONTH_ENDS[::3], "no step that short"),
+            ("QE-JAN", pd.date_range("2020-03-31", periods=9, freq="QE"), " then "),
+            ("YE-JUN", pd.date_range("2020-12-31", periods=9, freq="YE"), " then "),
+        ],
+    )
+    def test_contradicting(self, declared, index, got):
+        with pytest.raises(temporal.FreqError, match=f"frequency mismatch.*{got}"):
+            temporal.check_freq(_da(index), Freq(declared, gaps_ok=True), "x")
+
+    @pytest.mark.parametrize("n", [0, 1])
+    def test_no_spacing_to_contradict(self, n):
+        da = _da(_DAILY[:n])
+        assert temporal.check_freq(da, Freq("D", gaps_ok=True), "x") is da
+
+    def test_two_points_have_one_step_which_is_the_smallest(self):
+        close = pd.to_datetime(["2020-01-01", "2020-01-02"])
+        apart = pd.to_datetime(["2020-01-01", "2020-01-03"])
+        temporal.check_freq(_da(close), Freq("D", gaps_ok=True), "x")
+        with pytest.raises(temporal.FreqError, match="no step that short"):
+            temporal.check_freq(_da(apart), Freq("D", gaps_ok=True), "x")
+
+    @pytest.mark.parametrize("calendar", CALENDARS)
+    def test_cftime(self, calendar):
+        da = _gappy_cftime(calendar)
+        assert isinstance(da.indexes["time"], xr.CFTimeIndex)
+        assert temporal.check_freq(da, Freq("D", gaps_ok=True), "x") is da
+        with pytest.raises(temporal.FreqError, match="got irregular spacing"):
+            temporal.check_freq(da, Freq("D"), "x")
+        with pytest.raises(temporal.FreqError, match="frequency mismatch"):
+            temporal.check_freq(da, Freq("2D", gaps_ok=True), "x")
+
+    @pytest.mark.parametrize("calendar", CALENDARS)
+    def test_cftime_calendar_spacing(self, calendar):
+        time = _cftime("2000-01-01", 14, "ME", calendar).delete(5)
+        temporal.check_freq(_da(time), Freq("ME", gaps_ok=True), "x")
+        with pytest.raises(temporal.FreqError, match="frequency mismatch"):
+            temporal.check_freq(_da(time), Freq("MS", gaps_ok=True), "x")
+
+    def test_cftime_weekday_anchor(self):
+        mondays = _cftime("2024-01-01", 9, "7D", "standard").delete(4)
+        temporal.check_freq(_da(mondays), Freq("W-MON", gaps_ok=True), "x")
+        with pytest.raises(temporal.FreqError, match="frequency mismatch"):
+            temporal.check_freq(_da(mondays), Freq("W-SUN", gaps_ok=True), "x")
+
+    def test_a_multiindex_level_counts(self):
+        keep = np.arange(5) != 2
+        da = xr.DataArray(
+            np.zeros(4),
+            dims="s",
+            coords={"time": ("s", _TIMES[keep]), "n": ("s", np.arange(4))},
+        ).set_index(s=["time", "n"])
+        declared = Freq("D", dim="time", gaps_ok=True)
+        assert temporal.check_freq(da, declared, "x") is da
+
+    @pytest.mark.parametrize("freq", ["B", "-1D"])
+    def test_called_directly_it_refuses_what_decoration_refuses(self, freq):
+        with pytest.raises(ValueError, match="gaps_ok needs a positive step"):
+            temporal.check_freq(_da(_DAILY), Freq(freq, gaps_ok=True), "x")
+
+    def test_disabled_is_noop(self):
+        da = _da(pd.date_range("2025", periods=9, freq="7D"))
+        with xra.enabled(False):
+            assert temporal.check_freq(da, Freq("D", gaps_ok=True), "x") is da
+
+    def test_the_reported_function_through_enforce(self):
+        @xra.enforce
+        def mask_snow_days(vwc: _GappyDaily, snow: _GappyDaily) -> _GappyDaily:
+            return vwc.where(snow != 1)
+
+        vwc = _da(_TWO_JANUARIES)
+        assert mask_snow_days(vwc, xr.zeros_like(vwc)).identical(vwc)
+        half_hourly = _da(pd.date_range("2025", periods=48, freq="30min"))
+        with pytest.raises(temporal.FreqError, match=r"\[.*mask_snow_days\] 'vwc'"):
+            mask_snow_days(half_hourly, xr.zeros_like(half_hourly))
+
+    def test_output_is_checked(self):
+        @xra.enforce
+        def f(da: xr.DataArray) -> Annotated[xr.DataArray, Freq("D", gaps_ok=True)]:
+            return da
+
+        f(_da(_TWO_JANUARIES))
+        with pytest.raises(temporal.FreqError, match="no step that short"):
+            f(_da(pd.date_range("2025", periods=9, freq="7D")))
+
+    def test_decoration_refuses_a_step_it_could_not_compare(self):
+        with pytest.raises(ValueError, match="gaps_ok needs a positive step"):
+
+            @xra.enforce
+            def f(x: Annotated[xr.DataArray, Freq("B", gaps_ok=True)]) -> None: ...
+
+
+class TestAnyDay:
+    """`"month"` and `"year"` fit a calendar axis on no month boundary (#28)."""
+
+    @pytest.mark.parametrize("calendar", CALENDARS)
+    def test_month_midpoints(self, calendar):
+        time = _midpoints("2000-01-01", 26, "MS", calendar)
+        da = _da(time)
+        assert temporal.check_freq(da, Freq("month"), "x") is da
+
+    @pytest.mark.parametrize(
+        "index",
+        [
+            pd.date_range("2020-01-15", periods=14, freq="MS") + pd.Timedelta(days=14),
+            _MONTH_ENDS,
+            pd.date_range("2020-01-01", periods=14, freq="MS"),
+            pd.to_datetime(
+                ["2020-01-16 00:00", "2020-02-15 12:00", "2020-03-16 00:00"]
+            ),
+            pd.to_datetime(["2020-01-31", "2020-02-01"]),
+        ],
+    )
+    def test_any_day_of_each_month(self, index):
+        temporal.check_freq(_da(index), Freq("month"), "x")
+
+    @pytest.mark.parametrize("calendar", CALENDARS)
+    def test_midpoints_still_raise_on_a_convention(self, calendar):
+        time = _midpoints("2000-01-01", 26, "MS", calendar)
+        for declared in ("MS", "ME"):
+            with pytest.raises(temporal.FreqError, match="frequency mismatch"):
+                temporal.check_freq(_da(time), Freq(declared), "x")
+
+    @pytest.mark.parametrize("calendar", CALENDARS)
+    @pytest.mark.parametrize(
+        "change",
+        [lambda t: t.delete(5), lambda t: t.insert(5, t[5]), lambda t: t[::-1]],
+        ids=["missing", "duplicated", "reversed"],
+    )
+    def test_a_month_out_of_place_raises(self, calendar, change):
+        time = change(_midpoints("2000-01-01", 26, "MS", calendar))
+        with pytest.raises(temporal.FreqError, match=r"frequency mismatch.* then "):
+            temporal.check_freq(_da(time), Freq("month"), "x")
+
+    def test_a_daily_axis_is_not_monthly(self):
+        with pytest.raises(temporal.FreqError, match=r"frequency mismatch.* then "):
+            temporal.check_freq(_da(_DAILY), Freq("month"), "x")
+
+    @pytest.mark.parametrize("calendar", CALENDARS)
+    def test_seasonal_midpoints_are_three_months(self, calendar):
+        time = _midpoints("2000-12-01", 9, "QS-DEC", calendar)
+        temporal.check_freq(_da(time), Freq("3month"), "x")
+        with pytest.raises(temporal.FreqError, match="frequency mismatch"):
+            temporal.check_freq(_da(time), Freq("month"), "x")
+
+    @pytest.mark.parametrize("calendar", CALENDARS)
+    def test_annual_midpoints(self, calendar):
+        time = _midpoints("2000-01-01", 9, "YS", calendar)
+        temporal.check_freq(_da(time), Freq("year"), "x")
+        with pytest.raises(temporal.FreqError, match="frequency mismatch"):
+            temporal.check_freq(_da(time), Freq("2year"), "x")
+
+    def test_fifteenth_of_january_each_year(self):
+        index = pd.to_datetime(["2020-01-15", "2021-01-15", "2022-01-15"])
+        temporal.check_freq(_da(index), Freq("year"), "x")
+
+    def test_a_year_that_drifts_a_month_raises(self):
+        index = pd.to_datetime(["2020-01-15", "2021-02-15", "2022-02-15"])
+        with pytest.raises(temporal.FreqError, match="frequency mismatch"):
+            temporal.check_freq(_da(index), Freq("year"), "x")
+
+    @pytest.mark.parametrize("n", [0, 1])
+    def test_no_spacing_to_contradict(self, n):
+        temporal.check_freq(_da(_DAILY[:n]), Freq("month"), "x")
+
+    def test_two_points(self):
+        temporal.check_freq(
+            _da(pd.to_datetime(["2020-01-16", "2020-02-15"])), Freq("month"), "x"
+        )
+        with pytest.raises(temporal.FreqError, match=" then "):
+            temporal.check_freq(
+                _da(pd.to_datetime(["2020-01-16", "2020-03-16"])), Freq("month"), "x"
+            )
+
+    def test_gaps_ok_allows_a_hole_in_months(self):
+        index = pd.to_datetime(
+            ["2020-12-16", "2021-01-16", "2021-02-15", "2021-12-16", "2022-01-16"]
+        )
+        temporal.check_freq(_da(index), Freq("month", gaps_ok=True), "x")
+        with pytest.raises(temporal.FreqError, match="frequency mismatch"):
+            temporal.check_freq(_da(index), Freq("month"), "x")
+
+    def test_januaries_alone_are_yearly_not_gappy_months(self):
+        index = pd.to_datetime(["2020-01-16", "2021-01-16", "2022-01-16"])
+        temporal.check_freq(_da(index), Freq("year"), "x")
+        with pytest.raises(temporal.FreqError, match="no step that short"):
+            temporal.check_freq(_da(index), Freq("month", gaps_ok=True), "x")
+
+    def test_through_enforce(self):
+        @xra.enforce
+        def f(
+            x: Annotated[xr.DataArray, Freq("month")],
+        ) -> Annotated[xr.DataArray, Freq("month")]:
+            return x
+
+        da = _da(_midpoints("2000-01-01", 26, "MS", "noleap"))
+        assert f(da) is da
+        with pytest.raises(temporal.FreqError, match="expected 'month'"):
+            f(_da(_DAILY))
+
+    def test_decoration_refuses_a_zero_multiple(self):
+        with pytest.raises(ValueError, match="invalid frequency '0month'"):
+
+            @xra.enforce
+            def f(x: Annotated[xr.DataArray, Freq("0month")]) -> None: ...
+
+    def test_legacy_alias_still_names_its_replacement(self):
+        with pytest.raises(ValueError, match="ME"):
+            temporal.assert_valid_freq(Freq("M"), "ctx")
+
+
+class TestSteppingReadsNothing:
+    @pytest.mark.parametrize(
+        ("declared", "index"),
+        [
+            (Freq("D", gaps_ok=True), _TIMES.delete(2)),
+            (Freq("ME", gaps_ok=True), _MONTH_ENDS[:5].delete(2)),
+            (Freq("ME"), _MONTH_ENDS[:2]),
+            (Freq("month"), _MONTH_ENDS[:4]),
+        ],
+        ids=["fixed", "calendar", "two-points", "any-day"],
+    )
+    def test_lazy_data_and_aux_coord_stay_unread(self, declared, index):
+        data, data_backend = _lazy_variable("time", np.zeros(len(index)))
+        aux, aux_backend = _lazy_variable("time", index.values)
+        da = xr.DataArray(data, coords={"time": index})
+        da = _with_lazy_coord(da, "valid", aux)
+        assert temporal.check_freq(da, declared, "x") is da
+        assert data_backend.reads == 0
+        assert aux_backend.reads == 0
+        da.compute()
+        assert data_backend.reads > 0
+        assert aux_backend.reads > 0

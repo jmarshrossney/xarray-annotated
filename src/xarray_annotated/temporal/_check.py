@@ -22,9 +22,19 @@ declared string* — a `"-"` in it — never off the normalised offset.  `Freq("
 means "weekly, any weekday" (a deliberate divergence from pandas), while `Freq("W-SUN")`
 means Sundays and will not accept a `W-WED` axis.
 
+Two kinds of declaration have no pandas frequency to infer, so they are compared step
+by step instead.  `"month"` and `"year"` have a month spacing and no phase, as they
+stamp on any day.  `gaps_ok` allows steps that are whole multiples of the declared one,
+provided the smallest equals it; without that last clause `Freq("D", gaps_ok=True)`
+would accept every axis stamped at midnight.  `gaps_ok` is not compared between
+declarations, since a gappy axis and a regular one can be the same axis.
+
 Known limitation: `Day` is DST-aware in pandas while `24h` is not, so treating them as
 the same spacing is an approximation for timezone-aware axes.
 """
+
+import re
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -48,6 +58,7 @@ from .._config import resolve_enabled
 from ._annotations import Freq
 
 _NANOS_PER_DAY = 86_400_000_000_000
+_ANY_DAY = re.compile(r"([0-9]*)(month|year)")
 
 
 class FreqError(Exception):
@@ -68,6 +79,9 @@ def assert_valid_freq(marker: Freq, context: str) -> None:
     first runs.  pandas' own message is kept — it is the one that explains that the
     legacy aliases ``"M"`` and ``"H"`` are now spelled ``"ME"`` and ``"h"``.
 
+    ``gaps_ok`` needs a positive step to take multiples of, so it is refused on business
+    days and custom offsets, which would otherwise pass unchecked.
+
     Args:
         marker: The declared `Freq`.
         context: A label for the error message (e.g. ``"f input 'x'"``).
@@ -77,14 +91,42 @@ def assert_valid_freq(marker: Freq, context: str) -> None:
     """
     if marker.dim is not None and not marker.dim:
         raise ValueError(f"{context}: Freq dim must be a non-empty string.")
+    if not isinstance(marker.gaps_ok, bool):
+        raise ValueError(f"{context}: gaps_ok must be a bool, got {marker.gaps_ok!r}.")
     if not isinstance(marker.freq, str):
         raise ValueError(f"{context}: frequency must be a string, got {marker.freq!r}.")
     try:
-        to_offset(marker.freq)
+        kind, spacing = _declared_spacing(marker.freq)
     except ValueError as exc:
         raise ValueError(
             f"{context}: invalid frequency {marker.freq!r}. {exc}"
         ) from exc
+    if marker.gaps_ok and (kind == "opaque" or spacing <= 0):
+        raise ValueError(
+            f"{context}: gaps_ok needs a positive step to compare, and {marker.freq!r} "
+            f"does not have one."
+        )
+
+
+def _any_day_months(freq: str) -> int | None:
+    """The months per step of an any-day spelling such as `"3month"`, else `None`.
+
+    Raises:
+        ValueError: If the multiple is zero.
+    """
+    match = _ANY_DAY.fullmatch(freq)
+    if match is None:
+        return None
+    count = int(match[1] or 1)
+    if count == 0:
+        raise ValueError("A calendar step must be at least one.")
+    return count * (12 if match[2] == "year" else 1)
+
+
+def _declared_spacing(freq: str) -> tuple[str, Any]:
+    """The comparable spacing of a declared string, any-day spellings included."""
+    months = _any_day_months(freq)
+    return ("months", months) if months is not None else _spacing(to_offset(freq))
 
 
 def _spacing(off: BaseOffset) -> tuple[str, object]:
@@ -135,8 +177,10 @@ def _phase(marker: Freq) -> tuple[str | None, int | None]:
     """The comparable phase of a declaration: `(convention, anchor-or-None)`.
 
     The anchor is `None` — meaning *undetermined*, so it is not compared — unless the
-    raw string spells it out (`"W-WED"`).
+    raw string spells it out (`"W-WED"`).  An any-day spelling has no phase at all.
     """
+    if _any_day_months(marker.freq) is not None:
+        return None, None
     off = to_offset(marker.freq)
     return _convention(off), _anchor(off) if "-" in marker.freq else None
 
@@ -149,6 +193,12 @@ def freq_compatible(a: Freq, b: Freq) -> bool:
     when their **spacing** is the same and their **phase** does not conflict — where
     "conflict" needs *both* sides to determine the thing being compared, so a
     declaration that does not spell an anchor never conflicts on one.
+
+    `"month"` has no convention, so it conflicts with neither `"ME"` nor `"MS"`, and
+    `gaps_ok` is not compared.  So this does not prove an edge safe: a producer
+    declaring `gaps_ok` is compatible with a consumer that does not, and it is
+    `check_freq` that refuses an axis with holes when the data arrives, as it does for
+    `"W"` into `"W-SUN"`.
 
     Args:
         a: A `Freq` marker.
@@ -172,8 +222,12 @@ def freq_compatible(a: Freq, b: Freq) -> bool:
         True
         >>> freq_compatible(Freq("ME"), Freq("MS"))  # month-end is not month-start
         False
+        >>> freq_compatible(Freq("month"), Freq("MS"))  # "month" stamps on any day
+        True
+        >>> freq_compatible(Freq("D", gaps_ok=True), Freq("D"))  # gaps_ok not compared
+        True
     """
-    if _spacing(to_offset(a.freq)) != _spacing(to_offset(b.freq)):
+    if _declared_spacing(a.freq) != _declared_spacing(b.freq):
         return False
     (conv_a, anchor_a), (conv_b, anchor_b) = _phase(a), _phase(b)
     if conv_a is not None and conv_b is not None and conv_a != conv_b:
@@ -276,38 +330,70 @@ def _on_declared_weekday(marker: Freq, coord: xr.DataArray) -> bool:
     return coord.dt.dayofweek.values[0] == anchor
 
 
-def _two_points_conform(marker: Freq, coord: xr.DataArray) -> bool:
-    """Whether two timestamps can be consecutive on the declared time axis.
+def _pair(times: pd.Index, step: int) -> str:
+    """The two timestamps either side of a step, for an error message."""
+    return f"{times[step]} then {times[step + 1]}"
 
-    `xarray.infer_freq` needs three points, but two already have a spacing and a phase,
-    so they are compared under the same model as `freq_compatible`.  Business days and
-    custom offsets have no reduction to compare, so they pass.
+
+def _steps_mismatch(
+    steps: Any, spacing: Any, marker: Freq, times: pd.Index
+) -> str | None:
+    """How steps contradict the declared spacing, as `timedelta`s or month counts."""
+    zero = spacing * 0
+    if marker.gaps_ok:
+        wrong = (steps <= zero) | (steps % spacing != zero)
+    else:
+        wrong = steps != spacing
+    if wrong.any():
+        return _pair(times, int(np.argmax(wrong)))
+    if marker.gaps_ok and steps.min() != spacing:
+        return "no step that short"
+    return None
+
+
+def _calendar_phase_mismatch(marker: Freq, coord: xr.DataArray) -> str | None:
+    """How timestamps with whole-month steps sit off the declared calendar phase.
+
+    Every step is a multiple of the declared one by now, so a quarter or year anchor
+    needs comparing on the first timestamp only.
     """
-    offset = to_offset(marker.freq)
-    kind, spacing = _spacing(offset)
-    if kind == "opaque":
-        return True
-    if kind == "fixed":
-        times = coord.to_index()
-        step = pd.Timedelta(times[1] - times[0])
-        if step != pd.Timedelta(spacing, "ns"):  # pyright: ignore[reportArgumentType]
-            return False
-        return _on_declared_weekday(marker, coord)
-
-    convention, anchor = _phase(marker)
-    years, months = coord.dt.year.values, coord.dt.month.values
-    if 12 * (years[1] - years[0]) + months[1] - months[0] != spacing:
-        return False
+    times = coord.to_index()
     time_of_day = (coord - coord.dt.floor("D")).values
-    if time_of_day[0] != time_of_day[1]:
-        return False
+    convention, anchor = _phase(marker)
     expected_day = coord.dt.days_in_month.values if convention == "end" else 1
-    if not (coord.dt.day.values == expected_day).all():
-        return False
+    off = (time_of_day != time_of_day[0]) | (coord.dt.day.values != expected_day)
+    if off.any():
+        return _pair(times, max(int(np.argmax(off)) - 1, 0))
     if anchor is None:
-        return True
-    is_quarterly = isinstance(offset, (QuarterEnd, QuarterBegin))
-    return (months[0] % 3 if is_quarterly else months[0]) == anchor
+        return None
+    month = int(coord.dt.month.values[0])
+    is_quarterly = isinstance(to_offset(marker.freq), (QuarterEnd, QuarterBegin))
+    return None if (month % 3 if is_quarterly else month) == anchor else _pair(times, 0)
+
+
+def _step_mismatch(marker: Freq, coord: xr.DataArray) -> str | None:
+    """Compare an axis step by step, where `xarray.infer_freq` has no answer.
+
+    That is an axis of two points, as it needs three; a `gaps_ok` axis or an any-day
+    one, where it returns `None`.  Business days and custom offsets have no reduction
+    to compare, so they pass, which leaves only two points, as `check_freq` refuses
+    `gaps_ok` on them.
+    """
+    kind, spacing = _declared_spacing(marker.freq)
+    if kind == "opaque":
+        return None
+    times = coord.to_index()
+    if kind == "fixed":
+        steps = pd.TimedeltaIndex(times[1:] - times[:-1])
+        got = _steps_mismatch(steps, pd.Timedelta(spacing, "ns"), marker, times)
+        if got is not None or _on_declared_weekday(marker, coord):
+            return got
+        return _pair(times, 0)
+    months = 12 * coord.dt.year.values + coord.dt.month.values
+    got = _steps_mismatch(np.diff(months), spacing, marker, times)
+    if got is not None or _any_day_months(marker.freq) is not None:
+        return got
+    return _calendar_phase_mismatch(marker, coord)
 
 
 def _mismatch(marker: Freq, coord: xr.DataArray) -> str | None:
@@ -317,11 +403,8 @@ def _mismatch(marker: Freq, coord: xr.DataArray) -> str | None:
     """
     if coord.size < 2:
         return None
-    if coord.size == 2:
-        if _two_points_conform(marker, coord):
-            return None
-        first, second = coord.to_index()
-        return f"{first} then {second}"
+    if coord.size == 2 or marker.gaps_ok or _any_day_months(marker.freq) is not None:
+        return _step_mismatch(marker, coord)
     inferred = _infer(coord)
     if inferred is None:
         return "irregular spacing"
@@ -349,9 +432,10 @@ def check_freq(
     `Freq("W-SUN")` accepts only Sundays.
 
     An array with no (or an ambiguous) time axis is a mismatch, and so is irregular
-    spacing, which no declared frequency describes.  Two points are compared directly,
-    as `infer_freq` needs three, and an axis of zero or one point always passes.  When
-    xarray-annotated is switched off (`enabled(False)`) this is a total no-op.
+    spacing, unless the declaration allows it.  Two points are compared directly, as
+    `infer_freq` needs three, and so are `gaps_ok` and any-day axes, which it has no
+    frequency for.  An axis of zero or one point always passes.  When xarray-annotated
+    is switched off (`enabled(False)`) this is a total no-op.
 
     Args:
         da: The DataArray to validate.
@@ -364,11 +448,28 @@ def check_freq(
 
     Raises:
         FreqError: On a mismatch.
+        ValueError: If `gaps_ok` is declared on a frequency with no step to compare.
+
+    Examples:
+        >>> import pandas as pd
+        >>> import xarray as xr
+        >>> from xarray_annotated.temporal import Freq, FreqError, check_freq
+        >>> time = pd.to_datetime(["2025-01-01", "2025-01-02", "2026-01-01"])
+        >>> da = xr.DataArray([1.0, 2.0, 3.0], coords={"time": time}, dims="time")
+        >>> check_freq(da, Freq("D", gaps_ok=True), "x") is da
+        True
+        >>> try:
+        ...     check_freq(da, Freq("D"), "x")
+        ... except FreqError as exc:
+        ...     print(exc)
+        'x' frequency mismatch on 'time': expected 'D', got irregular spacing
     """
     if not resolve_enabled():
         return da
 
     prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
+    if declared.gaps_ok:
+        assert_valid_freq(declared, prefix)
     dim, detail = _locate_axis(da, declared)
     if dim is None:
         raise FreqError(f"{prefix} {detail}")

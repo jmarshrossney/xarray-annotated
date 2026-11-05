@@ -128,9 +128,13 @@ def declaration_conflicts(a: Declared, b: Declared) -> list[str]:
     Units conflict unless they are equal: `Pa` and `hPa` are compatible, but
     `check_declared` and `enforce` refuse one for the other.
 
-    Compatibility of two markers is not transitive, as a loose `Dims` or `Dtype` is
-    compatible with stricter ones that conflict with each other, so compare all pairs
-    of the declarations for one array, not each against the first.
+    Compatibility of two markers is not transitive, as a loose `Dims`, `Dtype` or `Freq`
+    is compatible with stricter ones that conflict with each other, as `Freq("month")`
+    is with `Freq("ME")` and `Freq("MS")`, so compare all pairs of the declarations for
+    one array, not each against the first.
+
+    Nor does compatibility prove an edge safe.  `Freq("D", gaps_ok=True)` is compatible
+    with `Freq("D")`, which still raises on an axis with holes when the data arrives.
 
     This reports a fact about the declarations rather than checking anything, so it
     ignores `enabled`, like `units_compatible`.  A tool that should stay quiet when
