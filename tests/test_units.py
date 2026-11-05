@@ -10,6 +10,7 @@ import numpy as np
 import pint
 import pytest
 import xarray as xr
+from xarray import conventions
 from xarray.backends import BackendArray
 from xarray.core import indexing
 
@@ -667,3 +668,69 @@ class TestQuantify:
     def test_keeps_encoding(self):
         out = units.quantify(_packed())
         assert out.encoding == _PACKING
+
+
+class TestDequantify:
+    def _quantified_packed(self):
+        return _packed().pint.quantify().pint.to("Pa")
+
+    def test_a_plain_array_comes_back_as_itself(self):
+        da = _packed()
+        assert units.dequantify(da) is da
+        assert da.encoding == _PACKING
+
+    def test_moves_the_unit_into_the_label(self):
+        out = units.dequantify(
+            xr.DataArray([1.0], attrs={"units": "Pa"}).pint.quantify()
+        )
+        assert out.pint.units is None
+        assert units.units_equal(out.attrs["units"], "Pa")
+
+    def test_clears_a_stale_packing_on_a_copy(self):
+        da = self._quantified_packed()
+        assert units.dequantify(da).encoding == {}
+        assert da.encoding == _PACKING
+
+    def test_coords_keep_their_encoding(self):
+        out = units.dequantify(self._quantified_packed())
+        assert out.time.encoding == {"units": "days since 2000-01-01"}
+
+    def test_values_survive_being_encoded(self):
+        out = units.dequantify(self._quantified_packed())
+        encoded = conventions.encode_cf_variable(out.variable)
+        decoded = conventions.decode_cf_variable("p", encoded)
+        np.testing.assert_allclose(decoded.values, [100000.0, 101000.0])
+
+    def test_round_trips_with_quantify_leaving_coords_alone(self):
+        da = xr.DataArray(
+            [1.0, 2.0],
+            dims="lat",
+            coords={"lat": ("lat", [10.0, 20.0], {"units": "degree"})},
+            attrs={"units": "Pa", "long_name": "pressure"},
+        )
+        out = units.dequantify(units.quantify(da))
+        np.testing.assert_array_equal(out.values, da.values)
+        assert out.attrs["long_name"] == "pressure"
+        assert out.lat.attrs == {"units": "degree"}
+
+    def test_replaces_a_leftover_label(self):
+        q = xr.DataArray([1.0], attrs={"units": "Pa"}).pint.quantify()
+        out = units.dequantify(q.assign_attrs(units="degC"))
+        assert units.units_equal(out.attrs["units"], "Pa")
+
+    def test_ignores_the_switch(self):
+        q = xr.DataArray([1.0], attrs={"units": "Pa"}).pint.quantify()
+        with xra.enabled(False):
+            assert units.dequantify(q).pint.units is None
+
+    @pytest.mark.parametrize(
+        "label", ["hPa", "degC", "m**2", "kg*m/s**2", "percent", "dimensionless"]
+    )
+    def test_the_default_registry_reads_its_label_back(self, label):
+        q = xr.DataArray([1.0], attrs={"units": label}).pint.quantify()
+        assert units.units_equal(units.dequantify(q).attrs["units"], label)
+
+    def test_a_cf_import_does_not_change_the_default_registrys_spelling(self):
+        pytest.importorskip("cf_xarray.units")
+        q = xr.DataArray([1.0], attrs={"units": "m**2"}).pint.quantify()
+        assert units.dequantify(q).attrs["units"] == "meter ** 2"

@@ -17,7 +17,7 @@ import xarray as xr
 
 from .._config import resolve_enabled
 from ._annotations import Unit
-from ._registry import _cf_hint, get_registry
+from ._registry import _cf_hint, _label_format, get_registry
 
 _log = logging.getLogger("xarray_annotated.units")
 
@@ -291,17 +291,6 @@ def _refuse(have: str, declared: str, where: str, hint: str, note: str) -> NoRet
     )
 
 
-def _dequantified(da: xr.DataArray) -> xr.DataArray:
-    """A plain copy of a quantified array, with no packing.
-
-    Its `.encoding` may describe other values, as `.pint.to` keeps it, and that would
-    corrupt these on write.
-    """
-    plain = da.pint.dequantify()
-    plain.encoding = {}
-    return plain
-
-
 def check_units(
     da: xr.DataArray,
     declared: str | Unit,
@@ -394,6 +383,41 @@ def quantify(da: xr.DataArray) -> xr.DataArray:
     return out
 
 
+def dequantify(da: xr.DataArray) -> xr.DataArray:
+    """Return a plain `DataArray` labelled with its unit, ready to write to a file.
+
+    Unlike `.pint.dequantify()`, this clears the array's `.encoding`.  Packing such as
+    `scale_factor` may describe other values, since `.pint.to` keeps it, and writing
+    with it silently corrupts these.  Set compression and packing again before writing.
+    Coordinates keep their encoding, so `time` is written as it was read.
+
+    The label uses CF spelling (`"hPa"`, `"g d-1 m-2"`) when `use_cf_units` is active,
+    and otherwise pint's long form (`"hectopascal"`), so the active registry can always
+    read it back.
+
+    This is not a check, so `enabled(False)` does not affect it.
+
+    Args:
+        da: The array, quantified or plain.
+
+    Returns:
+        `da` itself if it is not quantified.  Otherwise a copy holding the magnitudes,
+        which is a new buffer unless dask backs it, with empty `.encoding`.
+
+    Examples:
+        >>> import xarray as xr
+        >>> from xarray_annotated.units import dequantify, quantify
+        >>> p = quantify(xr.DataArray([101325.0], attrs={"units": "Pa"}))
+        >>> dequantify(p.pint.to("hPa")).attrs["units"]
+        'hectopascal'
+    """
+    if _quantified_units(da) is None:
+        return da
+    plain = da.pint.dequantify(format=_label_format())
+    plain.encoding = {}
+    return plain
+
+
 def convert(da: xr.DataArray, unit: str | Unit) -> xr.DataArray:
     """Convert a `DataArray` to `unit`, where you know that is correct for the data.
 
@@ -431,8 +455,8 @@ def convert(da: xr.DataArray, unit: str | Unit) -> xr.DataArray:
     """
     unit = str(unit)
     assert_valid_unit(unit, "convert")
-    have, quantified = _own_unit(da, unit, "the array to convert", _ATTACH_UNIT)
-    plain = _dequantified(da) if quantified else da
+    have, _ = _own_unit(da, unit, "the array to convert", _ATTACH_UNIT)
+    plain = dequantify(da)
     if units_equal(have, unit):
         return _stamped(plain, unit)
     try:

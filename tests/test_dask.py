@@ -81,6 +81,11 @@ class TestQuantified:
         assert units.check_units(da, "hPa", "p") is da
         assert computes == []
 
+    def test_dequantify_leaves_it_uncomputed(self, lazy, computes):
+        out = units.dequantify(units.quantify(lazy()))
+        assert isinstance(out.data, dask_array.Array)
+        assert computes == []
+
     def test_quantify_leaves_it_uncomputed(self, lazy, computes):
         out = units.quantify(lazy())
         assert isinstance(out.data.magnitude, dask_array.Array)

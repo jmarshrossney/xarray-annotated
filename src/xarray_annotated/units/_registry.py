@@ -84,6 +84,16 @@ def use_cf_units() -> None:
     _using_cf = True
 
 
+def _label_format() -> str | None:
+    """Return the pint format that spells a label the active registry can read back.
+
+    CF spelling such as `"g d-1 m-2"` does not parse on a plain registry, and pint's
+    `"cf"` format depends on `cf_xarray` having been imported, so it is used only
+    when the CF registry is active.  `None` is pint's long form, which always parses.
+    """
+    return "cf" if _using_cf else None
+
+
 def _cf_hint(unit: str) -> str:
     """Suggest `use_cf_units` when a unit likely needs the CF registry.
 

@@ -68,9 +68,12 @@ class TestConvertedArraysSurviveWriting:
         with pytest.raises(pint.DimensionalityError):
             _round_trip(out, tmp_path / "a.nc")
 
-    def test_enforce_does_not_protect_a_dequantified_write(self, tmp_path):
-        # The hazard the guide warns about: pint keeps the packing, and enforce is
-        # only a check, so the writer has to clear it.
+    def test_units_dequantify_clears_a_stale_packing(self, tmp_path):
+        out = units.dequantify(_pascals(_packed().pint.quantify().pint.to("Pa")))
+        np.testing.assert_allclose(_round_trip(out, tmp_path / "a.nc"), self.EXPECTED)
+
+    def test_pints_own_dequantify_corrupts_a_stale_packing(self, tmp_path):
+        # Why `units.dequantify` exists: pint keeps the packing, and enforce only checks.
         out = _pascals(_packed().pint.quantify().pint.to("Pa")).pint.dequantify()
         back = _round_trip(out, tmp_path / "a.nc")
         assert not np.allclose(back, self.EXPECTED)

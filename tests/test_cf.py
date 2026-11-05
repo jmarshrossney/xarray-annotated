@@ -97,3 +97,15 @@ def test_use_cf_units_hides_cf_xarray_matplotlib_warning():
         text=True,
     )
     assert out.returncode == 0, out.stderr
+
+
+@pytest.mark.parametrize(
+    ("label", "spelled"),
+    [("hPa", "hPa"), ("g m-2 d-1", "g d-1 m-2"), ("1", "1")],
+)
+def test_dequantify_writes_cf_spelling(label, spelled):
+    units.use_cf_units()
+    q = xr.DataArray([1.0], attrs={"units": label}).pint.quantify()
+    out = units.dequantify(q)
+    assert out.attrs["units"] == spelled
+    assert units.units_equal(spelled, label)
