@@ -78,7 +78,7 @@ class TestOrdering:
             return {"p": x}
 
         out = f(_int_da("pascal"))
-        assert out["p"].attrs["units"] == "Pa"
+        assert out["p"].attrs["units"] == "pascal"
 
     def test_all_facets_on_dataclass_return_checks_quantified_field(self):
         @dataclass
@@ -189,7 +189,7 @@ class TestWrapper:
 
 
 class TestAsync:
-    def test_output_is_applied_to_the_awaited_result(self):
+    def test_output_is_checked_on_the_awaited_result(self):
         @xra.enforce
         async def f(
             p: Annotated[xr.DataArray, Unit("Pa")],
@@ -197,7 +197,7 @@ class TestAsync:
             return (p / 1000.0).assign_attrs(units="kilopascal")
 
         out = asyncio.run(f(_int_da("Pa").astype(float)))
-        assert out.attrs["units"] == "kPa"
+        assert out.attrs["units"] == "kilopascal"
 
     def test_output_checks_run(self):
         @xra.enforce
@@ -237,59 +237,73 @@ class TestAsync:
         assert inspect.iscoroutinefunction(f)
 
 
-class TestOutputRespellingLeavesTheInputAlone:
+class TestChecksChangeNothing:
+    """The body gets what the caller passed, the caller what the body returned."""
+
     def _passthrough(self):
         @xra.enforce
-        def f(x: xr.DataArray) -> Annotated[xr.DataArray, Unit("Pa")]:
+        def f(
+            x: Annotated[xr.DataArray, Unit("Pa")],
+        ) -> Annotated[xr.DataArray, Unit("Pa")]:
             return x
 
         return f
 
-    def test_caller_array_keeps_its_label(self):
-        da = _int_da("pascal")
-        out = self._passthrough()(da)
-        assert out.attrs["units"] == "Pa"
-        assert da.attrs["units"] == "pascal"
+    @pytest.mark.parametrize(
+        "make",
+        [
+            lambda: _int_da("pascal"),
+            lambda: _int_da("Pa"),
+            lambda: xr.DataArray([1.0], attrs={"units": "pascal"}).pint.quantify(),
+        ],
+        ids=["respelled", "same", "quantified"],
+    )
+    def test_same_object_in_and_out(self, make):
+        da = make()
+        assert self._passthrough()(da) is da
 
-    def test_data_is_not_copied(self):
-        da = xr.DataArray(np.zeros(3), dims="x", attrs={"units": "pascal"})
-        assert np.shares_memory(self._passthrough()(da).values, da.values)
-
-    def test_later_check_failure_leaves_it_alone(self):
-        @xra.enforce
-        def f(x: xr.DataArray) -> Annotated[xr.DataArray, Unit("Pa"), Dims("nope")]:
-            return x
-
-        da = _int_da("pascal")
-        with pytest.raises(schema.SchemaError):
-            f(da)
-        assert da.attrs["units"] == "pascal"
-
-    @pytest.mark.parametrize("frozen", [True, False])
-    def test_dataclass_field(self, frozen):
-        @dataclass(frozen=frozen)
-        class Out:
-            p: Annotated[xr.DataArray, Unit("Pa")]
+    def test_the_body_sees_a_quantified_input(self):
+        seen = {}
 
         @xra.enforce
-        def f(x: xr.DataArray) -> Out:
-            return Out(p=x)
+        def f(x: Annotated[xr.DataArray, Unit("Pa")]) -> None:
+            seen["x"] = x
 
+        da = xr.DataArray([1.0], attrs={"units": "Pa"}).pint.quantify()
+        f(da)
+        assert seen["x"] is da
+
+    def test_the_label_keeps_its_spelling(self):
         da = _int_da("pascal")
-        assert f(da).p.attrs["units"] == "Pa"
-        assert da.attrs["units"] == "pascal"
+        assert self._passthrough()(da).attrs["units"] == "pascal"
 
-    def test_dict_field(self):
-        class Out(TypedDict):
-            p: Annotated[xr.DataArray, Unit("Pa")]
+    def test_encoding_is_left_alone(self):
+        da = xr.DataArray([1.0], attrs={"units": "Pa"}).pint.quantify()
+        da.encoding = {"dtype": "int16"}
+        assert self._passthrough()(da).encoding == {"dtype": "int16"}
 
+    def test_same_result_when_switched_off(self):
         @xra.enforce
-        def f(x: xr.DataArray) -> Out:
-            return {"p": x}
+        def dry(rh: Annotated[xr.DataArray, Unit("percent")]) -> xr.DataArray:
+            return 1 - rh / 100
 
-        da = _int_da("pascal")
-        assert f(da)["p"].attrs["units"] == "Pa"
-        assert da.attrs["units"] == "pascal"
+        rh = xr.DataArray([60.0], attrs={"units": "percent"}).pint.quantify()
+        on = dry(rh)
+        with xra.enabled(False):
+            off = dry(rh)
+        xr.testing.assert_identical(on, off)
+
+    def test_two_spellings_in_a_plain_body_lose_the_label(self):
+        # xarray drops conflicting attrs, so the output has no label to check.
+        @xra.enforce
+        def add(
+            a: Annotated[xr.DataArray, Unit("Pa")],
+            b: Annotated[xr.DataArray, Unit("Pa")],
+        ) -> Annotated[xr.DataArray, Unit("Pa")]:
+            return a + b
+
+        with pytest.raises(ValueError, match="no 'units' attribute"):
+            add(_int_da("pascal"), _int_da("Pa"))
 
 
 class TestVariadics:
@@ -430,7 +444,8 @@ class TestTypeAliases:
 
     def test_return_is_checked(self):
         f = xra.enforce(_annotated(ret=_Alias))
-        assert f(xr.DataArray([1.0], attrs={"units": "pascal"})).attrs["units"] == "Pa"
+        with pytest.raises(ValueError, match="'hPa' differs"):
+            f(xr.DataArray([1.0], attrs={"units": "hPa"}))
 
     @pytest.mark.parametrize(
         ("hint", "expected"),
@@ -481,8 +496,8 @@ class TestTypeAliases:
 
     def test_aliased_typeddict_return_is_read_per_field(self):
         f = xra.enforce(_annotated(ret=_FieldsAlias))
-        out = f({"pa": xr.DataArray([1.0], attrs={"units": "pascal"})})
-        assert out["pa"].attrs["units"] == "Pa"
+        with pytest.raises(ValueError, match="'hPa' differs"):
+            f({"pa": xr.DataArray([1.0], attrs={"units": "hPa"})})
 
 
 @dataclass
@@ -660,72 +675,38 @@ def _pa() -> xr.DataArray:
     return xr.DataArray([1.0], attrs={"units": "Pa"})
 
 
-class TestOutputWriteBack:
-    """A return container is never changed in place, and its arrays are not copied."""
+class TestRecordReturnsAreNotTouched:
+    """A record return comes back as the same object, once every field has passed."""
 
     def _identity(self, hint):
         return xra.enforce(_annotated(ret=hint))
 
-    def test_failed_dict_check_leaves_the_dict_as_it_was(self):
-        d = {"a": _pascal(), "b": _kg()}
-        before = d["a"]
+    def test_failed_dict_check_raises(self):
         with pytest.raises(pint.DimensionalityError):
-            self._identity(_Respelled)(d)
-        assert d["a"] is before
-        assert d["a"].attrs["units"] == "pascal"
+            self._identity(_Respelled)({"a": _pascal(), "b": _kg()})
 
-    def test_failed_dataclass_check_leaves_it_as_it_was(self):
-        r = _RespelledRecord(_pascal(), _kg())
-        before = r.a
+    def test_failed_dataclass_check_raises(self):
         with pytest.raises(pint.DimensionalityError):
-            self._identity(_RespelledRecord)(r)
-        assert r.a is before
+            self._identity(_RespelledRecord)(_RespelledRecord(_pascal(), _kg()))
 
-    def test_passing_dict_leaves_the_callers_dict_alone(self):
+    def test_dict_comes_back_as_itself(self):
         d = {"a": _pascal(), "b": _pa(), "extra": 1}
         before = d["a"]
-        out = self._identity(_Respelled)(d)
+        assert self._identity(_Respelled)(d) is d
         assert d["a"] is before
         assert d["a"].attrs["units"] == "pascal"
-        assert out["a"].attrs["units"] == "Pa"
-        assert out["extra"] == 1
 
-    def test_passing_dataclass_leaves_the_callers_object_alone(self):
+    def test_dataclass_comes_back_as_itself(self):
         r = _RespelledRecord(_pascal(), _pa())
-        before = r.a
-        out = self._identity(_RespelledRecord)(r)
-        assert r.a is before
-        assert out.a.attrs["units"] == "Pa"
-        assert type(out) is _RespelledRecord
+        assert self._identity(_RespelledRecord)(r) is r
 
-    def test_nothing_to_write_returns_the_same_object(self):
+    def test_undeclared_value_comes_back_as_itself(self):
         @dataclass
         class Plain:
             n: Annotated[xr.DataArray | int, Unit("Pa")]
 
         r = Plain(1)
         assert self._identity(Plain)(r) is r
-
-    @pytest.mark.parametrize(
-        ("hint", "make", "read"),
-        [
-            (
-                _Respelled,
-                lambda a, b: {"a": a, "b": b},
-                lambda out: out["a"],
-            ),
-            (
-                _RespelledRecord,
-                lambda a, b: _RespelledRecord(a, b),
-                lambda out: out.a,
-            ),
-        ],
-        ids=["dict", "dataclass"],
-    )
-    def test_arrays_are_not_copied(self, hint, make, read):
-        a = _pascal()
-        out = self._identity(hint)(make(a, _pa()))
-        assert np.shares_memory(read(out).values, a.values)
 
     @pytest.mark.parametrize(
         "options", [{"frozen": True}, {"frozen": True, "slots": True}], ids=str
@@ -736,9 +717,7 @@ class TestOutputWriteBack:
             a: _PA
 
         r = Out(_pascal())
-        out = self._identity(Out)(r)
-        assert out.a.attrs["units"] == "Pa"
-        assert r.a.attrs["units"] == "pascal"
+        assert self._identity(Out)(r) is r
 
     def test_frozen_dataclass_with_an_initvar(self):
         @dataclass(frozen=True)
@@ -746,8 +725,8 @@ class TestOutputWriteBack:
             a: _PA
             scale: InitVar[float]
 
-        out = self._identity(Out)(Out(_pascal(), 2.0))
-        assert out.a.attrs["units"] == "Pa"
+        r = Out(_pascal(), 2.0)
+        assert self._identity(Out)(r) is r
 
     def test_frozen_dataclass_with_an_init_false_field(self):
         @dataclass(frozen=True)
@@ -757,7 +736,8 @@ class TestOutputWriteBack:
             def __post_init__(self):
                 object.__setattr__(self, "a", _pascal())
 
-        assert self._identity(Out)(Out()).a.attrs["units"] == "Pa"
+        r = Out()
+        assert self._identity(Out)(r) is r
 
     def test_post_init_does_not_run_again(self):
         calls = []

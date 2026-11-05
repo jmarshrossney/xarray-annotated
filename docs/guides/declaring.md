@@ -43,7 +43,7 @@ def weekly_mean(
 - **Nowhere else:** a marker `enforce` cannot apply raises `ValueError`, such as inside a `tuple[...]` return or on `Annotated[xr.Dataset, ...]`.
 - **Fail fast:** a malformed declaration (a typo'd unit, an unparseable dtype or frequency) raises `ValueError` when the function is decorated.
 - **Units first:** units are checked before other markers, on both sides.
-- **Values never change:** `Unit` only respells a label as declared, and the other markers just check.
+- **Nothing changes:** every marker only checks, so the function receives and returns the arrays as they were.
 
 A few hints are silently not declarations; see [Troubleshooting](troubleshooting.md#a-declaration-is-silently-ignored).
 

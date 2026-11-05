@@ -7,8 +7,8 @@ The building blocks of `@xra.enforce` are public, for validating an array by han
 | Function | Use |
 |---|---|
 | [`check_schema`][xarray_annotated.schema.check_schema], [`check_freq`][xarray_annotated.temporal.check_freq] | Validate one array; it is returned unchanged |
-| [`check_units`][xarray_annotated.units.check_units] | Validate one input; never changes values |
-| [`apply_output_units`][xarray_annotated.units.apply_output_units] | Check one output against a declaration; always use the return value |
+| [`check_units`][xarray_annotated.units.check_units] | Check one input; returns it unchanged |
+| [`apply_output_units`][xarray_annotated.units.apply_output_units] | Check one output against a declaration; returns it unchanged |
 
 ## Checking declarations with no array
 

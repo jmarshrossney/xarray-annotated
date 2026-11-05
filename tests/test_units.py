@@ -10,7 +10,6 @@ import numpy as np
 import pint
 import pytest
 import xarray as xr
-from xarray import conventions
 from xarray.backends import BackendArray
 from xarray.core import indexing
 
@@ -130,9 +129,7 @@ class TestCheckUnits:
     def test_equivalent_spelling_passes(self):
         # 'pascal' is the same unit as 'Pa' (no value change), so it is relabelled.
         da = _da([[10.0, 20.0]], unit="pascal")
-        out = units.check_units(da, "Pa", "vpd")
-        assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, [[10.0, 20.0]])
+        assert units.check_units(da, "Pa", "vpd") is da
 
     def test_convert_refuses_an_incompatible_unit(self):
         da = _da([[1.0, 2.0]], unit="degC")
@@ -200,43 +197,20 @@ class TestCheckUnits:
         unit = "Pa" + " * 1" * 60  # dimensionally Pa, well under the cap
         assert len(unit) <= _check._MAX_UNIT_LEN
         da = _da([[10.0, 20.0]], unit=unit)
-        out = units.check_units(da, "Pa", "vpd")
-        assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, [[10.0, 20.0]])
+        assert units.check_units(da, "Pa", "vpd") is da
 
 
-class TestCheckUnitsRelabelOnly:
-    """An input already in the declared unit must not pay for a conversion.
+class TestCheckUnitsReturnsItsInput:
+    """A check costs nothing and changes nothing: it hands back the same object."""
 
-    ``"pascal"`` where ``"Pa"`` is declared is the same unit spelled differently,
-    so there is nothing to convert -- only a string to rewrite. Routing it
-    through ``quantify().to().dequantify()`` anyway copies the whole buffer, and
-    for a large array that is the dominant cost of declaring a unit it already
-    has.
-    """
-
-    def test_equivalent_spelling_shares_the_buffer(self):
-        da = _da([[1.0, 2.0]], unit="pascal")
-        out = units.check_units(da, "Pa", "p")
-        assert np.shares_memory(da.values, out.values)
-        assert out.attrs["units"] == "Pa"
-
-    def test_identical_spelling_shares_the_buffer(self):
-        da = _da([[1.0]], unit="Pa")
-        assert np.shares_memory(da.values, units.check_units(da, "Pa", "p").values)
-
-    def test_dimensionless_spellings_are_equivalent(self):
-        da = _da([[1.0]], unit="1")
-        out = units.check_units(da, "dimensionless", "p")
-        assert np.shares_memory(da.values, out.values)
-        assert out.attrs["units"] == "dimensionless"
-
-    def test_caller_array_is_left_alone(self):
-        # Shallow copy, but its own attrs dict -- restamping must not reach back
-        # into the caller's array.
-        da = _da([[1.0]], unit="pascal")
-        units.check_units(da, "Pa", "p")
-        assert da.attrs["units"] == "pascal"
+    @pytest.mark.parametrize(
+        ("label", "declared"),
+        [("pascal", "Pa"), ("Pa", "Pa"), ("1", "dimensionless")],
+    )
+    def test_same_object(self, label, declared):
+        da = _da([[1.0, 2.0]], unit=label)
+        assert units.check_units(da, declared, "p") is da
+        assert da.attrs["units"] == label
 
     def test_a_real_conversion_still_copies(self):
         da = _da([[1.0]], unit="hPa")
@@ -286,10 +260,9 @@ class TestCheckUnitsQuantified:
         out = units.convert(_quantified([[1.0]], "hPa"), "Pa")
         assert out.pint.units is None
 
-    def test_quantified_input_in_the_declared_unit_is_dequantified(self):
-        out = units.check_units(_quantified([[1.0]], "pascal"), "Pa", "p")
-        assert out.pint.units is None
-        assert out.attrs["units"] == "Pa"
+    def test_quantified_input_in_the_declared_unit_stays_quantified(self):
+        da = _quantified([[1.0]], "pascal")
+        assert units.check_units(da, "Pa", "p") is da
 
     def test_quantified_input_does_not_warn_about_missing_attrs(self):
         # The old diagnostic was actively misleading: the array does have a unit.
@@ -414,7 +387,7 @@ class TestUnitMarker:
             return p
 
         out = f(_da([[10.0, 20.0]], unit="pascal"))
-        assert out.attrs["units"] == "Pa"
+        assert out.attrs["units"] == "pascal"
         np.testing.assert_allclose(out.values, [[10.0, 20.0]])
 
     def test_repr(self):
@@ -428,8 +401,8 @@ class TestUnitMarker:
     def test_check_units_accepts_a_marker(self):
         with pytest.raises(ValueError, match="declared 'Pa'"):
             units.check_units(_da([[1.0]]), Unit("Pa"), "p")
-        out = units.apply_output_units(_da([[1.0]], unit="pascal"), Unit("Pa"), "r")
-        assert out.attrs["units"] == "Pa"
+        da = _da([[1.0]], unit="pascal")
+        assert units.apply_output_units(da, Unit("Pa"), "r") is da
 
     def test_equality(self):
         assert units.Unit("degC") == units.Unit("degC")
@@ -504,14 +477,11 @@ class TestUnitsEqualIsPhysical:
 
     def test_recomposed_input_passes(self):
         da = xr.DataArray([1.0], attrs={"units": "kg/m/s**2"})
-        out = units.check_units(da, "Pa", "p")
-        np.testing.assert_array_equal(out.values, da.values)
-        assert out.attrs["units"] == "Pa"
+        assert units.check_units(da, "Pa", "p") is da
 
     def test_recomposed_output_label_is_no_mismatch(self):
         da = xr.DataArray([1.0], attrs={"units": "N/m**2"})
-        out = units.apply_output_units(da, "Pa", "return")
-        assert out.attrs["units"] == "Pa"
+        assert units.apply_output_units(da, "Pa", "return") is da
 
 
 _PACKING = {"dtype": "int16", "scale_factor": 0.1, "_FillValue": -32768, "zlib": True}
@@ -550,28 +520,10 @@ class TestConversionClearsEncoding:
         out = units.check_units(_packed("hPa"), "hectopascal", "p")
         assert out.encoding == _PACKING
 
-    def test_explicitly_converted_input(self):
+    def test_a_check_leaves_a_stale_packing_for_the_writer_to_clear(self):
         da = _packed().pint.quantify().pint.to("Pa")
         assert da.encoding == _PACKING  # what pint-xarray leaves behind
-        out = units.check_units(da, "Pa", "p")
-        assert out.encoding == {}
-        assert da.encoding == _PACKING
-
-    def test_explicitly_converted_input_survives_encoding(self):
-        out = units.check_units(_packed().pint.quantify().pint.to("Pa"), "Pa", "p")
-        encoded = conventions.encode_cf_variable(out.variable)
-        decoded = conventions.decode_cf_variable("p", encoded)
-        np.testing.assert_allclose(decoded.values, [100000.0, 101000.0])
-
-    def test_explicitly_converted_output(self):
-        da = _packed().pint.quantify().pint.to("Pa")
-        out = units.apply_output_units(da, "Pa", "return")
-        assert out.encoding == {}
-        assert out.pint.units == da.pint.units
-        assert da.encoding == _PACKING
-
-    def test_quantified_output_with_no_packing_comes_back_as_itself(self):
-        da = xr.DataArray([1.0], attrs={"units": "Pa"}).pint.quantify()
+        assert units.check_units(da, "Pa", "p").encoding == _PACKING
         assert units.apply_output_units(da, "Pa", "return") is da
 
 
@@ -643,3 +595,75 @@ class TestLazyArrays:
         assert _check._quantified_units(quantified) == quantified.pint.units
         da, _ = _lazy(cache)
         assert _check._quantified_units(da) is None
+
+
+class TestQuantify:
+    def _with_lat(self):
+        return xr.DataArray(
+            [1.0, 2.0, 3.0],
+            dims="lat",
+            coords={"lat": ("lat", [10.0, 20.0, 30.0], {"units": "degree"})},
+            attrs={"units": "Pa", "long_name": "pressure"},
+        )
+
+    def test_moves_the_label_into_the_data(self):
+        da = self._with_lat()
+        out = units.quantify(da)
+        assert out.pint.units == units.get_registry().Unit("Pa")
+        assert out.attrs == {"long_name": "pressure"}
+        assert da.attrs["units"] == "Pa"
+        assert da.pint.units is None
+
+    def test_shares_the_buffer(self):
+        da = self._with_lat()
+        assert np.shares_memory(units.quantify(da).data.magnitude, da.values)
+
+    def test_a_quantified_array_comes_back_as_itself(self):
+        da = _quantified([[1.0]], "Pa")
+        assert units.quantify(da) is da
+
+    def test_coords_keep_their_label_and_stay_plain(self):
+        out = units.quantify(self._with_lat())
+        assert out.lat.pint.units is None
+        assert out.lat.attrs == {"units": "degree"}
+
+    def test_a_coord_the_registry_cannot_parse_does_not_stop_it(self):
+        da = self._with_lat().assign_coords(
+            lat=("lat", [10.0, 20.0, 30.0], {"units": "not_a_unit"})
+        )
+        assert units.quantify(da).pint.units is not None
+
+    def test_selecting_on_an_angle_coord_finds_the_right_row(self):
+        out = units.quantify(self._with_lat())
+        assert out.sel(lat=20.0, method="nearest").lat.item() == 20.0
+        assert out.sel(lat=slice(10.0, 20.0)).sizes["lat"] == 2
+
+    def test_pint_xarrays_own_quantify_still_misselects(self):
+        # Why `quantify` exists: delete this and reconsider it if upstream fixes this.
+        out = self._with_lat().pint.quantify()
+        assert out.sel(lat=slice(10.0, 20.0)).sizes["lat"] == 0
+
+    def test_conversion_and_write_labels_work_on_it(self):
+        out = units.quantify(self._with_lat()).pint.to("hPa")
+        np.testing.assert_allclose(out.data.magnitude, [0.01, 0.02, 0.03])
+        assert out.pint.dequantify().lat.attrs == {"units": "degree"}
+
+    def test_missing_label_raises(self):
+        with pytest.raises(ValueError, match="no 'units' attribute"):
+            units.quantify(xr.DataArray([1.0]))
+
+    def test_unparseable_label_raises(self):
+        with pytest.raises(ValueError, match="unparseable"):
+            units.quantify(xr.DataArray([1.0], attrs={"units": "not_a_unit"}))
+
+    def test_over_long_label_is_refused_before_parsing(self):
+        with pytest.raises(ValueError, match="over-long"):
+            units.quantify(xr.DataArray([1.0], attrs={"units": "x" * 300}))
+
+    def test_ignores_the_switch(self):
+        with xra.enabled(False):
+            assert units.quantify(_da([[1.0]], unit="Pa")).pint.units is not None
+
+    def test_keeps_encoding(self):
+        out = units.quantify(_packed())
+        assert out.encoding == _PACKING

@@ -36,7 +36,7 @@ class TestBareDecorator:
             return p
 
         out = f(_da([[10.0, 20.0]], unit="pascal"))
-        assert out.attrs["units"] == "Pa"
+        assert out.attrs["units"] == "pascal"
         np.testing.assert_allclose(out.values, [[10.0, 20.0]])
 
     def test_checks_typeddict_outputs(self):
@@ -79,7 +79,7 @@ class TestBareDecorator:
         def f(p: Annotated[xr.DataArray, Unit("Pa")]) -> xr.DataArray:
             return p
 
-        assert f(p=_da([[10.0]], unit="pascal")).attrs["units"] == "Pa"
+        assert f(p=_da([[10.0]], unit="pascal")).attrs["units"] == "pascal"
 
     def test_optional_dataarray_none_is_skipped(self):
         @xra.enforce
@@ -108,9 +108,7 @@ class TestDefaults:
         def f(p: Annotated[xr.DataArray, Unit("Pa")] = default) -> xr.DataArray:
             return p
 
-        assert f().attrs["units"] == "Pa"
-        assert default.attrs["units"] == "pascal"
-        assert f().attrs["units"] == "Pa"  # second call unaffected
+        assert f() is default
 
     def test_varargs_and_kwargs_survive_apply_defaults(self):
         @xra.enforce
@@ -257,9 +255,9 @@ class TestOutputs:
 
     # -- the label decides -----------------------------------------------------
 
-    def test_equal_label_is_respelled(self):
+    def test_equal_label_passes_as_spelled(self):
         out = self._returning("pascal")()
-        assert out.attrs["units"] == "Pa"
+        assert out.attrs["units"] == "pascal"
         np.testing.assert_allclose(out.values, [[1.0]])
 
     def test_missing_label_raises_with_the_fix(self):
@@ -509,12 +507,9 @@ class TestOutputs:
 class TestApplyOutputUnitsPrimitive:
     """``apply_output_units`` is public; it must behave standalone."""
 
-    def test_respells_a_copy(self):
+    def test_returns_the_same_object(self):
         da = _da([[1.0]], unit="pascal")
-        out = units.apply_output_units(da, "Pa", "return")
-        assert out is not da
-        assert out.attrs["units"] == "Pa"
-        assert da.attrs["units"] == "pascal"
+        assert units.apply_output_units(da, "Pa", "return") is da
 
     def test_has_no_setting(self):
         with pytest.raises(TypeError):
@@ -591,41 +586,9 @@ class TestQuantifiedThroughDecorator:
             return p
 
         out = f(_quantified([[1.0]], "hPa").pint.to("Pa"))
-        np.testing.assert_allclose(out.values, [[100.0]])
+        np.testing.assert_allclose(out.data.magnitude, [[100.0]])
 
-    def test_respelled_output_is_written_back_for_single_return(self):
-        @xra.enforce
-        def f() -> Annotated[xr.DataArray, Unit("Pa")]:
-            return _da([[1.0]], unit="pascal")
-
-        # Respelling produces a *new* array, so a decorator that discarded
-        # apply_output_units' return would silently hand back the old label.
-        assert f().attrs["units"] == "Pa"
-
-    def test_respelled_output_is_written_back_for_typeddict(self):
-        class Out(TypedDict):
-            gpp: Annotated[xr.DataArray, Unit("Pa")]
-
-        @xra.enforce
-        def f() -> Out:
-            return {"gpp": _da([[1.0]], unit="pascal")}
-
-        assert f()["gpp"].attrs["units"] == "Pa"
-
-    def test_respelled_output_is_written_back_for_dataclass(self):
-        @dataclass
-        class Out:
-            gpp: Annotated[xr.DataArray, Unit("Pa")]
-
-        @xra.enforce
-        def f() -> Out:
-            return Out(gpp=_da([[1.0]], unit="pascal"))
-
-        assert f().gpp.attrs["units"] == "Pa"
-
-    def test_frozen_dataclass_is_fine_when_no_conversion_is_needed(self):
-        # Nothing is written back unless the array actually changed, so the
-        # common case does not trip over frozen=True.
+    def test_frozen_dataclass_is_fine(self):
         @dataclass(frozen=True)
         class Out:
             gpp: Annotated[xr.DataArray, Unit("Pa")]
@@ -635,14 +598,3 @@ class TestQuantifiedThroughDecorator:
             return Out(gpp=_quantified([[1.0]], "Pa"))
 
         assert f().gpp.pint.units is not None
-
-    def test_frozen_dataclass_takes_a_respelling(self):
-        @dataclass(frozen=True)
-        class Out:
-            gpp: Annotated[xr.DataArray, Unit("Pa")]
-
-        @xra.enforce
-        def f() -> Out:
-            return Out(gpp=_da([[1.0]], unit="pascal"))
-
-        assert f().gpp.attrs["units"] == "Pa"

@@ -12,8 +12,8 @@ The unit is read from `attrs["units"]`, or from the data if the array is quantif
 | Incompatible (`kg` for `Pa`) | `DimensionalityError` | `DimensionalityError` |
 | Missing, unparseable or over-long | `ValueError` | `ValueError` |
 
-A label that passes is respelled as declared.
-A quantified input reaches the body as a plain array, and a quantified output stays quantified.
+These are checks only.
+The body receives the array you passed, quantified or not and with its label spelled as it was, and you receive the array the body returned.
 
 ## Converting an input
 
@@ -43,10 +43,11 @@ It is not a check, so [`xra.enabled(False)`](troubleshooting.md#enabled) does no
 
 ### Using pint directly
 
-`altitude(p.pint.quantify().pint.to("Pa"))` works too, with two things to watch:
+`altitude(xra.units.quantify(p).pint.to("Pa"))` works too, and the body then receives a quantified array.
+Keep two things in mind:
 
-- `.pint.quantify()` also reads the `units` label of every coordinate, so one that the registry cannot parse stops it. On the default registry that includes `degrees_north`.
-- `.pint.to()` keeps `.encoding`. Passing through `enforce` clears it, but call `.drop_encoding()` on an array you dequantify yourself before writing it.
+- [`quantify`][xarray_annotated.units.quantify] leaves coordinates alone. `.pint.quantify()` also quantifies them: one the registry cannot parse stops it, and on one in degrees, `.sel(lat=20.0, method="nearest")` reads the bare number as radians and silently selects the wrong row.
+- `.pint.to()` keeps `.encoding`, and `enforce` leaves it there, so clear it on an array you dequantify before writing it.
 
 ### Why conversion is not automatic
 
@@ -117,7 +118,7 @@ Two things keep the unit tied to the values:
 
     <!-- docs-test: skip -->
     ```python
-    return flux.pint.quantify().resample(time="D").mean()
+    return xra.units.quantify(flux).resample(time="D").mean()
     ```
 
 - **Declare a unit only where a stage defines it.** A stage that does not change the unit, such as a mean over time, need not declare one, so the label reaches the next declared input, which checks it. The [worked example](../example.md) catches its missing stage this way.
