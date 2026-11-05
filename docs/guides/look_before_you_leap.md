@@ -69,7 +69,7 @@ It leaves a lazily opened array unread, with or without dask:
 | `Freq` | The time axis's index, which xarray holds in memory |
 
 It stops at the first failure for an array, and raises `TypeError`, or a [`ContractError`][xarray_annotated.ContractError]: `UnitError`, `SchemaError` or `FreqError`.
-A malformed declaration raises `ValueError` instead.
+A malformed declaration raises `ValueError` instead, and [`assert_valid_declaration`][xarray_annotated.assert_valid_declaration] asks only that, with no array in hand.
 To report every failing input at once, catch those for each input in turn.
 
 ## Checking during the run { #running }

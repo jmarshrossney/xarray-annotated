@@ -17,6 +17,7 @@ See [Look before you leap](look_before_you_leap.md) for using them to check a pi
 | Function | Use |
 |---|---|
 | [`declaration_conflicts`][xarray_annotated.declaration_conflicts] | List how two `Declared`s conflict, matching `enforce`; use this to compare a producer with a consumer |
+| [`assert_valid_declaration`][xarray_annotated.assert_valid_declaration] | Raise `ValueError` if any part of a `Declared` is malformed, as `enforce` does at decoration |
 | [`assert_valid_unit`][xarray_annotated.units.assert_valid_unit], [`assert_valid_schema`][xarray_annotated.schema.assert_valid_schema], [`assert_valid_freq`][xarray_annotated.temporal.assert_valid_freq] | Raise `ValueError` on a malformed declaration |
 | [`units_equal`][xarray_annotated.units.units_equal] | Whether two units are the same, which is what `enforce` requires |
 | [`units_compatible`][xarray_annotated.units.units_compatible] | Whether two units have the same dimensionality, which `enforce` does not accept on its own: `Pa` and `hPa` are compatible, and `enforce` refuses one for the other |

@@ -39,7 +39,11 @@ import xarray as xr
 
 from ._annotations import _record_return, _walk_signature
 from ._config import resolve_enabled
-from ._contract import _assert_valid, _check_valid_declared, _refuse_other_value
+from ._contract import (
+    _check_valid_declared,
+    _refuse_other_value,
+    assert_valid_declaration,
+)
 from ._reader import Declared, declaration_from_hint, declarations_from_signature
 from .schema import Coords, Dims, Dtype
 from .schema._check import check_schema
@@ -229,7 +233,7 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
     qualname = getattr(func, "__qualname__", repr(func))
 
     for name, decl in inputs.items():
-        _assert_valid(decl, f"{qualname} input {name!r}")
+        assert_valid_declaration(decl, f"{qualname} input {name!r}")
         if sig.parameters[name].kind in (
             inspect.Parameter.VAR_POSITIONAL,
             inspect.Parameter.VAR_KEYWORD,
@@ -241,10 +245,10 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
                 f"on each element in the function body."
             )
     if isinstance(output, Declared):
-        _assert_valid(output, f"{qualname} output")
+        assert_valid_declaration(output, f"{qualname} output")
     elif isinstance(output, dict):
         for name, decl in output.items():
-            _assert_valid(decl, f"{qualname} output {name!r}")
+            assert_valid_declaration(decl, f"{qualname} output {name!r}")
 
     def _check_output(value: Any, decl: Declared, name: str) -> None:
         if not isinstance(value, xr.DataArray):

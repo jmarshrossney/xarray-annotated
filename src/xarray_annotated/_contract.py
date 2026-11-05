@@ -29,11 +29,32 @@ from .units._check import (
     units_equal,
 )
 
-__all__ = ["check_declared", "declaration_conflicts"]
+__all__ = ["assert_valid_declaration", "check_declared", "declaration_conflicts"]
 
 
-def _assert_valid(declared: Declared, context: str) -> None:
-    """Fail fast on a malformed declaration."""
+def assert_valid_declaration(declared: Declared, context: str) -> None:
+    """Raise `ValueError` if any part of a declaration is malformed.
+
+    This is what `enforce` runs at decoration, for a tool that wants to fail as early
+    on a declaration it built or read, with no array in hand.
+
+    Args:
+        declared: The declaration to validate.
+        context: Names the offending site in the error message, such as
+            `"node 'x'"`.
+
+    Raises:
+        ValueError: If a marker is malformed, such as an unrecognised unit, dtype or
+            frequency.
+
+    Examples:
+        >>> import xarray_annotated as xra
+        >>> xra.assert_valid_declaration(xra.Declared(unit=xra.Unit("Pa")), "node 'x'")
+        >>> xra.assert_valid_declaration(xra.Declared(dims=xra.Dims("x", "x")), "n")
+        Traceback (most recent call last):
+        ...
+        ValueError: n: ...
+    """
     if declared.unit is not None:
         assert_valid_unit(declared.unit, context)
     for marker in declared.schema:
@@ -122,7 +143,7 @@ def check_declared(
     if not resolve_enabled():
         return value
     where = f"input {name!r}"
-    _assert_valid(declared, f"[{qualname}] {where}" if qualname else where)
+    assert_valid_declaration(declared, f"[{qualname}] {where}" if qualname else where)
     _check_valid_declared(value, declared, name, qualname)
     return value
 
@@ -168,8 +189,8 @@ def declaration_conflicts(a: Declared, b: Declared) -> list[str]:
         >>> xra.declaration_conflicts(a, xra.Declared(unit=xra.Unit("hPa")))
         ["unit: Unit('Pa') and Unit('hPa') are different units"]
     """
-    _assert_valid(a, "declaration_conflicts")
-    _assert_valid(b, "declaration_conflicts")
+    assert_valid_declaration(a, "declaration_conflicts")
+    assert_valid_declaration(b, "declaration_conflicts")
     conflicts = []
     if a.unit is not None and b.unit is not None:
         if not units_compatible(a.unit, b.unit):

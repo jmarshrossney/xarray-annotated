@@ -230,6 +230,29 @@ class TestMalformedDeclaration:
             assert xra.check_declared(None, Declared(freq=Freq("bogus")), "p") is None
 
 
+class TestAssertValidDeclaration:
+    def test_accepts_a_valid_declaration(self):
+        xra.assert_valid_declaration(Declared(unit=Unit("Pa"), dims=Dims("x")), "node")
+
+    @pytest.mark.parametrize(
+        "declared",
+        [
+            Declared(unit=Unit("not_a_unit")),
+            Declared(dims=Dims("x", "x")),
+            Declared(dtype=Dtype("notdtype")),
+            Declared(freq=Freq("bogus")),
+        ],
+        ids=["unit", "dims", "dtype", "freq"],
+    )
+    def test_names_the_context_on_every_facet(self, declared):
+        with pytest.raises(ValueError, match="node 'x'"):
+            xra.assert_valid_declaration(declared, "node 'x'")
+
+    def test_ignores_the_switch(self):
+        with xra.enabled(False), pytest.raises(ValueError, match="not_a_unit"):
+            xra.assert_valid_declaration(Declared(unit=Unit("not_a_unit")), "node")
+
+
 class TestResolveEnabled:
     def test_follows_the_switch(self):
         with xra.enabled(False):
