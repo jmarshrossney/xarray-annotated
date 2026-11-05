@@ -27,7 +27,7 @@ declaration *writer* ``annotate`` and its inverse *readers*
 ``declaration_from_hint`` and ``declarations_from_signature`` (which read every facet
 declared on a hint or a signature into one uniform ``Declared`` value); and, for tools
 built on those, ``assert_valid_declaration``, ``check_declared``,
-``declaration_conflicts``, ``resolve_enabled`` and
+``declaration_conflicts``, ``declaration_violations``, ``resolve_enabled`` and
 the ``ContractError`` base of every failed check.
 """
 
@@ -35,7 +35,12 @@ from importlib.metadata import version as _version
 
 from . import schema, temporal, units
 from ._config import enabled, resolve_enabled
-from ._contract import assert_valid_declaration, check_declared, declaration_conflicts
+from ._contract import (
+    assert_valid_declaration,
+    check_declared,
+    declaration_conflicts,
+    declaration_violations,
+)
 from ._enforce import enforce
 from ._errors import ContractError
 from ._reader import Declared, declaration_from_hint, declarations_from_signature
@@ -60,6 +65,7 @@ __all__ = [
     "check_declared",
     "declaration_conflicts",
     "declaration_from_hint",
+    "declaration_violations",
     "declarations_from_signature",
     "enabled",
     "enforce",

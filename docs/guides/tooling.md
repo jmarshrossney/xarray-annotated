@@ -8,6 +8,7 @@ See [Look before you leap](look_before_you_leap.md) for using them to check a pi
 | Function | Use |
 |---|---|
 | [`check_declared`][xarray_annotated.check_declared] | Check one input against its whole declaration, as `enforce` does; returns it unchanged |
+| [`declaration_violations`][xarray_annotated.declaration_violations] | List every way one input fails its declaration, rather than raising at the first |
 | [`check_schema`][xarray_annotated.schema.check_schema], [`check_freq`][xarray_annotated.temporal.check_freq] | Validate one array; it is returned unchanged |
 | [`check_units`][xarray_annotated.units.check_units] | Check one input; returns it unchanged |
 | [`check_output_units`][xarray_annotated.units.check_output_units] | Check one output against a declaration; returns it unchanged |

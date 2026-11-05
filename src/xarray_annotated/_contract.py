@@ -9,11 +9,14 @@ Like `Declared`, this is cross-domain, so it lives at the package root.
 """
 
 import types
+from collections.abc import Callable, Iterator
+from functools import partial
 from typing import Any
 
 import xarray as xr
 
 from ._config import resolve_enabled
+from ._errors import ContractError
 from ._reader import Declared
 from .schema._check import (
     assert_valid_schema,
@@ -29,7 +32,12 @@ from .units._check import (
     units_equal,
 )
 
-__all__ = ["assert_valid_declaration", "check_declared", "declaration_conflicts"]
+__all__ = [
+    "assert_valid_declaration",
+    "check_declared",
+    "declaration_conflicts",
+    "declaration_violations",
+]
 
 
 def assert_valid_declaration(declared: Declared, context: str) -> None:
@@ -82,22 +90,32 @@ def _refuse_other_value(value: Any, decl: Declared, where: str) -> None:
         )
 
 
+def _input_label(name: str, qualname: str | None) -> str:
+    """Name an input in a message."""
+    return f"[{qualname}] input {name!r}" if qualname else f"input {name!r}"
+
+
+def _facet_checks(
+    value: xr.DataArray, declared: Declared, name: str, qualname: str | None
+) -> Iterator[Callable[[], Any]]:
+    """Yield one check per declared marker: units, then structure, then frequency."""
+    if declared.unit is not None:
+        yield partial(_check_input_unit, value, declared.unit, name, qualname)
+    for marker in declared.schema:
+        yield partial(check_schema, value, marker, name, qualname=qualname)
+    if declared.freq is not None:
+        yield partial(check_freq, value, declared.freq, name, qualname=qualname)
+
+
 def _check_valid_declared(
     value: Any, declared: Declared, name: str, qualname: str | None
 ) -> None:
     """`check_declared` on a validated declaration, whatever `enabled` says."""
     if not isinstance(value, xr.DataArray):
-        where = f"input {name!r}"
-        _refuse_other_value(
-            value, declared, f"[{qualname}] {where}" if qualname else where
-        )
+        _refuse_other_value(value, declared, _input_label(name, qualname))
         return
-    if declared.unit is not None:
-        _check_input_unit(value, declared.unit, name, qualname)
-    if markers := declared.schema:
-        check_schema(value, markers, name, qualname=qualname)
-    if declared.freq is not None:
-        check_freq(value, declared.freq, name, qualname=qualname)
+    for check in _facet_checks(value, declared, name, qualname):
+        check()
 
 
 def check_declared(
@@ -142,10 +160,64 @@ def check_declared(
     """
     if not resolve_enabled():
         return value
-    where = f"input {name!r}"
-    assert_valid_declaration(declared, f"[{qualname}] {where}" if qualname else where)
+    assert_valid_declaration(declared, _input_label(name, qualname))
     _check_valid_declared(value, declared, name, qualname)
     return value
+
+
+def declaration_violations(
+    value: Any, declared: Declared, name: str, qualname: str | None = None
+) -> list[str]:
+    """Return every way an input fails its declaration, without raising for it.
+
+    This is the array counterpart of `declaration_conflicts`, for a tool reporting all
+    that is wrong at once.  It applies the checks `check_declared` applies, and differs
+    only in collecting one message per failing marker rather than raising at the first.
+
+    To check one array against several consumers, call this once per consumer and
+    de-duplicate by message.  `Declared` equality ignores `others`, so `| None` on one
+    consumer would otherwise excuse `None` for another.
+
+    Args:
+        value: The value to check.
+        declared: Its declaration, as read by `declaration_from_hint` or
+            `declarations_from_signature`.
+        name: The name to report it under.
+        qualname: The qualified name of the function it is for, if any.
+
+    Returns:
+        One message per failure, each naming `name`, or an empty list if there are none
+        or xarray-annotated is switched off.
+
+    Raises:
+        ValueError: If the declaration is malformed.
+
+    Examples:
+        >>> import xarray as xr
+        >>> import xarray_annotated as xra
+        >>> declared = xra.Declared(unit=xra.Unit("Pa"), dims=xra.Dims("y"))
+        >>> p = xr.DataArray([1.0], dims="x", attrs={"units": "Pa"})
+        >>> len(xra.declaration_violations(p, declared, "p"))
+        1
+        >>> xra.declaration_violations(p.rename(x="y"), declared, "p")
+        []
+    """
+    if not resolve_enabled():
+        return []
+    assert_valid_declaration(declared, _input_label(name, qualname))
+    if not isinstance(value, xr.DataArray):
+        try:
+            _refuse_other_value(value, declared, _input_label(name, qualname))
+        except TypeError as exc:
+            return [str(exc)]
+        return []
+    violations = []
+    for check in _facet_checks(value, declared, name, qualname):
+        try:
+            check()
+        except ContractError as exc:
+            violations.append(str(exc))
+    return violations
 
 
 def declaration_conflicts(a: Declared, b: Declared) -> list[str]:

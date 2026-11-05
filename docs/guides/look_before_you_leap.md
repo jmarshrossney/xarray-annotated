@@ -70,7 +70,13 @@ It leaves a lazily opened array unread, with or without dask:
 
 It stops at the first failure for an array, and raises `TypeError`, or a [`ContractError`][xarray_annotated.ContractError]: `UnitError`, `SchemaError` or `FreqError`.
 A malformed declaration raises `ValueError` instead, and [`assert_valid_declaration`][xarray_annotated.assert_valid_declaration] asks only that, with no array in hand.
-To report every failing input at once, catch those for each input in turn.
+
+To report everything wrong with an array at once, [`declaration_violations`][xarray_annotated.declaration_violations] applies the same checks and returns one message per failure:
+
+<!-- docs-test: skip -->
+```python
+xra.declaration_violations(p, inputs["p"], "p")  # [], or a message for each
+```
 
 ## Checking during the run { #running }
 

@@ -253,6 +253,67 @@ class TestAssertValidDeclaration:
             xra.assert_valid_declaration(Declared(unit=Unit("not_a_unit")), "node")
 
 
+class TestDeclarationViolations:
+    @pytest.mark.parametrize(
+        ("value", "error"),
+        [
+            (_array(), None),
+            (_array(unit="hPa"), UnitError),
+            (_array(unit="K"), UnitError),
+            (_array().rename(time="x"), SchemaError),
+            (_array(freq="D"), FreqError),
+            (None, TypeError),
+            (1.0, TypeError),
+        ],
+        ids=["ok", "scale", "dimension", "dims", "freq", "none", "float"],
+    )
+    def test_agrees_with_check_declared(self, value, error):
+        declared = _input_declaration(_full)
+        violations = xra.declaration_violations(value, declared, "p")
+        if error is None:
+            assert violations == []
+            assert xra.check_declared(value, declared, "p") is value
+        else:
+            with pytest.raises(error) as info:
+                xra.check_declared(value, declared, "p")
+            assert violations[0] == str(info.value)
+
+    def test_reports_every_failing_marker(self):
+        declared = Declared(
+            unit=Unit("Pa"), dims=Dims("x"), dtype=Dtype("int"), coords=Coords("lat")
+        )
+        violations = xra.declaration_violations(_array(unit="kg"), declared, "p")
+        assert len(violations) == 4
+
+    def test_reports_units_first_and_names_the_array_once(self):
+        declared = Declared(unit=Unit("Pa"), dims=Dims("x"))
+        unit, dims = xra.declaration_violations(_array(unit="kg"), declared, "p")
+        assert "[mass]" in unit
+        assert "Dims" in dims or "dims" in dims
+        for message in (unit, dims):
+            assert message.count("'p'") == 1
+
+    def test_prefixes_the_qualname(self):
+        declared = Declared(unit=Unit("Pa"))
+        [message] = xra.declaration_violations(_array(unit="kg"), declared, "p", "f")
+        assert message.startswith("[f] input 'p'")
+
+    @pytest.mark.parametrize("value", [_array(), None], ids=["array", "none"])
+    def test_a_malformed_declaration_raises(self, value):
+        with pytest.raises(ValueError, match="not_a_unit"):
+            xra.declaration_violations(value, Declared(unit=Unit("not_a_unit")), "p")
+
+    def test_allows_what_the_hint_allows(self):
+        declared = _input_declaration(_optional)
+        assert xra.declaration_violations(None, declared, "p") == []
+
+    def test_switched_off_reports_nothing(self):
+        with xra.enabled(False):
+            assert (
+                xra.declaration_violations(None, Declared(unit=Unit("Pa")), "p") == []
+            )
+
+
 class TestResolveEnabled:
     def test_follows_the_switch(self):
         with xra.enabled(False):
