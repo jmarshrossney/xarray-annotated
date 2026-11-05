@@ -46,7 +46,7 @@ xra.units.dequantify(result).to_netcdf("out.nc")
 ```
 
 - **Open with `chunks={}`:** quantifying reads an array into memory unless dask backs it.
-- **Use `xra.units.quantify`, not `.pint.quantify()`:** the accessor also quantifies coordinates. One the registry cannot parse stops it, and on one in degrees, `.sel(lat=20.0, method="nearest")` reads the bare number as radians and silently selects the wrong row.
+- **Use `xra.units.quantify` to leave coordinates plain:** `.pint.quantify()` also quantifies them, and a label the registry cannot parse stops it. A quantified coordinate expects `.sel` labels with units, as in `.sel(lat=Q(20.0, "degree"), method="nearest")`. A bare number counts as dimensionless, which raises on metres, but on degrees is read as radians and silently selects the wrong row.
 - **Use `xra.units.dequantify`, not `.pint.dequantify()`:** `.pint.to` keeps `.encoding`, and packing such as `scale_factor` that described the old values silently corrupts the new ones on write. `dequantify` clears it, including packing that was still valid, so set compression and packing again before writing.
 - **Work one variable at a time:** these functions take a `DataArray`, not a `Dataset`.
 

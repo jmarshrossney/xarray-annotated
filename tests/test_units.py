@@ -660,10 +660,12 @@ class TestQuantify:
         assert out.sel(lat=20.0, method="nearest").lat.item() == 20.0
         assert out.sel(lat=slice(10.0, 20.0)).sizes["lat"] == 2
 
-    def test_pint_xarrays_own_quantify_still_misselects(self):
-        # Why `quantify` exists: delete this and reconsider it if upstream fixes this.
+    def test_pint_xarrays_own_quantify_expects_quantity_labels(self):
+        # Pint-xarray's rule, which the docs warn about: a bare label is dimensionless.
         out = self._with_lat().pint.quantify()
         assert out.sel(lat=slice(10.0, 20.0)).sizes["lat"] == 0
+        degree = units.get_registry().Unit("degree")
+        assert out.sel(lat=slice(10.0 * degree, 20.0 * degree)).sizes["lat"] == 2
 
     def test_conversion_and_write_labels_work_on_it(self):
         out = units.quantify(self._with_lat()).pint.to("hPa")
