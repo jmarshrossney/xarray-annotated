@@ -4,11 +4,12 @@ The single cross-domain decorator.  It reads a function's
 `Annotated[DataArray, ...]` hints once, at decoration time, and on every call
 applies each declared facet in a fixed order:
 
-1. **inputs** — units are checked (and respelled as declared) *first*, so the structural
-   and temporal checks then see the array the function body will see;
+1. **inputs** — units are checked *first*, then structure and frequency;
 2. the function runs;
-3. **outputs** — the declared unit is checked *first*, then structure and frequency,
-   on the value the caller will receive.
+3. **outputs** — the declared unit is checked *first*, then structure and frequency.
+
+These are checks only: the body receives what the caller passed, and the caller
+receives what the body returned.
 
 That order is the reason there is one decorator rather than one per domain:
 stackable per-domain decorators could be applied in any order, and only one
@@ -16,12 +17,11 @@ order was correct.
 
 This is deliberately the *convenience* layer over public primitives — the
 `declarations_from_signature` reader and the `check_units` /
-`apply_output_units` / `check_schema` / `check_freq` checkers.  A tool needing
+`check_output_units` / `check_schema` / `check_freq` checkers.  A tool needing
 different behaviour should build its own consumer from those.
 """
 
 import contextlib
-import copy
 import dataclasses
 import functools
 import inspect
@@ -47,8 +47,8 @@ from .temporal import Freq
 from .temporal._check import assert_valid_freq, check_freq
 from .units import Unit
 from .units._check import (
-    apply_output_units,
     assert_valid_unit,
+    check_output_units,
     check_units,
 )
 
@@ -180,28 +180,6 @@ def _refuse_other_value(value: Any, decl: Declared, where: str) -> None:
         )
 
 
-def _with_fields(result: Any, changes: dict[str, xr.DataArray]) -> Any:
-    """Write applied outputs onto a shallow copy of a dict or dataclass return value.
-
-    Written only once every field has passed, so a failed check leaves `result` as
-    it was, and onto a copy, since a body may return the caller's own object.  The
-    arrays are not copied.  A frozen dataclass takes the write the way its own
-    `__init__` does, so `__post_init__` does not run again.
-
-    Returns:
-        `result` when nothing changed, otherwise its updated copy.
-    """
-    if not changes:
-        return result
-    updated = copy.copy(result)
-    for name, value in changes.items():
-        if isinstance(updated, dict):
-            updated[name] = value
-        else:
-            object.__setattr__(updated, name, value)
-    return updated
-
-
 def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
     """Apply every facet declared on a function's signature at runtime.
 
@@ -216,7 +194,7 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
     1. checks every declared input against its unit (`check_units`), then validates
        its structure (`check_schema`) and frequency (`check_freq`);
     2. runs the wrapped function;
-    3. checks each declared output against its unit (`apply_output_units`), then
+    3. checks each declared output against its unit (`check_output_units`), then
        validates structure and frequency on the value returned to the caller.
 
     A value that is not a `DataArray` raises, unless its hint allows it, as `| None`
@@ -226,8 +204,9 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
     is validated **at decoration time**, so a malformed unit, marker or offset string
     fails at import even when switched off.
 
-    There are no options: every failed check raises, and values never change.  Applied
-    bare, as `@xra.enforce`.
+    There are no options: every failed check raises, and nothing is changed: the body
+    receives the objects the caller passed, quantified or not, and the caller receives
+    the object the body returned.  Applied bare, as `@xra.enforce`.
 
     On an `async def`, the checks run when the coroutine is awaited, and outputs
     are applied to the awaited result.
@@ -292,29 +271,24 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
         for name, decl in output.items():
             _assert_valid(decl, f"{qualname} output {name!r}")
 
-    def _apply_output(value: Any, decl: Declared, name: str) -> Any:
-        # Units first, so structure and frequency are checked on what the
-        # caller receives.  apply_output_units returns a *new* labelled array,
-        # so its result is always used.
+    def _check_output(value: Any, decl: Declared, name: str) -> None:
         if not isinstance(value, xr.DataArray):
             _refuse_other_value(value, decl, f"[{qualname}] output {name!r}")
-            return value
+            return
         if decl.unit is not None:
-            value = apply_output_units(value, decl.unit, name, qualname)
+            check_output_units(value, decl.unit, name, qualname)
         if markers := decl.schema:
             check_schema(value, markers, name, qualname=qualname)
         if decl.freq is not None:
             check_freq(value, decl.freq, name, qualname=qualname)
-        return value
 
-    def _record_output(result: Any, cls: Any, fields: dict[str, Declared]) -> Any:
+    def _check_record(result: Any, cls: Any, fields: dict[str, Declared]) -> None:
         is_dict = is_typeddict(cls)
         if not isinstance(result, dict if is_dict else cls):
             raise TypeError(
                 f"[{qualname}] output: declared {cls.__name__}, got "
                 f"{type(result).__name__}."
             )
-        changes = {}
         for name, decl in fields.items():
             if is_dict and name not in result:
                 if name in cls.__required_keys__:
@@ -324,26 +298,22 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
                     )
                 continue
             value = result[name] if is_dict else getattr(result, name, None)
-            applied = _apply_output(value, decl, name)
-            if applied is not value:
-                changes[name] = applied
-        return _with_fields(result, changes)
+            _check_output(value, decl, name)
 
-    def _outputs(result: Any) -> Any:
+    def _check_outputs(result: Any) -> None:
         if isinstance(output, Declared):
-            return _apply_output(result, output, "return")
-        if not output or (result is None and record_optional):
-            return result
-        return _record_output(result, record, output)
+            _check_output(result, output, "return")
+        elif output and not (result is None and record_optional):
+            _check_record(result, record, output)
 
-    def _inputs(args: Any, kwargs: Any) -> tuple[Any, Any]:
+    def _check_inputs(args: Any, kwargs: Any) -> None:
         if not inputs:
-            return args, kwargs
+            return
         bound = sig.bind_partial(*args, **kwargs)
         # bind_partial omits parameters left at their default; apply
         # them so a declared default is checked too.
         bound.apply_defaults()
-        for name, val in list(bound.arguments.items()):
+        for name, val in bound.arguments.items():
             decl = inputs.get(name)
             if decl is None:
                 continue
@@ -351,28 +321,29 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
                 _refuse_other_value(val, decl, f"[{qualname}] input {name!r}")
                 continue
             if decl.unit is not None:
-                val = check_units(val, decl.unit, name, qualname=qualname)
-                bound.arguments[name] = val
+                check_units(val, decl.unit, name, qualname=qualname)
             if markers := decl.schema:
                 check_schema(val, markers, name, qualname=qualname)
             if decl.freq is not None:
                 check_freq(val, decl.freq, name, qualname=qualname)
-        return bound.args, bound.kwargs
 
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         if not resolve_enabled():
-            # Switched off: a total no-op, conversion included.
             return func(*args, **kwargs)
-        args, kwargs = _inputs(args, kwargs)
-        return _outputs(func(*args, **kwargs))
+        _check_inputs(args, kwargs)
+        result = func(*args, **kwargs)
+        _check_outputs(result)
+        return result
 
     @functools.wraps(func)
     async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
         if not resolve_enabled():
             return await func(*args, **kwargs)
-        args, kwargs = _inputs(args, kwargs)
-        return _outputs(await func(*args, **kwargs))
+        _check_inputs(args, kwargs)
+        result = await func(*args, **kwargs)
+        _check_outputs(result)
+        return result
 
     chosen = async_wrapper if inspect.iscoroutinefunction(func) else wrapper
     chosen.__annotations__ = dict(func.__annotations__)

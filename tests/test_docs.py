@@ -24,6 +24,7 @@ import re
 import textwrap
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 DOCS = Path(__file__).parent.parent / "docs"
@@ -98,3 +99,104 @@ def test_snippets_run(page: Path):
         namespace = shared if label is None else by_label.setdefault(label, {})
         namespace.update({**shared, **namespace})
         _run(code, namespace, match["directive"], f"{page.name}:{line}")
+
+
+class TestGettingStarted:
+    """The page says each tab is a complete script and tabulates what breaks it."""
+
+    PAGE = DOCS / "getting_started.md"
+    PLAIN, ANNOTATED, QUANTIFIED = (
+        "xarray",
+        "xarray-annotated",
+        "xarray-annotated + pint",
+    )
+
+    @pytest.fixture
+    def scripts(self) -> dict[str, dict]:
+        """Run each tab with nothing supplied, as a reader pasting it would."""
+        text = self.PAGE.read_text()
+        namespaces = {}
+        for tab in _TAB.finditer(text):
+            fence = _FENCE.search(tab[0])
+            if tab["label"] in (self.PLAIN, self.ANNOTATED, self.QUANTIFIED):
+                assert fence is not None
+                namespaces[tab["label"]] = {}
+                exec(textwrap.dedent(fence["code"]), namespaces[tab["label"]])
+        assert len(namespaces) == 3
+        return namespaces
+
+    @staticmethod
+    def _magnitude(array):
+        return getattr(array.data, "magnitude", array.data)
+
+    def test_every_tab_gives_the_same_density(self, scripts):
+        for names in scripts.values():
+            out = names["daily_air_density"](names["p"], names["t"])
+            np.testing.assert_allclose(self._magnitude(out), 1.225, atol=5e-4)
+
+    @pytest.mark.parametrize(
+        ("change", "arg", "kwargs", "plain_cell", "plain_value", "error"),
+        [
+            (
+                'hourly(101325.0, "Pa")',
+                "p",
+                {"value": 101325.0, "units": "Pa"},
+                "122.5, no error",
+                122.5,
+                "ValueError",
+            ),
+            (
+                'hourly(15.0, "degC")',
+                "t",
+                {"value": 15.0, "units": "degC"},
+                "23.53, no error",
+                23.53,
+                "ValueError",
+            ),
+            (
+                'hourly(288.15, "m")',
+                "t",
+                {"value": 288.15, "units": "m"},
+                "1.225, no error",
+                1.225,
+                "DimensionalityError",
+            ),
+            (
+                'hourly(288.15, "K", dims=("time", "station"))',
+                "t",
+                {"value": 288.15, "units": "K", "dims": ("time", "station")},
+                "Gains a `station` dimension, no error",
+                1.225,
+                "SchemaError",
+            ),
+            (
+                'hourly(288.15, "K", freq="3h")',
+                "t",
+                {"value": 288.15, "units": "K", "freq": "3h"},
+                "1.225 from every third hour, no error",
+                1.225,
+                "FreqError",
+            ),
+        ],
+    )
+    def test_the_table(
+        self, scripts, change, arg, kwargs, plain_cell, plain_value, error
+    ):
+        row = f"| `{change}` for `{arg}` | {plain_cell} | `{error}` |"
+        assert row in self.PAGE.read_text()
+
+        names = scripts[self.PLAIN]
+        args = {"p": names["p"], "t": names["t"], arg: names["hourly"](**kwargs)}
+        out = names["daily_air_density"](**args)
+        np.testing.assert_allclose(out.values, plain_value, atol=5e-3)
+        assert ("station" in out.dims) == ("dims" in kwargs)
+        if "freq" in kwargs:
+            assert out.sizes["time"] == 2
+
+        for label in (self.ANNOTATED, self.QUANTIFIED):
+            names = scripts[label]
+            bad = names["hourly"](**kwargs)
+            if label == self.QUANTIFIED:
+                bad = names["xra"].units.quantify(bad)
+            call = "daily_air_density(p, t)"
+            _run(call, {**names, arg: bad}, f"raises {error}", f"{label}: {change}")

@@ -95,12 +95,16 @@ def _():
 
     # 1 umol m-2 s-1 sustained for a day, expressed as g C m-2 d-1.
     UMOL_S_TO_G_D = 1e-6 * M_C * SEC_PER_DAY
+
+    Q = xra.units.get_registry().Quantity
     return (
         Annotated,
         Coords,
         Dims,
         Dtype,
         Freq,
+        M_C,
+        Q,
         TypedDict,
         UMOL_S_TO_G_D,
         Unit,
@@ -233,7 +237,7 @@ def _(mo):
         NEEM --> DCN(["daily_mean"]) --> NEED["nee daily<br/>g m-2 d-1 · D"]
         GPPM --> DCG(["daily_mean"]) --> GPPD["gpp daily<br/>g m-2 d-1 · D"]
 
-        NEED --> SUM([".sum()"]) --> BUD["annual budget<br/>g C m-2 yr-1"]
+        NEED --> SUM(["× 1 day, .sum()"]) --> BUD["annual budget<br/>g C m-2"]
 
         GPPD --> WM(["weekly_mean"]) --> GPPW["gpp weekly<br/>g m-2 d-1 · W-SUN"]
         GPPW --> CMP(["compare_with_satellite"])
@@ -449,7 +453,7 @@ def _(mo):
 
 
 @app.cell
-def _(Annotated, Coords, Dims, Dtype, Freq, TypedDict, Unit, xr, xra):
+def _(Annotated, Coords, Dims, Dtype, Freq, Q, TypedDict, Unit, xr, xra):
     @xra.enforce
     def screen_quality_declared(
         flux: Annotated[
@@ -483,9 +487,15 @@ def _(Annotated, Coords, Dims, Dtype, Freq, TypedDict, Unit, xr, xra):
         ppfd: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
     ) -> Partitioned:
         """Partition NEE into GPP and respiration via a Q10 model."""
-        reco = 2.60 * 2.0 ** ((tair - 10.0) / 10.0)
-        reco = reco.assign_attrs(units="umol m-2 s-1")  # otherwise labelled degC
-        gpp = (reco - nee).where(ppfd > 5.0, 0.0)  # no photosynthesis in the dark
+        # With pint, the units of the result follow from the arithmetic.
+        flux_unit = "umol m-2 s-1"
+        q10_exponent = (xra.units.quantify(tair) - Q(10.0, "degC")) / Q(
+            10.0, "delta_degC"
+        )
+        reco = Q(2.60, flux_unit) * 2.0**q10_exponent
+        gpp = (reco - xra.units.quantify(nee)).where(  # no photosynthesis in the dark
+            xra.units.quantify(ppfd) > Q(5.0, flux_unit), Q(0.0, flux_unit)
+        )
         return {"gpp": gpp, "reco": reco}
 
     @xra.enforce
@@ -508,8 +518,11 @@ def _(Annotated, Coords, Dims, Dtype, Freq, TypedDict, Unit, xr, xra):
         observed: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")],  # (10)
     ) -> dict[str, float]:
         """Bias and RMSE of modelled weekly GPP against the satellite retrieval."""
-        _diff = modelled - observed
-        return {"bias": float(_diff.mean()), "rmse": float((_diff**2).mean() ** 0.5)}
+        _diff = xra.units.quantify(modelled) - xra.units.quantify(observed)
+        return {
+            "bias": float(_diff.mean().data.magnitude),
+            "rmse": float(((_diff**2).mean() ** 0.5).data.magnitude),
+        }
 
     return (
         compare_with_satellite_declared,
@@ -626,18 +639,21 @@ def _(mo):
     have noticed, especially since the numbers came out looking highly plausible.
 
     Let's add the missing function and run the pipeline (hopefully) one final time.
+    We let [pint](guides/pint.md) work out the conversion from the molar mass, rather than
+    writing the factor by hand, so forgetting the molar mass would raise as well.
     """)
     return
 
 
 @app.cell
-def _(Annotated, UMOL_S_TO_G_D, Unit, xr, xra):
+def _(Annotated, M_C, Q, Unit, xr, xra):
     @xra.enforce
     def to_mass_flux(
         flux: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
     ) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
         """Umol CO2 m-2 s-1 -> g C m-2 d-1, via the molar mass of carbon."""
-        return (flux * UMOL_S_TO_G_D).assign_attrs(units="g m-2 d-1")
+        mass_flux = xra.units.quantify(flux) * Q(M_C, "g / mol")
+        return xra.units.convert(mass_flux, "g m-2 d-1")
 
     return (to_mass_flux,)
 
@@ -654,6 +670,7 @@ def _(mo):
 
 @app.cell
 def _(
+    Q,
     compare_with_satellite_declared,
     daily_mean_declared,
     partition_fluxes_declared,
@@ -663,6 +680,11 @@ def _(
     weekly_mean_declared,
     xra,
 ):
+    def annual_total(daily_rate):
+        """Daily rates -> their total, multiplying by the time step that `Freq` declared."""
+        total = (daily_rate * Q(1.0, "d")).sum()
+        return float(xra.units.convert(total, "g m-2").data.magnitude)
+
     def run_pipeline_final(nee_raw, qc, tair, ppfd):
         nee = screen_quality_declared(nee_raw, qc)
         tair_degc = xra.units.convert(tair, "degC")
@@ -673,7 +695,7 @@ def _(
         reco_daily = daily_mean_declared(to_mass_flux(fluxes["reco"]))
 
         # Product 1: the annual carbon budget.
-        nee_annual = float(nee_daily.sum())
+        nee_annual = annual_total(nee_daily)
 
         # Product 2: weekly GPP, against the satellite retrieval.
         gpp_weekly = weekly_mean_declared(gpp_daily)
@@ -681,8 +703,8 @@ def _(
 
         return {
             "nee_annual": nee_annual,
-            "gpp_annual": float(gpp_daily.sum()),
-            "reco_annual": float(reco_daily.sum()),
+            "gpp_annual": annual_total(gpp_daily),
+            "reco_annual": annual_total(reco_daily),
             "gpp_weekly": gpp_weekly,
             "comparison": comparison,
         }
@@ -707,7 +729,7 @@ def _(mo, results):
     | Annual NEE | **{results["nee_annual"]:+.0f}** g C m^-2^ yr^-1^ (negative = sink) |
     | Annual GPP | **{results["gpp_annual"]:+.0f}** g C m^-2^ yr^-1^ |
     | Annual RECO | **{results["reco_annual"]:+.0f}** g C m^-2^ yr^-1^ |
-    | Weekly GPP | {_weekly.sizes["time"]} weeks from {str(_weekly.time.values[0])[:10]} (a Sunday), mean **{float(_weekly.mean()):.2f}** g C m^-2^ d^-1^ |
+    | Weekly GPP | {_weekly.sizes["time"]} weeks from {str(_weekly.time.values[0])[:10]} (a Sunday), mean **{float(_weekly.mean().data.magnitude):.2f}** g C m^-2^ d^-1^ |
     | Satellite comparison | bias **{_cmp["bias"]:+.2f}**, rmse **{_cmp["rmse"]:.2f}** g C m^-2^ d^-1^ |
     """)
     return

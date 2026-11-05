@@ -12,8 +12,8 @@ The unit is read from `attrs["units"]`, or from the data if the array is quantif
 | Incompatible (`kg` for `Pa`) | `DimensionalityError` | `DimensionalityError` |
 | Missing, unparseable or over-long | `ValueError` | `ValueError` |
 
-A label that passes is respelled as declared.
-A quantified input reaches the body as a plain array, and a quantified output stays quantified.
+These are checks only.
+The body receives the array you passed, quantified or not and with its label spelled as it was, and you receive the array the body returned.
 
 ## Converting an input
 
@@ -32,7 +32,7 @@ p = xr.DataArray([1013.0, 1000.0], dims="time", attrs={"units": "hPa"})
 altitude(xra.units.convert(p, "Pa"))
 ```
 
-[`convert`][xarray_annotated.units.convert] takes an array labelled in `attrs` or quantified, and returns a plain one labelled in the new unit.
+[`convert`][xarray_annotated.units.convert] takes an array labelled in `attrs` or quantified, and returns the same kind of array in the new unit.
 
 - **Coordinates are left alone:** only the data is converted, so a coordinate labelled `degrees_north` neither stops it nor changes.
 - **Copies:** a converted array has a new buffer, and converting a lazy array that dask does not back reads it into memory. An array already in the unit shares its buffer and stays lazy.
@@ -40,13 +40,6 @@ altitude(xra.units.convert(p, "Pa"))
 - **Auditing:** every conversion is logged at `DEBUG` on the `xarray_annotated.units` logger.
 
 It is not a check, so [`xra.enabled(False)`](troubleshooting.md#enabled) does not affect it.
-
-### Using pint directly
-
-`altitude(p.pint.quantify().pint.to("Pa"))` works too, with two things to watch:
-
-- `.pint.quantify()` also reads the `units` label of every coordinate, so one that the registry cannot parse stops it. On the default registry that includes `degrees_north`.
-- `.pint.to()` keeps `.encoding`. Passing through `enforce` clears it, but call `.drop_encoding()` on an array you dequantify yourself before writing it.
 
 ### Why conversion is not automatic
 
@@ -74,27 +67,11 @@ A function's author controls what it returns, so an output must already match it
 
 A label that differs could be a forgotten conversion, where the label is true and the values are in the wrong unit, or a stale label left behind by xarray, which keeps `attrs` through arithmetic.
 The package cannot tell them apart, and both raise, because a false alarm is loud and a mislabelled result is silent.
-So a body that changes the unit states the new one:
 
-```python
-@xra.enforce
-def to_pascals(
-    p: Annotated[xr.DataArray, Unit("hPa")],
-) -> Annotated[xr.DataArray, Unit("Pa")]:
-    return (p * 100.0).assign_attrs(units="Pa")  # otherwise labelled "hPa"
-```
+Compute with pint where you can, so the unit follows from the arithmetic: see [Computing with pint](pint.md).
+A body that needs the bare numbers [states the unit it returns](pint.md#plain-arrays) with `.assign_attrs`, as `altitude` does above.
 
-Whether a label survives depends on xarray: inputs with conflicting labels leave none, and so does `xr.set_options(keep_attrs=False)`, so a body that relies on an inherited label will then raise.
-
-Wrapping a library that returns bare arrays works the same way: attach the unit it documents, and convert if you need to.
-
-```python
-@xra.enforce
-def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g / m**2 / day")]:
-    raw = some_library.gpp(ppfd.values)  # documented as ug m-2 s-1
-    out = xr.DataArray(raw, dims=ppfd.dims, coords=ppfd.coords)
-    return xra.units.convert(out.assign_attrs(units="ug / m**2 / s"), "g / m**2 / day")
-```
+Whether a label survives depends on xarray: inputs with conflicting labels leave none, as do `pascal` and `Pa`, and so does `xr.set_options(keep_attrs=False)`, so a body that relies on an inherited label will then raise.
 
 ### What a label cannot catch { #what-a-label-cannot-catch }
 
@@ -110,14 +87,13 @@ def daily_carbon(
 ```
 
 Declarations catch wiring mistakes, not algebra.
-A better approach is an open question in [this GitHub issue](https://github.com/jmarshrossney/xarray-annotated/issues/26).
 Two things keep the unit tied to the values:
 
-- **Let pint carry the unit.** Compute on a quantified array, and the return is checked against the declaration. Here the forgotten factor raises `DimensionalityError`:
+- **Let pint carry the unit.** Compute on a quantified array, and the return is checked against the declaration. Here the forgotten factor raises `DimensionalityError`; see [Computing with pint](pint.md#in-a-declared-function).
 
     <!-- docs-test: skip -->
     ```python
-    return flux.pint.quantify().resample(time="D").mean()
+    return xra.units.quantify(flux).resample(time="D").mean()
     ```
 
 - **Declare a unit only where a stage defines it.** A stage that does not change the unit, such as a mean over time, need not declare one, so the label reaches the next declared input, which checks it. The [worked example](../example.md) catches its missing stage this way.

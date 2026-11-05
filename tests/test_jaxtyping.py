@@ -139,7 +139,7 @@ class TestDecorators:
         ) -> Annotated[FloatDA, Unit("Pa")]:
             return x
 
-        assert f(_da(unit="pascal", fill=1.0)).attrs["units"] == "Pa"
+        assert f(_da(unit="pascal", fill=1.0)).attrs["units"] == "pascal"
         with pytest.raises(ValueError, match="'hPa' differs"):
             f(_da(unit="hPa", fill=1.0))
 
@@ -183,7 +183,7 @@ class TestFullStack:
         return f
 
     def test_units_checked_under_full_stack(self):
-        out = self._stack()(_da(unit="pascal", fill=1.0), _da(unit="Pa", fill=1.0))
+        out = self._stack()(_da(unit="Pa", fill=1.0), _da(unit="Pa", fill=1.0))
         assert out.attrs["units"] == "Pa"
 
     def test_wrong_dtype_caught_by_jaxtyping(self):

@@ -189,7 +189,7 @@ class TestEveryFailedCheckRaises:
             xra.schema.check_schema,
             xra.temporal.check_freq,
             xra.units.check_units,
-            xra.units.apply_output_units,
+            xra.units.check_output_units,
         ],
         ids=lambda item: item.__name__,
     )

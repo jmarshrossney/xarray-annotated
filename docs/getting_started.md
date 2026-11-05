@@ -37,145 +37,189 @@ Python 3.12, 3.13 and 3.14 are tested in CI.
 
 ## Before and after
 
-Vapour pressure deficit (VPD) measures how dry the air is, and is computed from air temperature and relative humidity.
-To try it, we need some data.
-The values are constant at 20 °C and 60% humidity, so every correct result is the same: 0.935 kPa.
+Here is a function that computes the daily mean density of dry air from pressure and temperature, written three ways: with its expectations in the docstring, where nothing checks them; with them in the signature, on arrays that carry their unit in `attrs`; and with them in the signature, on arrays quantified with [pint](guides/pint.md).
+Each tab is a complete script that you can copy and run.
 
-```python
-import numpy as np
-import pandas as pd
-import xarray as xr
+=== "xarray"
 
+    ```python
+    import numpy as np
+    import pandas as pd
+    import xarray as xr
 
-def hourly(value, units=None, freq="h"):
-    time = pd.date_range("2024-07-01", "2024-07-03T23:00", freq=freq)
-    return xr.DataArray(
-        np.full((time.size, 2), value),
-        dims=("time", "site"),
-        coords={"time": time, "site": ["north", "south"]},
-        attrs={"units": units} if units else {},
-    )
+    R = 287.05  # specific gas constant of dry air, J / kg / K
 
 
-tair = hourly(20.0, "degC")
-rh = hourly(60.0, "percent")
+    def hourly(value, units, dims=("time", "site"), freq="h"):
+        time = pd.date_range("2024-07-01", "2024-07-02T23:00", freq=freq)
+        return xr.DataArray(
+            np.full((time.size, 2), value),
+            dims=dims,
+            coords={"time": time},
+            attrs={"units": units},
+        )
+
+
+    def daily_air_density(p: xr.DataArray, t: xr.DataArray) -> xr.DataArray:
+        """Daily mean density of dry air.
+
+        Args:
+            p: Hourly pressure in hPa, with dims (time, site).
+            t: Hourly temperature in K, with dims (time, site).
+
+        Returns:
+            Daily mean density in kg/m^3, with dims (time, site).
+        """
+        rho = 100.0 * p / (R * t)
+        return rho.resample(time="D").mean()
+
+
+    p = hourly(1013.25, "hPa")
+    t = hourly(288.15, "K")
+    print(daily_air_density(p, t).round(3))
+    ```
+    ```
+    <xarray.DataArray (time: 2, site: 2)> Size: 32B
+    array([[1.225, 1.225],
+           [1.225, 1.225]])
+    Coordinates:
+      * time     (time) datetime64[us] 16B 2024-07-01 2024-07-02
+    Dimensions without coordinates: site
+    ```
+
+=== "xarray-annotated"
+
+    ```python
+    from typing import Annotated
+
+    import numpy as np
+    import pandas as pd
+    import xarray as xr
+    import xarray_annotated as xra
+    from xarray_annotated import Dims, Freq, Unit
+
+    R = 287.05  # specific gas constant of dry air, J / kg / K
+
+
+    def hourly(value, units, dims=("time", "site"), freq="h"):
+        time = pd.date_range("2024-07-01", "2024-07-02T23:00", freq=freq)
+        return xr.DataArray(
+            np.full((time.size, 2), value),
+            dims=dims,
+            coords={"time": time},
+            attrs={"units": units},
+        )
+
+
+    @xra.enforce  # (1)!
+    def daily_air_density(
+        p: Annotated[xr.DataArray, Dims("time", "site"), Unit("hPa"), Freq("h")],  # (2)!
+        t: Annotated[xr.DataArray, Dims("time", "site"), Unit("K"), Freq("h")],
+    ) -> Annotated[xr.DataArray, Dims("time", "site"), Unit("kg/m^3"), Freq("D")]:  # (3)!
+        """Daily mean density of dry air."""
+        rho = 100.0 * p / (R * t)
+        return rho.resample(time="D").mean().assign_attrs(units="kg/m^3")  # (4)!
+
+
+    p = hourly(1013.25, "hPa")
+    t = hourly(288.15, "K")
+    print(daily_air_density(p, t).round(3))
+    ```
+
+    1.  `enforce` reads the declarations from the signature and checks them on every call.
+    2.  These dimensions must be present, in any order, and no others. The unit must be `hPa`, and the `time` coordinate must be hourly.
+    3.  The return value is checked too, and has to match.
+    4.  xarray would otherwise leave the `hPa` label on the result, so the body states its unit.
+
+    ```
+    <xarray.DataArray (time: 2, site: 2)> Size: 32B
+    array([[1.225, 1.225],
+           [1.225, 1.225]])
+    Coordinates:
+      * time     (time) datetime64[us] 16B 2024-07-01 2024-07-02
+    Dimensions without coordinates: site
+    Attributes:
+        units:    kg/m^3
+    ```
+
+=== "xarray-annotated + pint"
+
+    ```python
+    from typing import Annotated
+
+    import numpy as np
+    import pandas as pd
+    import xarray as xr
+    import xarray_annotated as xra
+    from xarray_annotated import Dims, Freq, Unit
+
+    R = xra.units.get_registry().Quantity(287.05, "J / kg / K")  # (1)!
+
+
+    def hourly(value, units, dims=("time", "site"), freq="h"):
+        time = pd.date_range("2024-07-01", "2024-07-02T23:00", freq=freq)
+        return xr.DataArray(
+            np.full((time.size, 2), value),
+            dims=dims,
+            coords={"time": time},
+            attrs={"units": units},
+        )
+
+
+    @xra.enforce
+    def daily_air_density(
+        p: Annotated[xr.DataArray, Dims("time", "site"), Unit("hPa"), Freq("h")],
+        t: Annotated[xr.DataArray, Dims("time", "site"), Unit("K"), Freq("h")],
+    ) -> Annotated[xr.DataArray, Dims("time", "site"), Unit("kg/m^3"), Freq("D")]:
+        """Daily mean density of dry air."""
+        rho = p / (R * t)  # (2)!
+        return xra.units.convert(rho.resample(time="D").mean(), "kg/m^3")  # (3)!
+
+
+    p = xra.units.quantify(hourly(1013.25, "hPa"))  # (4)!
+    t = xra.units.quantify(hourly(288.15, "K"))
+    print(daily_air_density(p, t).round(3))
+    ```
+
+    1.  A constant needs a unit too, as a bare number is dimensionless.
+    2.  Pint works out the unit, so the factor of 100 between `hPa` and `Pa` is not written by hand.
+    3.  The result is in `hPa kg / J`, which is a density but not yet the declared unit.
+    4.  The arrays are quantified before they reach the function. `enforce` only checks, so the body receives them as they are.
+
+    ```
+    <xarray.DataArray (time: 2, site: 2)> Size: 32B
+    Quantity(array([[1.225, 1.225],
+           [1.225, 1.225]]), "kilogram / meter ** 3")
+    Coordinates:
+      * time     (time) datetime64[us] 16B 2024-07-01 2024-07-02
+    Dimensions without coordinates: site
+    ```
+
+Whether units live in `attrs` or in pint-quantified arrays is a decision for the whole workflow, rather than for one function.
+We [recommend pint where it is feasible](guides/pint.md), because a unit that was computed is worth more than one that was assigned by hand.
+
+## Now break it
+
+Change one line of the script, and see what each version does:
+
+| Change | xarray | xarray-annotated, with or without pint |
+|---|---|---|
+| `hourly(101325.0, "Pa")` for `p` | 122.5, no error | `ValueError` |
+| `hourly(15.0, "degC")` for `t` | 23.53, no error | `ValueError` |
+| `hourly(288.15, "m")` for `t` | 1.225, no error | `DimensionalityError` |
+| `hourly(288.15, "K", dims=("time", "station"))` for `t` | Gains a `station` dimension, no error | `SchemaError` |
+| `hourly(288.15, "K", freq="3h")` for `t` | 1.225 from every third hour, no error | `FreqError` |
+
+Each error says what is wrong and, where it can, what to do about it:
+
 ```
-
-Here is a function that averages VPD to daily values, with its expectations in the docstring.
-Given a temperature in kelvin, it treats 293.15 as a Celsius temperature and returns a VPD of 3411 kPa, with no error.
-
-```python
-def plain_daily_vpd(tair: xr.DataArray, rh: xr.DataArray) -> xr.DataArray:
-    """Daily mean vapour pressure deficit.
-
-    Args:
-        tair: Hourly air temperature in degC, with dims (time, site).
-        rh: Hourly relative humidity in percent, with dims (time, site).
-
-    Returns:
-        Daily mean VPD in kPa, with dims (time, site).
-    """
-    es = 0.6108 * np.exp(17.27 * tair / (tair + 237.3))
-    return (es * (1 - rh / 100)).resample(time="D").mean()
-
-
-plain_daily_vpd(hourly(293.15, "K"), rh).round(3)  # 3411.424
-```
-
-Here is the same function with those expectations declared in the signature:
-
-```python
-from typing import Annotated
-
-import xarray_annotated as xra
-from xarray_annotated import Dims, Freq, Unit
-
-
-@xra.enforce  # (1)!
-def daily_vpd(
-    tair: Annotated[
-        xr.DataArray,
-        Dims("time", "site"),  # (2)!
-        Unit("degC"),  # (3)!
-        Freq("h"),  # (4)!
-    ],
-    rh: Annotated[xr.DataArray, Dims("time", "site"), Unit("percent"), Freq("h")],
-) -> Annotated[xr.DataArray, Dims("time", "site"), Unit("kPa"), Freq("D")]:  # (5)!
-    """Daily mean vapour pressure deficit."""
-    es = 0.6108 * np.exp(17.27 * tair / (tair + 237.3))
-    vpd = (es * (1 - rh / 100)).resample(time="D").mean()
-    return vpd.assign_attrs(units="kPa")  # (6)!
-```
-
-1.  `enforce` reads the declarations from the signature and checks them on every call.
-2.  These dimensions must be present, in any order, and no others.
-3.  The body always sees `degC`. A different unit such as `K` raises, even though it could be converted.
-4.  The `time` coordinate must be hourly.
-5.  The return value is checked too, and has to match.
-6.  xarray would otherwise leave a misleading label on the result, so the body states its unit: see [Output units](guides/units.md#outputs).
-
-### Temperature in kelvin
-
-The annotated function refuses the input, because `K` is not the declared `degC`:
-
-<!-- docs-test: raises ValueError -->
-```python
-daily_vpd(hourly(293.15, "K"), rh)
-```
-```
-ValueError: [daily_vpd] input 'tair': unit 'K' differs from declared 'degC'.
+ValueError: [daily_air_density] input 'p': unit 'Pa' differs from declared 'hPa'.
   Converting would change the values; if that is correct for this quantity,
-  pass xra.units.convert(da, 'degC').
+  pass xra.units.convert(da, 'hPa').
 ```
 
-Temperature is safe to convert here, so [convert it](guides/units.md#converting-an-input) and try again:
-
-```python
-daily_vpd(xra.units.convert(hourly(293.15, "K"), "degC"), rh).round(3)
-```
-```
-<xarray.DataArray (time: 3, site: 2)> Size: 48B
-array([[0.935, 0.935],
-       [0.935, 0.935],
-       [0.935, 0.935]])
-Coordinates:
-  * time     (time) datetime64[us] 24B 2024-07-01 2024-07-02 2024-07-03
-  * site     (site) <U5 40B 'north' 'south'
-Attributes:
-    units:    kPa
-```
-
-### Humidity with no units
-
-Here `rh` is a fraction rather than a percentage, and nothing says so.
-The plain function returns 2.324 instead of 0.935, and labels the result `degC`, the only `units` attribute xarray could find.
-The annotated function refuses to guess:
-
-<!-- docs-test: raises ValueError -->
-```python
-daily_vpd(tair, hourly(0.6))
-```
-```
-ValueError: [daily_vpd] input 'rh' has no 'units' attribute (declared 'percent').
-  Attach the unit where the data enters the pipeline (`.assign_attrs(units=...)`),
-  or switch checking off with `xra.enabled(False)`.
-```
-
-A unit that is dimensionally wrong, such as `tair` labelled `m`, raises `DimensionalityError`.
-
-### Data at the wrong frequency
-
-This 3-hourly data gives a plausible answer, and with constant values even the right one, but the function was written for hourly data.
-Whether that matters depends on the analysis, and the annotated function makes it a decision rather than an accident:
-
-<!-- docs-test: raises FreqError -->
-```python
-daily_vpd(hourly(20.0, "degC", freq="3h"), hourly(60.0, "percent", freq="3h"))
-```
-```
-FreqError: [daily_vpd] 'tair' frequency mismatch on 'time': expected 'h', got '3h'
-```
+Pressure is safe to [convert](guides/units.md#converting-an-input), but nothing is converted for you, because whether a conversion is correct depends on the quantity.
 
 A violation always raises; to check nothing while prototyping, [switch the package off](guides/troubleshooting.md#enabled).
 
-Next, see [Declaring properties](guides/declaring.md) for every marker, including [how to shorten long signatures](guides/declaring.md#reusing-a-declaration), or the [worked example](example.md) for an end-to-end pipeline.
+Next, see [Declaring properties](guides/declaring.md) for every marker, including [how to shorten long signatures](guides/declaring.md#reusing-a-declaration), [Computing with pint](guides/pint.md), or the [worked example](example.md) for an end-to-end pipeline.

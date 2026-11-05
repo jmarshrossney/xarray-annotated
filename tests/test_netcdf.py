@@ -3,6 +3,7 @@
 from typing import Annotated
 
 import numpy as np
+import pint
 import pint_xarray  # noqa: F401  (registers the .pint accessor)
 import pytest
 import xarray as xr
@@ -62,9 +63,20 @@ class TestConvertedArraysSurviveWriting:
             back = _round_trip(out, tmp_path / "a.nc")
         np.testing.assert_allclose(back, self.EXPECTED)
 
-    def test_pint_through_enforce(self, tmp_path):
+    def test_a_quantified_array_cannot_be_written(self, tmp_path):
         out = _pascals(_packed().pint.quantify().pint.to("Pa"))
+        with pytest.raises(pint.DimensionalityError):
+            _round_trip(out, tmp_path / "a.nc")
+
+    def test_units_dequantify_clears_a_stale_packing(self, tmp_path):
+        out = units.dequantify(_pascals(_packed().pint.quantify().pint.to("Pa")))
         np.testing.assert_allclose(_round_trip(out, tmp_path / "a.nc"), self.EXPECTED)
+
+    def test_pints_own_dequantify_corrupts_a_stale_packing(self, tmp_path):
+        # Why `units.dequantify` exists: pint keeps the packing, and enforce only checks.
+        out = _pascals(_packed().pint.quantify().pint.to("Pa")).pint.dequantify()
+        back = _round_trip(out, tmp_path / "a.nc")
+        assert not np.allclose(back, self.EXPECTED)
 
     def test_pint_by_hand_with_the_documented_drop_encoding(self, tmp_path):
         out = _packed().pint.quantify().pint.to("Pa").pint.dequantify().drop_encoding()
