@@ -53,6 +53,7 @@ See [Look before you leap](guides/look_before_you_leap.md) for more details.
 - [Look before you leap](guides/look_before_you_leap.md): checking a pipeline before it runs.
 - [Units](guides/units.md) and [Computing with pint](guides/pint.md): what to do when units differ, and getting them right in the first place.
 - [Worked example](example.md) and [API reference](api/package.md).
+- [FAQ](faq.md): why the package raises, and what it leaves out.
 - [CONTRIBUTING.md](https://github.com/jmarshrossney/xarray-annotated/blob/main/CONTRIBUTING.md): the package's scope and how to set up a development environment.
 
 ## See also
