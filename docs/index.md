@@ -13,59 +13,39 @@ Making signatures the single source of truth has several advantages: the same de
 - provides rich context for AI coding agents.
 
 
+## Installation
+
+Either using `uv` (recommended) or `pip`:
+
+```sh
+uv add xarray-annotated
+# or
+pip install xarray-annotated
+```
+
 ## How it works
 
-Here is the same function twice: with its expectations in the docstring, where nothing checks them, and with them in the signature.
+Add markers to the `Annotated` hint of each `DataArray` parameter or return value, and decorate the function with `enforce`:
 
-=== "Plain xarray"
+```python
+from typing import Annotated
 
-    ```python
-    import xarray as xr
+import xarray as xr
+import xarray_annotated as xra
+from xarray_annotated import Dims, Freq, Unit
 
-
-    def daily_mean_pressure(p: xr.DataArray) -> xr.DataArray:
-        """Daily mean pressure.
-
-        Args:
-            p: Pressure in Pa, with dims (time, x).
-
-        Returns:
-            Daily mean pressure in Pa, with dims (time, x).
-        """
-        return p.resample(time="D").mean()
-    ```
-
-===+ "With xarray-annotated"
-
-    ```python
-    from typing import Annotated
-
-    import xarray as xr
-    import xarray_annotated as xra
-    from xarray_annotated import Dims, Freq, Unit
+R = 287.05  # specific gas constant of dry air, J / kg / K
 
 
-    @xra.enforce
-    def daily_mean_pressure(
-        p: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")],
-    ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa"), Freq("D")]:
-        """Daily mean pressure."""
-        return p.resample(time="D").mean()
-    ```
-
-If signatures get long or repetitive, [type aliases can shorten them](guides/declaring.md#reusing-a-declaration).
-
-### 1. Declare
-
-Add markers to the `Annotated` hint of each `DataArray` parameter or return value.
-
-### 2. Enforce
-
-Decorate the function with `enforce`, or wrap an existing one: `xra.enforce(daily_mean_pressure)`.
-
-On each call, `enforce` checks inputs against their declared units with [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io).
-A different unit raises, so the function body sees `Pa` or does not run at all.
-Structure and frequency are then checked, and everything is checked again on the return value.
+@xra.enforce
+def daily_air_density(
+    p: Annotated[xr.DataArray, Dims("time", "site"), Unit("hPa"), Freq("h")],
+    t: Annotated[xr.DataArray, Dims("time", "site"), Unit("K"), Freq("h")],
+) -> Annotated[xr.DataArray, Dims("time", "site"), Unit("kg/m^3"), Freq("D")]:
+    """Daily mean density of dry air."""
+    rho = 100.0 * p / (R * t)
+    return rho.resample(time="D").mean().assign_attrs(units="kg/m^3")
+```
 
 Anything that does not match its declaration raises.
 
