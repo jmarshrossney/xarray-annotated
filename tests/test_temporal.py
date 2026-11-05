@@ -1115,3 +1115,17 @@ class TestSteppingReadsNothing:
         da.compute()
         assert data_backend.reads > 0
         assert aux_backend.reads > 0
+
+
+class TestAnyDayProperty:
+    @pytest.mark.parametrize("freq", ["month", "3month", "year", "2year", "0month"])
+    def test_calendar_steps_on_any_day(self, freq):
+        assert Freq(freq).any_day is True
+
+    @pytest.mark.parametrize("freq", ["ME", "MS", "D", "YE", "months", "bogus", 7])
+    def test_everything_else(self, freq):
+        assert Freq(freq).any_day is False
+
+    def test_is_not_part_of_the_marker_state(self):
+        assert Freq("month") == Freq("month")
+        assert repr(Freq("month")) == "Freq('month')"

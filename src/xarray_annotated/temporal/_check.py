@@ -33,7 +33,6 @@ Known limitation: `Day` is DST-aware in pandas while `24h` is not, so treating t
 the same spacing is an approximation for timezone-aware axes.
 """
 
-import re
 from typing import Any
 
 import numpy as np
@@ -56,10 +55,9 @@ from xarray.indexes import PandasIndex
 
 from .._config import resolve_enabled
 from .._errors import ContractError
-from ._annotations import Freq
+from ._annotations import _ANY_DAY, Freq
 
 _NANOS_PER_DAY = 86_400_000_000_000
-_ANY_DAY = re.compile(r"([0-9]*)(month|year)")
 
 
 class FreqError(ContractError):

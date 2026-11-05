@@ -17,6 +17,10 @@ and hashable so an annotation carrying them stays hashable; ``eq``/``repr`` cove
 fields, so ``eval(repr(m)) == m``.
 """
 
+import re
+
+_ANY_DAY = re.compile(r"([0-9]*)(month|year)")
+
 
 class Freq:
     """Declare the expected temporal frequency of a DataArray's time axis.
@@ -96,6 +100,18 @@ class Freq:
     def gaps_ok(self) -> bool:
         """Whether the time axis may have holes."""
         return self._gaps_ok
+
+    @property
+    def any_day(self) -> bool:
+        """Whether this is a calendar step on any day, such as `"month"`.
+
+        Such a declaration is not a pandas frequency, so a tool that needs one, to
+        resample say, cannot use it.  This reads the spelling alone, and validating the
+        declaration is separate, so `Freq("0month").any_day` is `True`.
+        """
+        return (
+            isinstance(self._freq, str) and _ANY_DAY.fullmatch(self._freq) is not None
+        )
 
     def __repr__(self) -> str:
         parts = [repr(self._freq)]
