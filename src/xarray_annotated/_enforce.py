@@ -16,7 +16,7 @@ stackable per-domain decorators could be applied in any order, and only one
 order was correct.
 
 This is deliberately the *convenience* layer over public primitives — the
-`declarations_from_signature` reader and the `check_units` /
+`declarations_from_signature` reader and the `check_declared` /
 `check_output_units` / `check_schema` / `check_freq` checkers.  A tool needing
 different behaviour should build its own consumer from those.
 """
@@ -25,7 +25,6 @@ import contextlib
 import dataclasses
 import functools
 import inspect
-import types
 from collections.abc import Callable
 from typing import (
     Any,
@@ -40,29 +39,16 @@ import xarray as xr
 
 from ._annotations import _record_return, _walk_signature
 from ._config import resolve_enabled
+from ._contract import _assert_valid, _refuse_other_value, check_declared
 from ._reader import Declared, declaration_from_hint, declarations_from_signature
 from .schema import Coords, Dims, Dtype
-from .schema._check import assert_valid_schema, check_schema
+from .schema._check import check_schema
 from .temporal import Freq
-from .temporal._check import assert_valid_freq, check_freq
+from .temporal._check import check_freq
 from .units import Unit
-from .units._check import (
-    assert_valid_unit,
-    check_output_units,
-    check_units,
-)
+from .units._check import check_output_units
 
 __all__ = ["enforce"]
-
-
-def _assert_valid(declared: Declared, context: str) -> None:
-    """Fail fast on a malformed declaration."""
-    if declared.unit is not None:
-        assert_valid_unit(declared.unit, context)
-    for marker in declared.schema:
-        assert_valid_schema(marker, context)
-    if declared.freq is not None:
-        assert_valid_freq(declared.freq, context)
 
 
 def _nested_hints(hint: Any, seen: set[Any]) -> list[Any]:
@@ -158,25 +144,6 @@ def _refuse_unread_fields(hint: Any) -> None:
             f"only one TypedDict or dataclass return, optionally `| None`, is read "
             f"field by field, and not any class nested in its fields or any parameter. "
             f"Declare a parameter's arrays as parameters of their own."
-        )
-
-
-def _refuse_other_value(value: Any, decl: Declared, where: str) -> None:
-    """Raise unless the hint allows this value, which is not a `DataArray`.
-
-    Raises:
-        TypeError: If the hint names nothing that could be this value.
-    """
-    if value is None:
-        if types.NoneType not in decl.others:
-            raise TypeError(
-                f"{where}: declared a DataArray, got None. If that is allowed, declare "
-                f"it with `| None`."
-            )
-    elif all(other is types.NoneType for other in decl.others):
-        raise TypeError(
-            f"{where}: declared a DataArray, got {type(value).__name__}. Checks apply "
-            f"only to a DataArray, so this value could not be checked."
         )
 
 
@@ -315,17 +282,8 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
         bound.apply_defaults()
         for name, val in bound.arguments.items():
             decl = inputs.get(name)
-            if decl is None:
-                continue
-            if not isinstance(val, xr.DataArray):
-                _refuse_other_value(val, decl, f"[{qualname}] input {name!r}")
-                continue
-            if decl.unit is not None:
-                check_units(val, decl.unit, name, qualname=qualname)
-            if markers := decl.schema:
-                check_schema(val, markers, name, qualname=qualname)
-            if decl.freq is not None:
-                check_freq(val, decl.freq, name, qualname=qualname)
+            if decl is not None:
+                check_declared(val, decl, name, qualname)
 
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:

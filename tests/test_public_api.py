@@ -186,6 +186,7 @@ class TestEveryFailedCheckRaises:
             xra.Dtype,
             xra.Freq,
             xra.Unit,
+            xra.check_declared,
             xra.schema.check_schema,
             xra.temporal.check_freq,
             xra.units.check_units,
