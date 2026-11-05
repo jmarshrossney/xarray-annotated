@@ -131,7 +131,7 @@ class TestGettingStarted:
                 {"value": 101325.0, "units": "Pa"},
                 "122.5, no error",
                 122.5,
-                "ValueError",
+                "UnitError",
             ),
             (
                 "`t` as the same temperature in `degC`",
@@ -139,7 +139,7 @@ class TestGettingStarted:
                 {"value": 15.0, "units": "degC"},
                 "23.53, no error",
                 23.53,
-                "ValueError",
+                "UnitError",
             ),
             (
                 "`t` with dims `(time, station)`",

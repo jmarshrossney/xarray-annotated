@@ -13,7 +13,6 @@ import typing
 from dataclasses import dataclass
 from typing import Annotated, TypedDict
 
-import pint
 import pytest
 import xarray as xr
 
@@ -28,6 +27,7 @@ from xarray_annotated.schema import Coords, Dims, Dtype
 from xarray_annotated.temporal import Freq
 from xarray_annotated.units import (
     Unit,
+    UnitError,
     units_compatible,
     units_equal,
 )
@@ -394,7 +394,7 @@ class TestReadsThroughWrappers:
 
         f()
         f(xr.DataArray([1.0], attrs={"units": "Pa"}))
-        with pytest.raises(pint.DimensionalityError):
+        with pytest.raises(UnitError):
             f(xr.DataArray([1.0], attrs={"units": "kg"}))
 
     def test_not_required_field_is_enforced(self):
@@ -405,7 +405,7 @@ class TestReadsThroughWrappers:
         def f() -> Out:
             return {"a": xr.DataArray([1.0])}
 
-        with pytest.raises(ValueError, match="no 'units' attribute"):
+        with pytest.raises(UnitError, match="no 'units' attribute"):
             f()
 
 

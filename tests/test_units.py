@@ -3,6 +3,7 @@
 CF/UDUNITS-only cases live in ``test_cf.py``.
 """
 
+import pickle
 import warnings
 from typing import Annotated
 
@@ -16,7 +17,7 @@ from xarray.core import indexing
 
 import xarray_annotated as xra
 from xarray_annotated import Unit, units
-from xarray_annotated.units import _check
+from xarray_annotated.units import UnitError, _check
 
 
 def _da(values, unit=None):
@@ -91,9 +92,9 @@ class TestCheckUnits:
         assert out.attrs["units"] == "Pa"
         np.testing.assert_allclose(out.values, [[1000.0, 2000.0]])
 
-    def test_incompatible_raises_dimensionality_error(self):
+    def test_incompatible_raises_from_the_pint_error(self):
         da = _da([[1.0, 2.0]], unit="degC")
-        with pytest.raises(pint.DimensionalityError):
+        with pytest.raises(UnitError):
             units.check_units(da, "kg", "x")
 
     def test_affine_kelvin_to_celsius(self):
@@ -103,14 +104,14 @@ class TestCheckUnits:
 
     def test_missing_units_always_raise(self):
         da = _da([[1.0, 2.0]])
-        with pytest.raises(ValueError, match="no 'units' attribute"):
+        with pytest.raises(UnitError, match="no 'units' attribute"):
             units.check_units(da, "Pa", "vpd")
 
     @pytest.mark.parametrize(
         "unit", [None, "fraction", "e" * (_check._MAX_UNIT_LEN + 1)]
     )
     def test_every_unreadable_unit_error_gives_the_remedy(self, unit):
-        with pytest.raises(ValueError, match=r"xra\.enabled\(False\)"):
+        with pytest.raises(UnitError, match=r"xra\.enabled\(False\)"):
             units.check_units(_da([[1.0]], unit=unit), "Pa", "x")
 
     def test_unparseable_units_error_raises(self):
@@ -118,13 +119,13 @@ class TestCheckUnits:
         # validated; it is reported clearly rather than letting an opaque pint
         # parse error escape.
         da = _da([[1.0, 2.0]], unit="fraction")
-        with pytest.raises(ValueError, match="unparseable 'units' attribute"):
+        with pytest.raises(UnitError, match="unparseable 'units' attribute"):
             units.check_units(da, "1", "clay")
 
     def test_a_compatible_unit_is_refused(self):
         # hPa where Pa is declared would scale the values, so it is refused.
         da = _da([[10.0, 20.0]], unit="hPa")
-        with pytest.raises(ValueError, match=r"units\.convert\(da, 'Pa'\)"):
+        with pytest.raises(UnitError, match=r"units\.convert\(da, 'Pa'\)"):
             units.check_units(da, "Pa", "vpd")
 
     def test_equivalent_spelling_passes(self):
@@ -164,7 +165,7 @@ class TestCheckUnits:
         # K -> degC is an *affine* (offset) conversion, not just a scale; it still
         # changes the values, so it is refused like hPa/Pa.
         da = _da([[300.0]], unit="K")
-        with pytest.raises(ValueError, match=r"units\.convert"):
+        with pytest.raises(UnitError, match=r"units\.convert"):
             units.check_units(da, "degC", "temperature")
 
     def test_disabled_policy_is_noop(self):
@@ -181,14 +182,14 @@ class TestCheckUnits:
         # parser (DoS). An over-long one is refused on length, before parsing,
         # which must return quickly.
         da = _da([[1.0, 2.0]], unit="e" * (_check._MAX_UNIT_LEN + 1))
-        with pytest.raises(ValueError, match="over-long 'units' attribute"):
+        with pytest.raises(UnitError, match="over-long 'units' attribute"):
             units.check_units(da, "Pa", "vpd")
 
     def test_over_long_error_message_does_not_echo_the_unit(self):
         # The message must report the length, not the (potentially huge) string.
         over_long = "e" * (_check._MAX_UNIT_LEN + 1)
         da = _da([[1.0, 2.0]], unit=over_long)
-        with pytest.raises(ValueError, match="over-long") as excinfo:
+        with pytest.raises(UnitError, match="over-long") as excinfo:
             units.check_units(da, "Pa", "vpd")
         assert over_long not in str(excinfo.value)
 
@@ -291,11 +292,11 @@ class TestCheckUnitsQuantified:
         np.testing.assert_allclose(out.data.magnitude, [[100.0]])
 
     def test_quantified_input_is_refused_in_another_unit(self):
-        with pytest.raises(ValueError, match=r"units\.convert"):
+        with pytest.raises(UnitError, match=r"units\.convert"):
             units.check_units(_quantified([[1.0]], "hPa"), "Pa", "p")
 
     def test_quantified_input_dimensional_mismatch_raises(self):
-        with pytest.raises(pint.DimensionalityError):
+        with pytest.raises(UnitError):
             units.check_units(_quantified([[1.0]], "degC"), "kg", "p")
 
     def test_pint_label_wins_over_stale_attrs(self):
@@ -323,7 +324,7 @@ class TestCheckUnitsQuantified:
         foreign = pint.UnitRegistry(force_ndarray_like=True)
         foreign.define("widget = [thing]")
         da = _da([[1.0]]).pint.quantify("widget", unit_registry=foreign)
-        with pytest.raises(ValueError, match="unparseable 'units'"):
+        with pytest.raises(UnitError, match="unparseable 'units'"):
             units.check_units(da, "Pa", "p")
 
     def test_disabled_policy_leaves_quantified_input_alone(self):
@@ -414,7 +415,7 @@ class TestUnitMarker:
             Unit("Pa", **{setting: True})  # type: ignore[arg-type]
 
     def test_check_units_accepts_a_marker(self):
-        with pytest.raises(ValueError, match="declared 'Pa'"):
+        with pytest.raises(UnitError, match="declared 'Pa'"):
             units.check_units(_da([[1.0]]), Unit("Pa"), "p")
         da = _da([[1.0]], unit="pascal")
         assert units.check_output_units(da, Unit("Pa"), "r") is da
@@ -757,3 +758,50 @@ class TestDequantify:
         pytest.importorskip("cf_xarray.units")
         q = xr.DataArray([1.0], attrs={"units": "m**2"}).pint.quantify()
         assert units.dequantify(q).attrs["units"] == "meter ** 2"
+
+
+class TestUnitError:
+    def test_is_a_contract_error_and_neither_value_nor_type_error(self):
+        assert issubclass(UnitError, xra.ContractError)
+        assert not issubclass(UnitError, ValueError | TypeError)
+
+    def test_incompatible_units_keep_the_pint_error_as_the_cause(self):
+        with pytest.raises(UnitError) as info:
+            units.check_units(_da([[1.0]], unit="kg"), "Pa", "p", qualname="f")
+        assert isinstance(info.value.__cause__, pint.DimensionalityError)
+
+    @pytest.mark.parametrize(
+        "check", [units.check_units, units.check_output_units], ids=lambda c: c.__name__
+    )
+    def test_pickling_keeps_the_whole_message(self, check):
+        with pytest.raises(UnitError) as info:
+            check(_da([[1.0]], unit="kg"), "Pa", "p", qualname="f")
+        restored = pickle.loads(pickle.dumps(info.value))
+        assert type(restored) is UnitError
+        assert str(restored) == str(info.value)
+        for part in ("[f]", "'p'", "'kg'", "'Pa'", "[mass]", "[length]"):
+            assert part in str(restored)
+
+    @pytest.mark.parametrize(
+        "check", [units.check_units, units.check_output_units], ids=lambda c: c.__name__
+    )
+    @pytest.mark.parametrize("declared", ["not_a_unit", "e" * 257, Unit("not_a_unit")])
+    def test_a_malformed_declared_unit_is_a_value_error(self, check, declared):
+        with pytest.raises(ValueError, match="declared unit"):
+            check(_da([[1.0]], unit="Pa"), declared, "p")
+
+    def test_a_malformed_declared_unit_is_ignored_when_switched_off(self):
+        da = _da([[1.0]], unit="Pa")
+        with xra.enabled(False):
+            assert units.check_units(da, "not_a_unit", "p") is da
+
+    @pytest.mark.parametrize(
+        "operation", [units.quantify, lambda d: units.convert(d, "Pa")]
+    )
+    def test_operations_keep_their_value_error(self, operation):
+        with pytest.raises(ValueError, match="no 'units' attribute"):
+            operation(_da([[1.0]]))
+
+    def test_convert_keeps_its_pint_error(self):
+        with pytest.raises(pint.DimensionalityError):
+            units.convert(_da([[1.0]], unit="kg"), "Pa")

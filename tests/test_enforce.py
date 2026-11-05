@@ -22,7 +22,6 @@ from typing import (
 
 import numpy as np
 import pandas as pd
-import pint
 import pint_xarray  # noqa: F401  (registers the .pint accessor)
 import pytest
 import xarray as xr
@@ -31,7 +30,7 @@ import xarray_annotated as xra
 from xarray_annotated import Declared, schema, units
 from xarray_annotated.schema import Coords, Dims, Dtype, SchemaError
 from xarray_annotated.temporal import Freq
-from xarray_annotated.units import Unit
+from xarray_annotated.units import Unit, UnitError
 
 
 def _int_da(unit: str | None = "hPa") -> xr.DataArray:
@@ -49,7 +48,7 @@ class TestOrdering:
         def f(p: Annotated[xr.DataArray, Unit("Pa"), Dtype("float64")]):
             return p
 
-        with pytest.raises(ValueError, match="'hPa' differs"):
+        with pytest.raises(UnitError, match="'hPa' differs"):
             f(_int_da())
 
     def test_output_units_checked_before_schema_check(self):
@@ -58,7 +57,7 @@ class TestOrdering:
         def f() -> Annotated[xr.DataArray, Unit("Pa"), Dtype("float64")]:
             return _int_da()
 
-        with pytest.raises(ValueError, match="'hPa' differs"):
+        with pytest.raises(UnitError, match="'hPa' differs"):
             f()
 
     def test_output_schema_mismatch_reported_after_units(self):
@@ -110,7 +109,7 @@ class TestNoOptions:
         @xra.enforce
         def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
 
-        with pytest.raises(ValueError, match="no 'units' attribute"):
+        with pytest.raises(UnitError, match="no 'units' attribute"):
             f(_int_da(unit=None))
 
     @pytest.mark.parametrize("kwarg", ["temporal_on_uninferable", "units_on_output"])
@@ -174,7 +173,7 @@ class TestWrapper:
         @xra.enforce
         def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
 
-        with pytest.raises(pint.DimensionalityError):
+        with pytest.raises(UnitError):
             f(_int_da(unit="kg"))
 
     def test_optional_output_field_of_none_passes(self):
@@ -212,14 +211,14 @@ class TestAsync:
         async def f() -> Annotated[xr.DataArray, Unit("Pa")]:
             return _int_da("hPa")
 
-        with pytest.raises(ValueError, match="'hPa' differs"):
+        with pytest.raises(UnitError, match="'hPa' differs"):
             asyncio.run(f())
 
     def test_input_checks_run(self):
         @xra.enforce
         async def f(p: Annotated[xr.DataArray, Unit("kg")]) -> None: ...
 
-        with pytest.raises(pint.DimensionalityError):
+        with pytest.raises(UnitError):
             asyncio.run(f(_int_da("Pa")))
 
     def test_disabled_is_a_noop(self):
@@ -302,8 +301,24 @@ class TestChecksChangeNothing:
         ) -> Annotated[xr.DataArray, Unit("Pa")]:
             return a + b
 
-        with pytest.raises(ValueError, match="no 'units' attribute"):
+        with pytest.raises(UnitError, match="no 'units' attribute"):
             add(_int_da("pascal"), _int_da("Pa"))
+
+
+class TestValidatesOnce:
+    def test_nothing_is_validated_when_called(self, monkeypatch):
+        @xra.enforce
+        def f(
+            p: Annotated[xr.DataArray, Unit("Pa")],
+        ) -> Annotated[xr.DataArray, Unit("Pa")]:
+            return p
+
+        def fail(*_):
+            raise AssertionError("validated again")
+
+        monkeypatch.setattr("xarray_annotated._contract.assert_valid_unit", fail)
+        monkeypatch.setattr("xarray_annotated.units._check.assert_valid_unit", fail)
+        f(_int_da("Pa"))
 
 
 class TestVariadics:
@@ -439,12 +454,12 @@ class TestTypeAliases:
     @pytest.mark.parametrize("hint", [_Alias, _OptionalAlias, _Alias | None])
     def test_parameter_is_enforced(self, hint):
         f = xra.enforce(_annotated(param=hint))
-        with pytest.raises(ValueError, match="differs from declared"):
+        with pytest.raises(UnitError, match="differs from declared"):
             f(xr.DataArray([1.0], attrs={"units": "hPa"}))
 
     def test_return_is_checked(self):
         f = xra.enforce(_annotated(ret=_Alias))
-        with pytest.raises(ValueError, match="'hPa' differs"):
+        with pytest.raises(UnitError, match="'hPa' differs"):
             f(xr.DataArray([1.0], attrs={"units": "hPa"}))
 
     @pytest.mark.parametrize(
@@ -484,7 +499,7 @@ class TestTypeAliases:
     def test_merged_markers_are_all_enforced(self):
         f = xra.enforce(_annotated(param=Annotated[_Alias, Dims("x")]))
         f(xr.DataArray([1.0], dims="x", attrs={"units": "Pa"}))
-        with pytest.raises(ValueError, match="differs from declared"):
+        with pytest.raises(UnitError, match="differs from declared"):
             f(xr.DataArray([1.0], dims="x", attrs={"units": "hPa"}))
         with pytest.raises(SchemaError):
             f(xr.DataArray([1.0], dims="y", attrs={"units": "Pa"}))
@@ -496,7 +511,7 @@ class TestTypeAliases:
 
     def test_aliased_typeddict_return_is_read_per_field(self):
         f = xra.enforce(_annotated(ret=_FieldsAlias))
-        with pytest.raises(ValueError, match="'hPa' differs"):
+        with pytest.raises(UnitError, match="'hPa' differs"):
             f({"pa": xr.DataArray([1.0], attrs={"units": "hPa"})})
 
 
@@ -587,7 +602,7 @@ class TestReturnContainers:
     )
     def test_read_field_by_field(self, hint, value):
         f = xra.enforce(_annotated(ret=hint))
-        with pytest.raises(pint.DimensionalityError):
+        with pytest.raises(UnitError):
             f(value())
 
     @pytest.mark.parametrize(
@@ -682,11 +697,11 @@ class TestRecordReturnsAreNotTouched:
         return xra.enforce(_annotated(ret=hint))
 
     def test_failed_dict_check_raises(self):
-        with pytest.raises(pint.DimensionalityError):
+        with pytest.raises(UnitError):
             self._identity(_Respelled)({"a": _pascal(), "b": _kg()})
 
     def test_failed_dataclass_check_raises(self):
-        with pytest.raises(pint.DimensionalityError):
+        with pytest.raises(UnitError):
             self._identity(_RespelledRecord)(_RespelledRecord(_pascal(), _kg()))
 
     def test_dict_comes_back_as_itself(self):

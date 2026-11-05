@@ -68,7 +68,8 @@ It leaves a lazily opened array unread, with or without dask:
 | `Dims`, `Coords`, `Dtype` | The array's names and dtype |
 | `Freq` | The time axis's index, which xarray holds in memory |
 
-It stops at the first failure for an array, and raises `TypeError`, `ValueError`, `pint.DimensionalityError`, `SchemaError` or `FreqError`.
+It stops at the first failure for an array, and raises `TypeError`, or a [`ContractError`][xarray_annotated.ContractError]: `UnitError`, `SchemaError` or `FreqError`.
+A malformed declaration raises `ValueError` instead.
 To report every failing input at once, catch those for each input in turn.
 
 ## Checking during the run { #running }

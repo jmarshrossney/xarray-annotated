@@ -6,6 +6,7 @@ DataArrays.
 
 from ._annotations import Unit
 from ._check import (
+    UnitError,
     assert_valid_unit,
     check_output_units,
     check_units,
@@ -23,6 +24,7 @@ from ._registry import (
 
 __all__ = [
     "Unit",
+    "UnitError",
     "assert_valid_unit",
     "check_output_units",
     "check_units",

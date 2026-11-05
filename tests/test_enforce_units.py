@@ -11,6 +11,7 @@ import xarray as xr
 
 import xarray_annotated as xra
 from xarray_annotated import Unit, units
+from xarray_annotated.units import UnitError
 
 
 def _da(values, unit=None):
@@ -98,7 +99,7 @@ class TestDefaults:
         ) -> xr.DataArray:
             return p
 
-        with pytest.raises(ValueError, match="'hPa' differs"):
+        with pytest.raises(UnitError, match="'hPa' differs"):
             f()  # p left at its default; must still be checked
 
     def test_default_object_is_not_mutated(self):
@@ -146,7 +147,7 @@ class TestFailFast:
         def f(p: Annotated[xr.DataArray, Unit("kg")]) -> xr.DataArray:
             return p
 
-        with pytest.raises(pint.DimensionalityError):
+        with pytest.raises(UnitError):
             f(_da([[1.0]], unit="degC"))
 
 
@@ -156,7 +157,7 @@ class TestMissingUnits:
         def f(p: Annotated[xr.DataArray, Unit("Pa")]) -> xr.DataArray:
             return p
 
-        with pytest.raises(ValueError, match=r"no 'units'.*assign_attrs"):
+        with pytest.raises(UnitError, match=r"no 'units'.*assign_attrs"):
             f(_da([[1.0]]))
 
     def test_no_enforce_keyword(self):
@@ -183,7 +184,7 @@ class TestDifferentUnitIsRefused:
         def f(p: Annotated[xr.DataArray, Unit("Pa")]) -> xr.DataArray:
             return p
 
-        with pytest.raises(ValueError, match=r"units\.convert\(da, 'Pa'\)"):
+        with pytest.raises(UnitError, match=r"units\.convert\(da, 'Pa'\)"):
             f(_da([[10.0]], unit="hPa"))
 
     def test_explicit_conversion_passes(self):
@@ -261,32 +262,32 @@ class TestOutputs:
         np.testing.assert_allclose(out.values, [[1.0]])
 
     def test_missing_label_raises_with_the_fix(self):
-        with pytest.raises(ValueError, match=r"no 'units' attribute.*assign_attrs"):
+        with pytest.raises(UnitError, match=r"no 'units' attribute.*assign_attrs"):
             self._returning(None)()
 
     def test_unparseable_label_raises(self):
-        with pytest.raises(ValueError, match="unparseable 'units' attribute"):
+        with pytest.raises(UnitError, match="unparseable 'units' attribute"):
             self._returning("not_a_unit")()
 
     def test_overlong_label_raises_without_echoing_it(self):
-        with pytest.raises(ValueError, match="over-long") as info:
+        with pytest.raises(UnitError, match="over-long") as info:
             self._returning("m" * 10_000)()
         assert "m" * 100 not in str(info.value)
 
     def test_non_string_label_raises(self):
-        with pytest.raises(ValueError, match="unparseable 'units' attribute"):
+        with pytest.raises(UnitError, match="unparseable 'units' attribute"):
             units.check_output_units(_da([[1.0]]).assign_attrs(units=3), "Pa", "r")
 
     def test_compatible_label_raises_with_the_fix(self):
-        with pytest.raises(ValueError, match=r"'hPa' differs.*assign_attrs"):
+        with pytest.raises(UnitError, match=r"'hPa' differs.*assign_attrs"):
             self._returning("hPa")()
 
     def test_incompatible_label_raises_with_the_fix(self):
-        with pytest.raises(pint.DimensionalityError, match=r"'return'.*assign_attrs"):
+        with pytest.raises(UnitError, match=r"'return'.*Fix the body"):
             self._returning("kg")()
 
     def test_message_names_the_function(self):
-        with pytest.raises(ValueError, match=r"\[[\w.<>]*\bf\] output"):
+        with pytest.raises(UnitError, match=r"\[[\w.<>]*\bf\] output"):
             self._returning("hPa")()
 
     # -- bodies ------------------------------------------------------------------
@@ -298,7 +299,7 @@ class TestOutputs:
         ) -> Annotated[xr.DataArray, Unit("Pa")]:
             return p
 
-        with pytest.raises(ValueError, match="'hPa' differs"):
+        with pytest.raises(UnitError, match="'hPa' differs"):
             forgot(_da([[1.0]], unit="hPa"))
 
     def test_a_stale_label_raises(self):
@@ -310,7 +311,7 @@ class TestOutputs:
 
         with (
             xr.set_options(keep_attrs=True),
-            pytest.raises(ValueError, match="'hPa' differs"),
+            pytest.raises(UnitError, match="'hPa' differs"),
         ):
             to_pascals(_da([[1013.0]], unit="hPa"))
 
@@ -347,7 +348,7 @@ class TestOutputs:
         def f() -> Out:
             return {"good": _da([[1.0]], unit="Pa"), "bad": _da([[2.0]], unit="kg")}
 
-        with pytest.raises(pint.DimensionalityError, match="output 'bad'"):
+        with pytest.raises(UnitError, match="output 'bad'"):
             f()
 
     def test_dataclass_fields_are_checked(self):
@@ -359,7 +360,7 @@ class TestOutputs:
         def f() -> Out:
             return Out(bad=_da([[2.0]], unit="kg"))
 
-        with pytest.raises(pint.DimensionalityError, match="output 'bad'"):
+        with pytest.raises(UnitError, match="output 'bad'"):
             f()
 
     # -- anything else raises, unless the hint allows it -----------------------
@@ -516,7 +517,7 @@ class TestCheckOutputUnitsPrimitive:
             units.check_output_units(_da([[1.0]]), "Pa", "r", on_output="stamp")  # type: ignore[call-arg]
 
     def test_qualname_omitted_when_none(self):
-        with pytest.raises(ValueError, match="output 'return'") as excinfo:
+        with pytest.raises(UnitError, match="output 'return'") as excinfo:
             units.check_output_units(_da([[1.0]], unit="hPa"), "Pa", "return")
         assert "] output" not in str(excinfo.value)  # no empty '[] ' qualname prefix
 
@@ -544,12 +545,12 @@ class TestQuantifiedOutputs:
     @pytest.mark.parametrize("declared", ["Pa", Unit("Pa")], ids=repr)
     def test_a_different_unit_raises_with_the_fix(self, declared):
         with pytest.raises(
-            ValueError, match=r"'hPa' differs.*units\.convert\(da, 'Pa'\)"
+            UnitError, match=r"'hPa' differs.*units\.convert\(da, 'Pa'\)"
         ):
             units.check_output_units(_quantified([[1.0]], "hPa"), declared, "return")
 
     def test_an_incompatible_unit_raises(self):
-        with pytest.raises(pint.DimensionalityError, match="'return'"):
+        with pytest.raises(UnitError, match="'return'"):
             units.check_output_units(_quantified([[1.0]], "hPa"), "kg", "return")
 
     def test_a_body_can_convert_it_itself(self):
@@ -572,7 +573,7 @@ class TestQuantifiedOutputs:
         foreign = pint.UnitRegistry(force_ndarray_like=True)
         foreign.define("widget = [thing]")
         da = _da([[1.0]]).pint.quantify("widget", unit_registry=foreign)
-        with pytest.raises(ValueError, match="unparseable 'units' attribute 'widget'"):
+        with pytest.raises(UnitError, match="unparseable 'units' attribute 'widget'"):
             units.check_output_units(da, "Pa", "return")
 
     def test_disabled_policy_leaves_it_alone(self):

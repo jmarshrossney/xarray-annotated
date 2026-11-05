@@ -120,7 +120,7 @@ class TestSwitchInWorkers:
 
         try:
             f(xr.DataArray([1.0], attrs={"units": "hPa"}))
-        except ValueError:
+        except units.UnitError:
             return True
         return False
 
@@ -176,7 +176,7 @@ class TestOperationsThatLoseTheUnit:
         ) -> Annotated[xr.DataArray, Unit("hPa")]:
             return units.dequantify(operation(units.quantify(da)))
 
-        with pytest.raises(ValueError, match="no 'units' attribute"):
+        with pytest.raises(units.UnitError, match="no 'units' attribute"):
             body(lazy())
 
     @LOSSY

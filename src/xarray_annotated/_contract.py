@@ -23,8 +23,8 @@ from .schema._check import (
 )
 from .temporal._check import assert_valid_freq, check_freq, freq_compatible
 from .units._check import (
+    _check_input_unit,
     assert_valid_unit,
-    check_units,
     units_compatible,
     units_equal,
 )
@@ -61,15 +61,34 @@ def _refuse_other_value(value: Any, decl: Declared, where: str) -> None:
         )
 
 
+def _check_valid_declared(
+    value: Any, declared: Declared, name: str, qualname: str | None
+) -> None:
+    """`check_declared` on a validated declaration, whatever `enabled` says."""
+    if not isinstance(value, xr.DataArray):
+        where = f"input {name!r}"
+        _refuse_other_value(
+            value, declared, f"[{qualname}] {where}" if qualname else where
+        )
+        return
+    if declared.unit is not None:
+        _check_input_unit(value, declared.unit, name, qualname)
+    if markers := declared.schema:
+        check_schema(value, markers, name, qualname=qualname)
+    if declared.freq is not None:
+        check_freq(value, declared.freq, name, qualname=qualname)
+
+
 def check_declared(
     value: Any, declared: Declared, name: str, qualname: str | None = None
 ) -> Any:
     """Check an input against everything declared for it; return it unchanged.
 
     This is the check `enforce` makes on each declared input, so a tool calling it
-    before a run gets the verdict the run would.  Units are checked first, then
-    structure, then frequency, and the first failure raises.  Only metadata and
-    indexes are read, so a lazily opened array stays unread.
+    before a run gets the verdict the run would.  The declaration is validated first,
+    as `enforce` does at decoration.  Units are checked next, then structure, then
+    frequency, and the first failure raises.  Only metadata and indexes are read, so a
+    lazily opened array stays unread.
 
     A value that is not a `DataArray` raises unless `declared.others` allows it, as
     `| None` allows `None`.  When xarray-annotated is switched off (`xra.enabled(False)`
@@ -87,8 +106,8 @@ def check_declared(
 
     Raises:
         TypeError: If `value` is not a `DataArray` and `declared` does not allow it.
-        ValueError: If the unit differs, or is missing or unparseable.
-        pint.DimensionalityError: If the unit has a different dimensionality.
+        ValueError: If the declaration is malformed.
+        UnitError: If the unit differs, or is missing or unparseable.
         SchemaError: If the structure does not match.
         FreqError: If the frequency does not match.
 
@@ -102,18 +121,9 @@ def check_declared(
     """
     if not resolve_enabled():
         return value
-    if not isinstance(value, xr.DataArray):
-        where = f"input {name!r}"
-        _refuse_other_value(
-            value, declared, f"[{qualname}] {where}" if qualname else where
-        )
-        return value
-    if declared.unit is not None:
-        check_units(value, declared.unit, name, qualname=qualname)
-    if markers := declared.schema:
-        check_schema(value, markers, name, qualname=qualname)
-    if declared.freq is not None:
-        check_freq(value, declared.freq, name, qualname=qualname)
+    where = f"input {name!r}"
+    _assert_valid(declared, f"[{qualname}] {where}" if qualname else where)
+    _check_valid_declared(value, declared, name, qualname)
     return value
 
 

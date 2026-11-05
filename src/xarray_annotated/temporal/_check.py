@@ -55,13 +55,14 @@ from pandas.tseries.offsets import (
 from xarray.indexes import PandasIndex
 
 from .._config import resolve_enabled
+from .._errors import ContractError
 from ._annotations import Freq
 
 _NANOS_PER_DAY = 86_400_000_000_000
 _ANY_DAY = re.compile(r"([0-9]*)(month|year)")
 
 
-class FreqError(Exception):
+class FreqError(ContractError):
     """Raised for a frequency mismatch.
 
     Deliberately **not** a ``ValueError``: a mismatch (the *data* fails the

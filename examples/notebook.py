@@ -630,7 +630,7 @@ def _(mo):
     mo.md("""
     ## The bug we missed
 
-    The pipeline crashes with a `pint.errors.DimensionalityError` since it cannot
+    The pipeline crashes with a `UnitError` since it cannot
     reconcile the declared units, `g m-2 d-1`, with the `units` attribute stored in
     the input `DataArray`, `umol m-2 s-1`.
 

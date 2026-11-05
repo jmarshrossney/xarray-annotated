@@ -75,15 +75,15 @@ Now pass something slightly different:
 
 | Pass | Before | After |
 |---|---|---|
-| `p` as the same pressure in `Pa` | 122.5, no error | `ValueError` |
-| `t` as the same temperature in `degC` | 23.53, no error | `ValueError` |
+| `p` as the same pressure in `Pa` | 122.5, no error | `UnitError` |
+| `t` as the same temperature in `degC` | 23.53, no error | `UnitError` |
 | `t` with dims `(time, station)` | Gains a `station` dimension, no error | `SchemaError` |
 | `t` every three hours | 1.225 from every third hour, no error | `FreqError` |
 
 Each error says what is wrong and, where it can, what to do about it:
 
 ```
-ValueError: [daily_air_density] input 'p': unit 'Pa' differs from declared 'hPa'.
+UnitError: [daily_air_density] input 'p': unit 'Pa' differs from declared 'hPa'.
   Converting would change the values; if that is correct for this quantity,
   pass xra.units.convert(da, 'hPa').
 ```

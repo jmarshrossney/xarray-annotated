@@ -4,7 +4,6 @@ from typing import Annotated
 
 import numpy as np
 import pandas as pd
-import pint
 import pytest
 import xarray as xr
 
@@ -12,6 +11,7 @@ import xarray_annotated as xra
 from xarray_annotated import Coords, Declared, Dims, Dtype, Freq, Unit
 from xarray_annotated.schema import SchemaError
 from xarray_annotated.temporal import FreqError
+from xarray_annotated.units import UnitError
 
 
 def _array(unit="Pa", freq="h"):
@@ -53,8 +53,8 @@ class TestAgreesWithEnforce:
         [
             (_array(), None),
             (_array(unit="pascal"), None),
-            (_array(unit="hPa"), ValueError),
-            (_array(unit="K"), pint.DimensionalityError),
+            (_array(unit="hPa"), UnitError),
+            (_array(unit="K"), UnitError),
             (_array().drop_vars("time"), SchemaError),
             (_array().astype(int), SchemaError),
             (_array().rename(time="t"), SchemaError),
@@ -107,7 +107,7 @@ class TestAgreesWithEnforce:
 
     def test_units_are_checked_first(self):
         wrong_twice = _array(unit="hPa").rename(time="t")
-        with pytest.raises(ValueError, match="hPa"):
+        with pytest.raises(UnitError, match="hPa"):
             xra.check_declared(wrong_twice, _input_declaration(_full), "p")
 
 
@@ -153,7 +153,7 @@ class TestDeclarationConflicts:
 
         try:
             consumer(_array(unit=a))
-        except (ValueError, pint.DimensionalityError):
+        except UnitError:
             assert conflicts
         else:
             assert conflicts == []
@@ -206,6 +206,28 @@ class TestDeclarationConflicts:
         malformed = Declared(unit=Unit("not_a_unit"))
         with pytest.raises(ValueError, match="not_a_unit"):
             xra.declaration_conflicts(malformed, Declared(unit=Unit("Pa")))
+
+
+class TestMalformedDeclaration:
+    """Malformed means `ValueError`, before any array is looked at."""
+
+    @pytest.mark.parametrize(
+        "declared",
+        [
+            Declared(dtype=Dtype("notdtype")),
+            Declared(unit=Unit("not_a_unit")),
+            Declared(freq=Freq("bogus")),
+        ],
+        ids=["dtype", "unit", "freq"],
+    )
+    @pytest.mark.parametrize("value", [_array(), None], ids=["array", "none"])
+    def test_raises_value_error(self, declared, value):
+        with pytest.raises(ValueError, match="'p'"):
+            xra.check_declared(value, declared, "p")
+
+    def test_switched_off_checks_nothing(self):
+        with xra.enabled(False):
+            assert xra.check_declared(None, Declared(freq=Freq("bogus")), "p") is None
 
 
 class TestResolveEnabled:

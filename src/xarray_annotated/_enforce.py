@@ -39,14 +39,14 @@ import xarray as xr
 
 from ._annotations import _record_return, _walk_signature
 from ._config import resolve_enabled
-from ._contract import _assert_valid, _refuse_other_value, check_declared
+from ._contract import _assert_valid, _check_valid_declared, _refuse_other_value
 from ._reader import Declared, declaration_from_hint, declarations_from_signature
 from .schema import Coords, Dims, Dtype
 from .schema._check import check_schema
 from .temporal import Freq
 from .temporal._check import check_freq
 from .units import Unit
-from .units._check import check_output_units
+from .units._check import _check_output_unit
 
 __all__ = ["enforce"]
 
@@ -196,6 +196,9 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
             field of a parameter (at decoration).
         TypeError: If a declared value is not a `DataArray` and its hint does not allow
             it, or a `TypedDict` return lacks a required declared field (when called).
+        UnitError: If a unit does not match its declaration (when called).
+        SchemaError: If the structure does not match (when called).
+        FreqError: If the frequency does not match (when called).
 
     Example:
         >>> from typing import Annotated
@@ -248,7 +251,7 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
             _refuse_other_value(value, decl, f"[{qualname}] output {name!r}")
             return
         if decl.unit is not None:
-            check_output_units(value, decl.unit, name, qualname)
+            _check_output_unit(value, decl.unit, name, qualname)
         if markers := decl.schema:
             check_schema(value, markers, name, qualname=qualname)
         if decl.freq is not None:
@@ -288,7 +291,7 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
         for name, val in bound.arguments.items():
             decl = inputs.get(name)
             if decl is not None:
-                check_declared(val, decl, name, qualname)
+                _check_valid_declared(val, decl, name, qualname)
 
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:

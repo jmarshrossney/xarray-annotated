@@ -26,7 +26,7 @@ import xarray_annotated as xra
 from xarray_annotated import Declared, annotate, declarations_from_signature
 from xarray_annotated._annotations import _is_dataarray_type
 from xarray_annotated.schema import Dims, SchemaError
-from xarray_annotated.units import Unit
+from xarray_annotated.units import Unit, UnitError
 
 jaxtyping = pytest.importorskip("jaxtyping")
 
@@ -140,7 +140,7 @@ class TestDecorators:
             return x
 
         assert f(_da(unit="pascal", fill=1.0)).attrs["units"] == "pascal"
-        with pytest.raises(ValueError, match="'hPa' differs"):
+        with pytest.raises(UnitError, match="'hPa' differs"):
             f(_da(unit="hPa", fill=1.0))
 
     def test_schema_mismatch_still_raises(self):

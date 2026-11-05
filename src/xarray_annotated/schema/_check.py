@@ -18,6 +18,7 @@ import numpy as np
 import xarray as xr
 
 from .._config import resolve_enabled
+from .._errors import ContractError
 from ._annotations import Coords, Dims, Dtype, SchemaMarker
 
 #: Dtype names meaning any dtype of that kind.  numpy reads each as one dtype, whose
@@ -27,7 +28,7 @@ _KIND_NAMES = frozenset(
 )
 
 
-class SchemaError(Exception):
+class SchemaError(ContractError):
     """Raised for a structural mismatch.
 
     Deliberately **not** a ``ValueError``: a structural mismatch (the *data* fails

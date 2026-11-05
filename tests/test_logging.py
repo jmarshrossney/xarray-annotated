@@ -12,6 +12,7 @@ import xarray as xr
 
 import xarray_annotated as xra
 from xarray_annotated import Dims, schema, units
+from xarray_annotated.units import UnitError
 
 UNITS = "xarray_annotated.units"
 
@@ -49,7 +50,7 @@ class TestConversion:
 
     def test_a_check_is_not_logged(self, audit):
         units.check_units(_da("pascal"), "Pa", "p")
-        with pytest.raises(ValueError, match=r"units\.convert"):
+        with pytest.raises(UnitError, match=r"units\.convert"):
             units.check_units(_da(), "Pa", "p")
         assert _records(audit, UNITS) == []
 
@@ -62,7 +63,7 @@ class TestConversion:
 class TestUnreadableInputs:
     @pytest.mark.parametrize("unit", [None, "x" * 300, "not_a_unit"])
     def test_refused_not_logged(self, audit, unit):
-        with pytest.raises(ValueError, match="'units' attribute"):
+        with pytest.raises(UnitError, match="'units' attribute"):
             units.check_units(_da(unit), "Pa", "p")
         assert _records(audit, UNITS) == []
 
@@ -75,7 +76,7 @@ class TestOutputs:
 
     @pytest.mark.parametrize("label", [None, "hPa", "not_a_unit", "e" * 300])
     def test_a_mismatched_output_raises_and_is_not_logged(self, audit, label):
-        with pytest.raises(ValueError, match="output 'return'"):
+        with pytest.raises(UnitError, match="output 'return'"):
             units.check_output_units(_da(label), "Pa", "return")
         assert _records(audit, UNITS) == []
 

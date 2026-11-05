@@ -8,9 +8,9 @@ The unit is read from `attrs["units"]`, or from the data if the array is quantif
 | The unit is | Input | Output |
 |---|---|---|
 | The declared one, however it is spelled (`pascal` for `Pa`) | Passes | Passes |
-| Compatible but different (`hPa` for `Pa`) | `ValueError` | `ValueError` |
-| Incompatible (`kg` for `Pa`) | `DimensionalityError` | `DimensionalityError` |
-| Missing, unparseable or over-long | `ValueError` | `ValueError` |
+| Compatible but different (`hPa` for `Pa`) | `UnitError` | `UnitError` |
+| Incompatible (`kg` for `Pa`) | `UnitError` | `UnitError` |
+| Missing, unparseable or over-long | `UnitError` | `UnitError` |
 
 These are checks only.
 The body receives the array you passed, quantified or not and with its label spelled as it was, and you receive the array the body returned.

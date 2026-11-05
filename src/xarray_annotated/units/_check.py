@@ -16,6 +16,7 @@ import pint_xarray  # noqa: F401  (registers the .pint accessor)
 import xarray as xr
 
 from .._config import resolve_enabled
+from .._errors import ContractError
 from ._annotations import Unit
 from ._registry import _cf_hint, _label_format, get_registry
 
@@ -41,6 +42,21 @@ _STATE_UNIT = (
     "Compute on `xra.units.quantify(...)` so the result carries its unit, or, for "
     "values from outside pint, state the unit with `.assign_attrs(units=...)`."
 )
+
+
+class UnitError(ContractError):
+    """Raised for a unit that does not match its declaration, or cannot be checked.
+
+    Deliberately **not** a ``ValueError``: a mismatch (the *data* fails the declaration)
+    is a distinct event from a malformed *declaration* (an unrecognised unit string),
+    which raises ``ValueError`` from ``assert_valid_unit``.  Keeping them on separate
+    hierarchies means catching one never silently swallows the other.
+
+    Nor is it a ``pint.DimensionalityError``, which is a ``TypeError``, as a value that
+    is not a ``DataArray`` is.  Where units cannot convert, the pint error is the
+    ``__cause__``.  A pickle drops that, as when crossing a dask process boundary, so
+    the message carries the units and their dimensionalities.
+    """
 
 
 def _stamped(da: xr.DataArray, declared: str) -> xr.DataArray:
@@ -224,7 +240,11 @@ def units_equal(a: str | Unit, b: str | Unit) -> bool:
 
 
 def _own_unit(
-    da: xr.DataArray, declared: str | None, where: str, remedy: str
+    da: xr.DataArray,
+    declared: str | None,
+    where: str,
+    remedy: str,
+    error: type[Exception],
 ) -> tuple[str, bool]:
     """Read the unit an array says it is in, refusing one that cannot be checked.
 
@@ -239,12 +259,13 @@ def _own_unit(
         declared: The declared unit string, for error messages, if there is one.
         where: Names the array in error messages.
         remedy: What to do about a missing or unreadable unit.
+        error: What to raise, as a check and an operation raise different things.
 
     Returns:
         The unit as a string, and whether the array is quantified.
 
     Raises:
-        ValueError: If the unit is missing, over-long or unparseable.
+        Exception: `error`, if the unit is missing, over-long or unparseable.
     """
     quantified = _quantified_units(da)
     have = (
@@ -253,12 +274,12 @@ def _own_unit(
     expected = "" if declared is None else f"declared {declared!r}"
     if have is None:
         about = f" ({expected})" if expected else ""
-        raise ValueError(f"{where} has no 'units' attribute{about}. {remedy}")
+        raise error(f"{where} has no 'units' attribute{about}. {remedy}")
     if isinstance(have, str) and len(have) > _MAX_UNIT_LEN:
         # An over-long units attribute can hang pint's parser (DoS); refuse it
         # *before* parsing. Never echo `have` in the message -- it may be huge.
         also = f"; {expected}" if expected else ""
-        raise ValueError(
+        raise error(
             f"{where} has an over-long 'units' attribute "
             f"({len(have)} chars > {_MAX_UNIT_LEN}{also}); "
             f"refusing to parse. {remedy}"
@@ -270,28 +291,57 @@ def _own_unit(
         # validated than a missing one; refuse it with a message rather than letting
         # an opaque parse error escape.
         about = f"({expected}): " if expected else ": "
-        raise ValueError(
+        raise error(
             f"{where} has unparseable 'units' attribute {have!r} "
             f"{about}{type(exc).__name__}: {exc}{_cf_hint(have)}. {remedy}"
         ) from exc
     return have, quantified is not None
 
 
-def _refuse(have: str, declared: str, where: str, hint: str, note: str) -> NoReturn:
+def _refuse(have: str, declared: str, where: str, hint: str, fix: str) -> NoReturn:
     """Raise for a unit that is not the declared one, by whether the two convert.
 
+    Args:
+        have: The array's unit.
+        declared: The declared unit.
+        where: Names the array in the message.
+        hint: What to do about a unit that converts.
+        fix: What to do about one that does not.
+
     Raises:
-        pint.DimensionalityError: If `have` cannot be converted to `declared`.
-        ValueError: If it can, as the values would change.
+        UnitError: Always, from the pint error if `have` cannot convert to `declared`.
     """
+    registry = get_registry()
     try:
-        get_registry().Quantity(1.0, have).to(declared)
+        registry.Quantity(1.0, have).to(declared)
     except pint.DimensionalityError as err:
-        err.add_note(note)
-        raise
-    raise ValueError(
+        raise UnitError(
+            f"{where}: unit {have!r} ({registry.Unit(have).dimensionality}) cannot "
+            f"convert to declared {declared!r} "
+            f"({registry.Unit(declared).dimensionality}). {fix}"
+        ) from err
+    raise UnitError(
         f"{where}: unit {have!r} differs from declared {declared!r}. {hint}"
     )
+
+
+def _check_input_unit(
+    da: xr.DataArray, declared: str | Unit, name: str, qualname: str | None
+) -> None:
+    """`check_units` on a validated declaration, whatever `enabled` says."""
+    declared = str(declared)
+    prefix = f"[{qualname}] " if qualname else ""
+    where = f"{prefix}input {name!r}"
+    have, _ = _own_unit(da, declared, where, _ATTACH_UNIT, UnitError)
+    if not units_equal(have, declared):
+        _refuse(
+            have,
+            declared,
+            where,
+            f"Converting would change the values; if that is correct for this "
+            f"quantity, pass xra.units.convert(da, {declared!r}).",
+            "Fix the data or the declaration.",
+        )
 
 
 def check_units(
@@ -318,10 +368,9 @@ def check_units(
         `da` itself: quantified if it was, with its label spelled as it was.
 
     Raises:
-        ValueError: When the unit is missing, over-long or unparseable, or compatible
-            with but not equal to `declared`.
-        pint.DimensionalityError: When the unit is dimensionally incompatible with
-            `declared`.
+        UnitError: When the array's unit is missing, over-long or unparseable, or is not
+            equal to `declared`.
+        ValueError: When `declared` is not a recognised unit.
 
     Examples:
         >>> import xarray as xr
@@ -332,19 +381,9 @@ def check_units(
     """
     if not resolve_enabled():
         return da
-    declared = str(declared)
     prefix = f"[{qualname}] " if qualname else ""
-    where = f"{prefix}input {name!r}"
-    have, _ = _own_unit(da, declared, where, _ATTACH_UNIT)
-    if not units_equal(have, declared):
-        _refuse(
-            have,
-            declared,
-            where,
-            f"Converting would change the values; if that is correct for this "
-            f"quantity, pass xra.units.convert(da, {declared!r}).",
-            f"while validating input {name!r}",
-        )
+    assert_valid_unit(declared, f"{prefix}input {name!r}")
+    _check_input_unit(da, declared, name, qualname)
     return da
 
 
@@ -378,7 +417,9 @@ def quantify(da: xr.DataArray) -> xr.DataArray:
         >>> p.pint.to("hPa").data.magnitude.tolist()
         [1013.25]
     """
-    have, quantified = _own_unit(da, None, "the array to quantify", _ATTACH_UNIT)
+    have, quantified = _own_unit(
+        da, None, "the array to quantify", _ATTACH_UNIT, ValueError
+    )
     if quantified:
         return da
     out = da.copy(deep=False, data=get_registry().Quantity(da.data, have))
@@ -463,7 +504,9 @@ def convert(da: xr.DataArray, unit: str | Unit) -> xr.DataArray:
     """
     unit = str(unit)
     assert_valid_unit(unit, "convert")
-    have, quantified = _own_unit(da, unit, "the array to convert", _ATTACH_UNIT)
+    have, quantified = _own_unit(
+        da, unit, "the array to convert", _ATTACH_UNIT, ValueError
+    )
     same = units_equal(have, unit)
     if same and not quantified:
         return _stamped(da, unit)
@@ -484,6 +527,30 @@ def convert(da: xr.DataArray, unit: str | Unit) -> xr.DataArray:
         converted = _stamped(da.copy(deep=False, data=data.magnitude), unit)
     converted.encoding = {}
     return converted
+
+
+def _check_output_unit(
+    da: xr.DataArray, declared: str | Unit, name: str, qualname: str | None
+) -> None:
+    """`check_output_units` on a validated declaration, whatever `enabled` says."""
+    declared = str(declared)
+    prefix = f"[{qualname}] " if qualname else ""
+    where = f"{prefix}output {name!r}"
+
+    have, quantified = _own_unit(da, declared, where, _STATE_UNIT, UnitError)
+    if units_equal(have, declared):
+        return
+    hint = (
+        f"Convert it in the body with xra.units.convert(da, {declared!r})."
+        if quantified
+        else (
+            f"A label does not follow arithmetic: compute on xra.units.quantify(...) "
+            f"and convert with xra.units.convert(da, {declared!r}). If the values come "
+            f"from outside pint and really are in {declared!r}, state that with "
+            f".assign_attrs(units={declared!r})."
+        )
+    )
+    _refuse(have, declared, where, hint, "Fix the body or the declaration.")
 
 
 def check_output_units(
@@ -515,10 +582,9 @@ def check_output_units(
         `da` itself: quantified if it was, with its label spelled as it was.
 
     Raises:
-        pint.DimensionalityError: When the unit is dimensionally incompatible with
-            `declared`.
-        ValueError: When the unit is missing or unparseable, or compatible with but
-            not equal to `declared`.
+        UnitError: When the array's unit is missing, over-long or unparseable, or is not
+            equal to `declared`.
+        ValueError: When `declared` is not a recognised unit.
 
     Examples:
         >>> import xarray as xr
@@ -529,27 +595,7 @@ def check_output_units(
     """
     if not resolve_enabled():
         return da
-    declared = str(declared)
     prefix = f"[{qualname}] " if qualname else ""
-    where = f"{prefix}output {name!r}"
-
-    have, quantified = _own_unit(da, declared, where, _STATE_UNIT)
-    if units_equal(have, declared):
-        return da
-    hint = (
-        f"Convert it in the body with xra.units.convert(da, {declared!r})."
-        if quantified
-        else (
-            f"A label does not follow arithmetic: compute on xra.units.quantify(...) "
-            f"and convert with xra.units.convert(da, {declared!r}). If the values come "
-            f"from outside pint and really are in {declared!r}, state that with "
-            f".assign_attrs(units={declared!r})."
-        )
-    )
-    _refuse(
-        have,
-        declared,
-        where,
-        hint,
-        f"{where} has unit {have!r} but declares {declared!r}. {hint}",
-    )
+    assert_valid_unit(declared, f"{prefix}output {name!r}")
+    _check_output_unit(da, declared, name, qualname)
+    return da
