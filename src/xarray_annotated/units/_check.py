@@ -424,9 +424,9 @@ def convert(da: xr.DataArray, unit: str | Unit) -> xr.DataArray:
     Pint knows whether two units are compatible, but not whether converting is right
     for this quantity, so `enforce` never does this for you.
 
-    Only the data is converted: coordinates and their labels are left alone, so a
-    `degrees_north` label does not stop the conversion the way `.pint.quantify()` does.
-    Every conversion is logged at DEBUG on the `xarray_annotated.units` logger.
+    The result is the same kind of array as `da`.  Only the data is converted, so
+    coordinates and their labels are left alone.  Every conversion is logged at DEBUG on
+    the `xarray_annotated.units` logger.
 
     This is not a check, so `enabled(False)` does not affect it.
 
@@ -435,10 +435,13 @@ def convert(da: xr.DataArray, unit: str | Unit) -> xr.DataArray:
         unit: The unit to convert to.
 
     Returns:
-        A plain `DataArray` with `attrs["units"]` spelled as `unit`.  A converted array
-        has a new buffer and empty `.encoding`, as packing that described the old values
-        would corrupt these on write.  An array already in `unit` shares its buffer, and
-        keeps a plain array's `.encoding`; a quantified one is copied and loses it.
+        A quantified array in `unit` if `da` is quantified, otherwise a plain one with
+        `attrs["units"]` spelled as `unit`.  A converted array has a new buffer and
+        empty `.encoding`, as packing that described the old values would corrupt these
+        on write.  A quantified array already in `unit` shares its buffer and also has
+        empty `.encoding`, since `.pint.to` may have left a stale packing on it.  A
+        plain array already in `unit` shares its buffer, keeps its `.encoding` and stays
+        lazy.
 
     Raises:
         ValueError: When `unit` is not a recognised unit, or the array's own unit is
@@ -447,25 +450,35 @@ def convert(da: xr.DataArray, unit: str | Unit) -> xr.DataArray:
 
     Examples:
         >>> import xarray as xr
-        >>> from xarray_annotated.units import convert
+        >>> from xarray_annotated.units import convert, quantify
         >>> da = xr.DataArray([1013.0], attrs={"units": "hPa"})
         >>> converted = convert(da, "Pa")
         >>> converted.values, converted.attrs["units"]
         (array([101300.]), 'Pa')
+        >>> convert(quantify(da), "Pa").data.magnitude
+        array([101300.])
     """
     unit = str(unit)
     assert_valid_unit(unit, "convert")
-    have, _ = _own_unit(da, unit, "the array to convert", _ATTACH_UNIT)
-    plain = dequantify(da)
-    if units_equal(have, unit):
-        return _stamped(plain, unit)
+    have, quantified = _own_unit(da, unit, "the array to convert", _ATTACH_UNIT)
+    same = units_equal(have, unit)
+    if same and not quantified:
+        return _stamped(da, unit)
+    magnitude = da.data.magnitude if quantified else da.data
     try:
-        data = get_registry().Quantity(plain.data, have).to(unit).magnitude
+        data = get_registry().Quantity(magnitude, have).to(unit)
     except pint.DimensionalityError as err:
         err.add_note(f"while converting {da.name!r}")
         raise
-    _log.debug("converting %r: %r -> %r", da.name, have, unit)
-    converted = _stamped(plain.copy(deep=False, data=data), unit)
+    if not same:
+        _log.debug("converting %r: %r -> %r", da.name, have, unit)
+    if quantified:
+        converted = da.copy(deep=False, data=data)
+        converted.attrs.pop(
+            "units", None
+        )  # a leftover label, which a Quantity outranks
+    else:
+        converted = _stamped(da.copy(deep=False, data=data.magnitude), unit)
     converted.encoding = {}
     return converted
 
@@ -485,7 +498,7 @@ def check_output_units(
     inert under arithmetic, so `p * 100.0` keeps its `hPa` label, and values are never
     inspected, so a label set with `.assign_attrs(units=...)` is taken on trust.  A
     pint-quantified array carries its unit in the data, so neither can happen to it;
-    a body converts one with `.pint.to(...)`.
+    a body converts one with `convert`.
 
     When xarray-annotated is switched off (`enabled(False)`) nothing is checked.
 
@@ -521,12 +534,12 @@ def check_output_units(
     if units_equal(have, declared):
         return da
     hint = (
-        f"Convert it in the body with .pint.to({declared!r})."
+        f"Convert it in the body with xra.units.convert(da, {declared!r})."
         if quantified
         else (
             f"A label does not follow arithmetic: compute on xra.units.quantify(...) "
-            f"and convert with .pint.to({declared!r}). If the values come from outside "
-            f"pint and really are in {declared!r}, state that with "
+            f"and convert with xra.units.convert(da, {declared!r}). If the values come "
+            f"from outside pint and really are in {declared!r}, state that with "
             f".assign_attrs(units={declared!r})."
         )
     )

@@ -543,7 +543,9 @@ class TestQuantifiedOutputs:
 
     @pytest.mark.parametrize("declared", ["Pa", Unit("Pa")], ids=repr)
     def test_a_different_unit_raises_with_the_fix(self, declared):
-        with pytest.raises(ValueError, match=r"'hPa' differs.*pint\.to\('Pa'\)"):
+        with pytest.raises(
+            ValueError, match=r"'hPa' differs.*units\.convert\(da, 'Pa'\)"
+        ):
             units.check_output_units(_quantified([[1.0]], "hPa"), declared, "return")
 
     def test_an_incompatible_unit_raises(self):

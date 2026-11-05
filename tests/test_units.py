@@ -250,16 +250,30 @@ class TestCheckUnitsQuantified:
     reads ``attrs["units"]``.
     """
 
-    def test_quantified_input_is_converted(self):
+    def test_quantified_input_is_converted_and_stays_quantified(self):
         out = units.convert(_quantified([[1.0]], "hPa"), "Pa")
-        assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, [[100.0]])
+        assert out.pint.units == units.get_registry().Unit("Pa")
+        assert "units" not in out.attrs
+        np.testing.assert_allclose(out.data.magnitude, [[100.0]])
 
-    def test_quantified_input_is_normalised_to_dequantified(self):
-        # The declared parameter type is a plain DataArray, so the body gets one:
-        # the Quantity is unwrapped and the unit re-stamped onto attrs.
-        out = units.convert(_quantified([[1.0]], "hPa"), "Pa")
+    def test_a_plain_input_stays_plain(self):
+        out = units.convert(_da([[1.0]], unit="hPa"), "Pa")
         assert out.pint.units is None
+        assert out.attrs["units"] == "Pa"
+
+    def test_a_quantified_coord_stays_quantified(self):
+        da = xr.DataArray(
+            [1.0],
+            dims="depth",
+            coords={"depth": ("depth", [10.0], {"units": "m"})},
+            attrs={"units": "hPa"},
+        ).pint.quantify()
+        out = units.convert(da, "Pa")
+        assert out.depth.pint.units == units.get_registry().Unit("m")
+
+    def test_quantified_incompatible_unit_raises_dimensionality_error(self):
+        with pytest.raises(pint.DimensionalityError):
+            units.convert(_quantified([[1.0]], "hPa"), "kg")
 
     def test_quantified_input_in_the_declared_unit_stays_quantified(self):
         da = _quantified([[1.0]], "pascal")
@@ -274,7 +288,7 @@ class TestCheckUnitsQuantified:
     def test_quantified_input_is_never_missing(self):
         # A missing unit is an *unreadable* one; a Quantity is readable.
         out = units.convert(_quantified([[1.0]], "hPa"), "Pa")
-        np.testing.assert_allclose(out.values, [[100.0]])
+        np.testing.assert_allclose(out.data.magnitude, [[100.0]])
 
     def test_quantified_input_is_refused_in_another_unit(self):
         with pytest.raises(ValueError, match=r"units\.convert"):
@@ -295,8 +309,8 @@ class TestCheckUnitsQuantified:
         da = _quantified([[1.0]], "hPa")
         da.attrs["units"] = "kg"  # nonsense left over from upstream
         out = units.convert(da, "Pa")
-        assert out.attrs["units"] == "Pa"
-        np.testing.assert_allclose(out.values, [[100.0]])
+        assert "units" not in out.attrs
+        np.testing.assert_allclose(out.data.magnitude, [[100.0]])
 
     def test_unit_from_a_foreign_registry_is_unparseable(self):
         """Units are compared as *strings* re-parsed in the active registry.
@@ -511,6 +525,13 @@ class TestConversionClearsEncoding:
         da = _packed().pint.quantify()
         out = units.convert(da, "Pa")
         assert out.encoding == {}
+        assert da.encoding == _PACKING
+
+    def test_same_unit_clears_a_stale_packing_on_a_quantified_array(self):
+        da = _packed().pint.quantify().pint.to("Pa")
+        out = units.convert(da, "Pa")
+        assert out.encoding == {}
+        assert np.shares_memory(out.data.magnitude, da.data.magnitude)
         assert da.encoding == _PACKING
 
     def test_coords_keep_theirs(self):

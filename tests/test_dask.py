@@ -91,11 +91,13 @@ class TestQuantified:
         assert isinstance(out.data.magnitude, dask_array.Array)
         assert computes == []
 
-    def test_convert_unwraps_it(self, lazy, computes):
+    def test_convert_keeps_it_quantified_and_uncomputed(self, lazy, computes):
         out = units.convert(lazy().pint.quantify(), "Pa")
-        assert isinstance(out.data, dask_array.Array)
+        assert isinstance(out.data.magnitude, dask_array.Array)
         assert computes == []
-        np.testing.assert_allclose(out.values, [100000.0, 101000.0, 102000.0])
+        np.testing.assert_allclose(
+            out.data.magnitude.compute(), [100000.0, 101000.0, 102000.0]
+        )
 
     def test_output_stays_quantified_and_uncomputed(self, lazy, computes):
         @xra.enforce
