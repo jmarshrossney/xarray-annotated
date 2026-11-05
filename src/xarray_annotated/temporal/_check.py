@@ -424,12 +424,11 @@ def check_freq(
 ) -> xr.DataArray:
     """Validate `da`'s time axis against its declared frequency; return it unchanged.
 
-    Locates the time coordinate, reading nothing from disk (see
-    `docs/guides/declaring.md` for which coordinates count), and compares it with the
-    declaration via `freq_compatible`, using `xarray.infer_freq`.  Because pandas always
-    hands back a fully-anchored string (`"W-WED"`, never `"7D"`), the *declaration*
-    alone decides how strict the comparison is — `Freq("7D")` accepts any weekday,
-    `Freq("W-SUN")` accepts only Sundays.
+    Locates the time coordinate, reading nothing from disk (see `Freq` for which
+    coordinates count), and compares it with the declaration via `freq_compatible`,
+    using `xarray.infer_freq`.  Because pandas always hands back a fully-anchored string
+    (`"W-WED"`, never `"7D"`), the *declaration* alone decides how strict the comparison
+    is — `Freq("7D")` accepts any weekday, `Freq("W-SUN")` accepts only Sundays.
 
     An array with no (or an ambiguous) time axis is a mismatch, and so is irregular
     spacing, unless the declaration allows it.  Two points are compared directly, as

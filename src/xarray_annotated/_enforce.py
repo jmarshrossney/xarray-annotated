@@ -154,7 +154,11 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
     `Annotated[DataArray, ...]` declare inputs, and a `TypedDict` / dataclass
     return (or a bare `Annotated[DataArray, ...]` return) declares outputs.  Any
     mix of `Unit`, `Dims` / `Coords` / `Dtype`, and `Freq` markers may sit on one
-    hint.
+    hint, with at most one of each kind, so write `Coords("time", "lat")`.
+
+    A `TypedDict` or dataclass return may also be written `R | None`, `R[int]` or
+    `Annotated[R, "description"]`, or through a `type` alias.  The caller receives a
+    shallow copy of it, which shares its arrays, and `__post_init__` does not run again.
 
     On each call the wrapper:
 
@@ -186,9 +190,10 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
 
     Raises:
         ValueError: If a declaration is malformed, a `*args` or `**kwargs` parameter
-            carries a declaration, or a hint carries a marker that cannot apply, such
-            as in a tuple, on a `Dataset`, on a field of a `NamedTuple` return or of a
-            class nested in a field, or on a field of a parameter (at decoration).
+            carries a declaration, a hint carries two markers of one kind, or a hint
+            carries a marker that cannot apply, such as in a tuple, on a `Dataset`, on a
+            field of a `NamedTuple` return or of a class nested in a field, or on a
+            field of a parameter (at decoration).
         TypeError: If a declared value is not a `DataArray` and its hint does not allow
             it, or a `TypedDict` return lacks a required declared field (when called).
 

@@ -5,11 +5,6 @@ supplies the imports pages share, so a snippet about one marker need not repeat 
 Pages run on the default registry, as a reader's would, so one that uses CF unit strings
 has to activate that registry itself.
 
-A fence inside a top-level `=== "Label"` tab runs in a namespace of its own, shared by
-every tab with that label on the page, because linked tabs are alternative versions of
-the page.  It sees the page's untabbed names, unless its own tabs have redefined them;
-nothing it defines reaches another label or untabbed fences.
-
 A comment on the line before a fence changes how it runs:
 
 * `<!-- docs-test: skip -->` for a fragment that is not meant to run;
@@ -25,7 +20,9 @@ import textwrap
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
+import xarray as xr
 
 DOCS = Path(__file__).parent.parent / "docs"
 
@@ -41,10 +38,6 @@ _FENCE = re.compile(
     r"(?:^[ ]*<!-- docs-test: (?P<directive>.+?) -->\n)?"
     r"^[ ]*```python\n(?P<code>.*?)^[ ]*```",
     re.MULTILINE | re.DOTALL,
-)
-_TAB = re.compile(
-    r'^===[+!]? "(?P<label>[^"]+)"[ ]*\n(?:(?:[ ]{4}.*)?\n)*',
-    re.MULTILINE,
 )
 
 
@@ -86,55 +79,54 @@ def test_snippets_run(page: Path):
     if "from jaxtyping import" in text:
         pytest.importorskip("jaxtyping")
         pytest.importorskip("beartype")
-    shared: dict = {}
-    exec(PREAMBLE, shared)
-    tabs = list(_TAB.finditer(text))
-    by_label: dict[str, dict] = {}
+    namespace: dict = {}
+    exec(PREAMBLE, namespace)
     for match in _FENCE.finditer(text):
         line = text.count("\n", 0, match.start("code")) + 1
         code = textwrap.dedent(match["code"])
-        label = next(
-            (t["label"] for t in tabs if t.start() <= match.start() < t.end()), None
-        )
-        namespace = shared if label is None else by_label.setdefault(label, {})
-        namespace.update({**shared, **namespace})
         _run(code, namespace, match["directive"], f"{page.name}:{line}")
 
 
 class TestGettingStarted:
-    """The page says each tab is a complete script and tabulates what breaks it."""
+    """The page's versions of a function agree, and its table says what breaks them."""
 
     PAGE = DOCS / "getting_started.md"
-    PLAIN, ANNOTATED, QUANTIFIED = (
-        "xarray",
-        "xarray-annotated",
-        "xarray-annotated + pint",
-    )
+
+    @staticmethod
+    def _hourly(value, units, dims=("time", "site"), freq="h") -> xr.DataArray:
+        time = pd.date_range("2024-07-01", "2024-07-02T23:00", freq=freq)
+        return xr.DataArray(
+            np.full((time.size, 2), value),
+            dims=dims,
+            coords={"time": time},
+            attrs={"units": units},
+        )
 
     @pytest.fixture
-    def scripts(self) -> dict[str, dict]:
-        """Run each tab with nothing supplied, as a reader pasting it would."""
-        text = self.PAGE.read_text()
-        namespaces = {}
-        for tab in _TAB.finditer(text):
-            fence = _FENCE.search(tab[0])
-            if tab["label"] in (self.PLAIN, self.ANNOTATED, self.QUANTIFIED):
-                assert fence is not None
-                namespaces[tab["label"]] = {}
-                exec(textwrap.dedent(fence["code"]), namespaces[tab["label"]])
-        assert len(namespaces) == 3
-        return namespaces
+    def versions(self) -> list:
+        """Each definition of the function in page order, keeping its own `R`."""
+        namespace: dict = {}
+        exec(PREAMBLE, namespace)
+        found = []
+        for match in _FENCE.finditer(self.PAGE.read_text()):
+            namespace = dict(namespace)
+            code = textwrap.dedent(match["code"])
+            _run(code, namespace, match["directive"], self.PAGE.name)
+            if match["directive"] is None and "def daily_air_density(" in code:
+                found.append(namespace["daily_air_density"])
+        assert len(found) == 3
+        return found
 
-    def test_every_tab_gives_the_same_density(self, scripts):
-        for names in scripts.values():
-            out = names["daily_air_density"](names["p"], names["t"])
-            np.testing.assert_allclose(out.data, 1.225, atol=5e-4)
+    def test_every_version_gives_the_same_density(self, versions):
+        p, t = self._hourly(1013.25, "hPa"), self._hourly(288.15, "K")
+        for function in versions:
+            np.testing.assert_allclose(function(p, t).data, 1.225, atol=5e-4)
 
     @pytest.mark.parametrize(
         ("change", "arg", "kwargs", "plain_cell", "plain_value", "error"),
         [
             (
-                'hourly(101325.0, "Pa")',
+                "`p` as the same pressure in `Pa`",
                 "p",
                 {"value": 101325.0, "units": "Pa"},
                 "122.5, no error",
@@ -142,7 +134,7 @@ class TestGettingStarted:
                 "ValueError",
             ),
             (
-                'hourly(15.0, "degC")',
+                "`t` as the same temperature in `degC`",
                 "t",
                 {"value": 15.0, "units": "degC"},
                 "23.53, no error",
@@ -150,15 +142,7 @@ class TestGettingStarted:
                 "ValueError",
             ),
             (
-                'hourly(288.15, "m")',
-                "t",
-                {"value": 288.15, "units": "m"},
-                "1.225, no error",
-                1.225,
-                "DimensionalityError",
-            ),
-            (
-                'hourly(288.15, "K", dims=("time", "station"))',
+                "`t` with dims `(time, station)`",
                 "t",
                 {"value": 288.15, "units": "K", "dims": ("time", "station")},
                 "Gains a `station` dimension, no error",
@@ -166,7 +150,7 @@ class TestGettingStarted:
                 "SchemaError",
             ),
             (
-                'hourly(288.15, "K", freq="3h")',
+                "`t` every three hours",
                 "t",
                 {"value": 288.15, "units": "K", "freq": "3h"},
                 "1.225 from every third hour, no error",
@@ -176,21 +160,21 @@ class TestGettingStarted:
         ],
     )
     def test_the_table(
-        self, scripts, change, arg, kwargs, plain_cell, plain_value, error
+        self, versions, change, arg, kwargs, plain_cell, plain_value, error
     ):
-        row = f"| `{change}` for `{arg}` | {plain_cell} | `{error}` |"
+        row = f"| {change} | {plain_cell} | `{error}` |"
         assert row in self.PAGE.read_text()
 
-        names = scripts[self.PLAIN]
-        args = {"p": names["p"], "t": names["t"], arg: names["hourly"](**kwargs)}
-        out = names["daily_air_density"](**args)
+        args = {"p": self._hourly(1013.25, "hPa"), "t": self._hourly(288.15, "K")}
+        args[arg] = self._hourly(**kwargs)
+
+        plain, *declared = versions
+        out = plain(**args)
         np.testing.assert_allclose(out.values, plain_value, atol=5e-3)
         assert ("station" in out.dims) == ("dims" in kwargs)
         if "freq" in kwargs:
             assert out.sizes["time"] == 2
 
-        for label in (self.ANNOTATED, self.QUANTIFIED):
-            names = scripts[label]
-            bad = names["hourly"](**kwargs)
-            call = "daily_air_density(p, t)"
-            _run(call, {**names, arg: bad}, f"raises {error}", f"{label}: {change}")
+        for function in declared:
+            names = {"function": function, **args}
+            _run("function(p, t)", names, f"raises {error}", change)

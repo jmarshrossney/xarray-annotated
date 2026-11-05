@@ -16,7 +16,7 @@
 | `FreqError: ... got no step that short` | `gaps_ok=True` was declared, and no two timestamps are as close as the declared step, so the data may be coarser than declared | Declare the coarser frequency, or fix the data |
 | `TypeError: ... declared a DataArray, got ...`, when called | The value is `None`, an ndarray, a `Dataset` or something else, as after `.values` in a body | Pass or return a `DataArray`, or add what the value may be to the hint, such as `\| None` |
 | `DimensionalityError` | The units cannot be converted | Fix the data or the declaration |
-| `FreqError: ... no indexed datetime coordinate`, when called | The message names a datetime coordinate and its fix where it can tell. Otherwise there is no time coordinate, as after `.mean("time")`, or it is unindexed `cftime` or undecoded | Remove the `Freq` marker, [index it](declaring.md#frequency), or decode it |
+| `FreqError: ... no indexed datetime coordinate`, when called | The message names a datetime coordinate and its fix where it can tell. Otherwise there is no time coordinate, as after `.mean("time")`, or it is unindexed `cftime` or undecoded | Remove the `Freq` marker, [index it][xarray_annotated.Freq], or decode it |
 | Checks stopped everywhere | The package is switched off | Check `XARRAY_ANNOTATED_ENABLED`, and look for an `xra.enabled(False)` block |
 
 `SchemaError` and `FreqError` are not `ValueError`s, so catching a mismatch never swallows a malformed declaration.

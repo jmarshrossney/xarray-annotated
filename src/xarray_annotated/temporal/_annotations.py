@@ -21,27 +21,53 @@ fields, so ``eval(repr(m)) == m``.
 class Freq:
     """Declare the expected temporal frequency of a DataArray's time axis.
 
-    ``Freq("7D")`` declares an array whose datetime coordinate advances in
-    seven-day steps; ``Freq("W-SUN")`` declares the same spacing *and* pins the
-    phase to Sundays.  Two independent comparisons follow from the declaration:
+    `Freq("7D")` declares an array whose time axis advances in seven-day steps, and
+    `Freq("W-SUN")` declares the same spacing and pins the phase to Sundays.
 
-    * **spacing** — always compared (``"7D"`` and ``"W-WED"`` have the same spacing);
-    * **phase** — the ``End``/``Begin`` convention (``"ME"`` vs ``"MS"``), always
-      compared; and the anchor (``"-WED"``, ``"-MAR"``), compared only where the
-      declaration *spells* it.  ``Freq("W")`` therefore means "weekly, any weekday",
-      a deliberate divergence from pandas (which would default it to ``W-SUN``).
+    **The time axis** is the array's one datetime coordinate with a pandas index, which
+    a dimension coordinate has by default, so the check reads nothing from disk.  If
+    there is no such coordinate, or there are two, the check raises `FreqError`, and
+    names the fix where it can tell; pass `dim` to choose between two.  A scalar, 2-D or
+    unindexed coordinate is not a time axis, so `time(obs)` needs `.set_xindex("time")`,
+    and alongside a real one it is left unchecked.
 
-    Besides a pandas offset, ``freq`` may be ``"month"``, ``"year"`` or a multiple such
-    as ``"3month"``: one value per calendar step, stamped on any day, for an axis pandas
-    has no frequency for, such as monthly means stamped at midpoints.
+    **Spacing** is always compared, by meaning rather than by string.  A regular axis
+    has its frequency inferred with `xarray.infer_freq`, so `cftime` calendars work too.
 
-    ``gaps_ok=True`` declares the sampling period without a gap-free axis:
-    ``Freq("D", gaps_ok=True)`` accepts January 2025 joined to January 2026.  Timestamps
-    must still increase, every step must be a whole multiple of the declared one, and
-    the smallest step must equal it, so weekly values do not pass as daily ones.
+    | Declared | Actual | Result | Why |
+    |---|---|---|---|
+    | `Freq("7D")` | `W-WED` | pass | Seven days either way |
+    | `Freq("D")` | `24h` | pass | Same fixed spacing |
+    | `Freq("QE")` | `3ME` | pass | A quarter is three months |
+    | `Freq("ME")` | `30D` | fail | Calendar months are not fixed-length days |
 
-    Pass ``dim`` to name the time coordinate where an array has two; see
-    ``docs/guides/declaring.md`` for which coordinates count.
+    **Phase** is compared in two parts.  The end or begin convention (`"ME"` vs `"MS"`)
+    is always compared, and the anchor only if you spell it: `Freq("W")` means weekly on
+    any weekday, and `Freq("W-SUN")` weekly on Sundays only.  Unlike pandas, an
+    unspelled anchor means "any" rather than a default.  A quarterly anchor names four
+    dates rather than one month, so `"QE-MAR"` and `"QE-DEC"` are the same.
+
+    **Every axis is tested**, whatever its length.  Irregular spacing raises, such as a
+    missing or duplicated timestamp, unless `gaps_ok` allows it.  Two timestamps are
+    compared directly, though business-day and custom frequencies have nothing to
+    compare, so pass.  Zero or one timestamp always passes.
+
+    **A malformed declaration** raises `ValueError` when `enforce` decorates the
+    function, not at `Freq(...)`.  That covers a string pandas cannot parse, including
+    the legacy aliases `"M"` and `"H"`, now spelled `"ME"` and `"h"`; a zero calendar
+    step such as `"0month"`; an empty `dim`; and `gaps_ok` on a business-day, custom or
+    negative frequency, which has no positive step to compare.
+
+    Args:
+        freq: A pandas frequency, or `"month"`, `"year"` or a multiple such as
+            `"3month"`, for one value per calendar step, stamped on any day, such as
+            monthly means stamped at midpoints.
+        dim: The time coordinate, where an array has two.
+        gaps_ok: Declare the sampling period without a gap-free axis, so
+            `Freq("D", gaps_ok=True)` accepts January 2025 joined to January 2026.
+            Timestamps must still increase, every step must be a whole multiple of the
+            declared one, and the smallest step must equal it, so weekly values do not
+            pass as daily ones.
     """
 
     _freq: str

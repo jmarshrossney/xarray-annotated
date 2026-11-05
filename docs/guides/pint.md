@@ -124,7 +124,7 @@ Prefer it to `.pint.to`, which keeps a stale packing, and which raises a `PintEx
 ## Rates and totals
 
 A per-week rate and a per-day rate are one quantity: 2 g/m²/day is 14 g/m²/week.
-The period you averaged over is not part of the unit, so keep the source's denominator and let [`Freq`](declaring.md#frequency) say which period it is.
+The period you averaged over is not part of the unit, so keep the source's denominator and let [`Freq`][xarray_annotated.Freq] say which period it is.
 A total has no time in its denominator at all, and comes from multiplying by the time step:
 
 ```python

@@ -49,7 +49,7 @@ See [Look before you leap](guides/look_before_you_leap.md) for more details.
 ## Where to next?
 
 - [Getting started](getting_started.md): installation and a walkthrough.
-- [Declaring properties](guides/declaring.md): each marker in detail.
+- [Declaration patterns](guides/declaring.md): several outputs, optional arrays, irregular time axes and shared declarations.
 - [Look before you leap](guides/look_before_you_leap.md): checking a pipeline before it runs.
 - [Units](guides/units.md) and [Computing with pint](guides/pint.md): what to do when units differ, and getting them right in the first place.
 - [Worked example](example.md) and [API reference](api/package.md).
