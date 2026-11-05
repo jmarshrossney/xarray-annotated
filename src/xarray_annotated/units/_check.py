@@ -137,9 +137,12 @@ def assert_valid_unit(unit: str | Unit, context: str) -> None:
 def units_compatible(a: str | Unit, b: str | Unit) -> bool:
     """Return whether two units are *dimensionally* compatible.
 
-    Mirrors the runtime conversion semantics of `check_units`: `"hPa"` and
-    `"Pa"` are compatible (one converts to the other), whereas `"Pa"` and
+    `"hPa"` and `"Pa"` are compatible (one converts to the other), whereas `"Pa"` and
     `"kg"` are not.  Both are assumed already validated by `assert_valid_unit`.
+
+    This is not what `check_units` requires, which refuses `"hPa"` for `"Pa"`.  To ask
+    whether one unit would pass for another, use `units_equal`, or
+    `declaration_conflicts` for whole declarations.
 
     Accepts either a bare unit string or a `Unit` marker on each side (its
     `.unit` string is used), so a consumer holding markers — e.g. `Declared`

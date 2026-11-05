@@ -19,6 +19,7 @@ nav = [
   { "Getting Started" = "getting_started.md" },
   { "Guides" = [
     { "Declaring properties" = "guides/declaring.md" },
+    { "Look before you leap" = "guides/look_before_you_leap.md" },
     { "Units" = "guides/units.md" },
     { "Computing with pint" = "guides/pint.md" },
     { "Choosing a unit registry" = "guides/registry.md" },

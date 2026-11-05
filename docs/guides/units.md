@@ -15,6 +15,19 @@ The unit is read from `attrs["units"]`, or from the data if the array is quantif
 These are checks only.
 The body receives the array you passed, quantified or not and with its label spelled as it was, and you receive the array the body returned.
 
+## Where the unit comes from { #where-the-unit-comes-from }
+
+`Unit` is most valuable where units are held in a `units` attribute, as is common in environmental datasets, because nothing else checks them.
+How much a check proves depends on where the unit comes from:
+
+| Workflow | Input check | Output check |
+|---|---|---|
+| Labels only | Reads the label | Reads the label a body assigned by hand |
+| Labelled inputs, [pint in the body](pint.md#in-a-declared-function) | Reads the label | Verifies a unit pint computed |
+| [Quantified arrays between functions](pint.md#quantified-arrays-between-functions) (work in progress) | Reads the unit in the data | Verifies a unit pint computed |
+
+A check on a label cannot tell whether the label is true.
+
 ## Converting an input
 
 Convert where you know the conversion is right for the data, so the decision is visible where it is made:
