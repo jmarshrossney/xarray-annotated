@@ -9,6 +9,30 @@ A body that relied on conversion would also change its results when checks are [
 Call [`xra.units.convert`][xarray_annotated.units.convert] where you know the conversion is right for the data, so the decision is visible at the call site.
 See [Why conversion is not automatic](guides/units.md#why-conversion-is-not-automatic) for examples.
 
+## Why can't I declare only a physical dimension, such as "a pressure"?
+
+Accepting any pressure is safe only if the function body stays in pint throughout, and a check cannot see the body.
+A body that uses `p.data.magnitude / 100` gets 1013.25 from 101325 `Pa`, but 10.13 from the same pressure in `hPa`, with no error.
+A dimension does not identify a quantity either: `K` and `degC` are both temperatures, but `T * 2` works in `K` and raises in `degC`.
+
+So `Unit` requires the exact unit, and the caller converts with [`xra.units.convert`][xarray_annotated.units.convert] where needed.
+If a function really should accept any compatible unit, leave the input undeclared and start the body with `p = xra.units.convert(p, "Pa")`.
+This works for plain and quantified arrays, and raises on a missing label or the wrong dimension.
+The signature no longer states the expectation, so say it in the docstring.
+
+See [Converting an input](guides/units.md#converting-an-input).
+
+## Why pass plain arrays between functions, rather than quantified ones?
+
+A body written for plain arrays can give a different answer when handed a quantified one, with no error: `1 - rh / 100` gives 0.4 for 60 `percent` on a plain array, and 0.994 on a quantified one.
+If only plain arrays cross function boundaries, each body knows what it will receive.
+
+You still get pint's checks on the arithmetic, by quantifying inside the function: call `xra.units.quantify` on each input you compute with, and return `xra.units.dequantify(xra.units.convert(result, unit))`.
+Laziness does not affect the choice, as dask-backed arrays stay lazy either way, so open files with `chunks={}`.
+
+Quantified arrays still pass every check, and they are worth keeping where the code between your functions does arithmetic of its own.
+See [Plain arrays between functions](guides/pint.md#between-functions).
+
 ## Why can't I declare constraints on values, such as a range?
 
 A check reads only metadata and indexes, never an array's values, which is what lets it run before the data is loaded.

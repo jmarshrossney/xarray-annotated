@@ -2,6 +2,8 @@
 
 use_directory_urls = false
 
+exclude_docs = "adr/"
+
 site_name = "xarray-annotated"
 site_description = "Run-time validation of xarray DataArray structure, units and frequency, declared via typing.Annotated"
 site_author = "Joe Marsh Rossney"
