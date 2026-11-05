@@ -46,9 +46,9 @@ from ._contract import (
 )
 from ._reader import Declared, declaration_from_hint, declarations_from_signature
 from .schema import Coords, Dims, Dtype
-from .schema._check import check_schema
+from .schema._check import _check_valid_schema
 from .temporal import Freq
-from .temporal._check import check_freq
+from .temporal._check import _check_valid_freq
 from .units import Unit
 from .units._check import _check_output_unit
 
@@ -259,9 +259,9 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
         if decl.unit is not None:
             _check_output_unit(value, decl.unit, name, qualname)
         if markers := decl.schema:
-            check_schema(value, markers, name, qualname=qualname)
+            _check_valid_schema(value, markers, name, qualname)
         if decl.freq is not None:
-            check_freq(value, decl.freq, name, qualname=qualname)
+            _check_valid_freq(value, decl.freq, name, qualname)
 
     def _check_record(result: Any, cls: Any, fields: dict[str, Declared]) -> None:
         is_dict = is_typeddict(cls)

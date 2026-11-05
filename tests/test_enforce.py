@@ -320,6 +320,23 @@ class TestValidatesOnce:
         monkeypatch.setattr("xarray_annotated.units._check.assert_valid_unit", fail)
         f(_int_da("Pa"))
 
+    def test_nothing_is_validated_when_called_on_any_facet(self, monkeypatch):
+        @xra.enforce
+        def f(
+            p: Annotated[xr.DataArray, Dtype("int"), Freq("D")],
+        ) -> Annotated[xr.DataArray, Dtype("int"), Freq("D")]:
+            return p
+
+        def fail(*_):
+            raise AssertionError("validated again")
+
+        for module in ("_contract", "schema._check"):
+            monkeypatch.setattr(f"xarray_annotated.{module}.assert_valid_schema", fail)
+        for module in ("_contract", "temporal._check"):
+            monkeypatch.setattr(f"xarray_annotated.{module}.assert_valid_freq", fail)
+        time = pd.date_range("2000-01-01", periods=3, freq="D")
+        f(xr.DataArray(np.arange(3), dims="time", coords={"time": time}))
+
 
 class TestNothingDeclared:
     def test_returns_the_function_itself(self):

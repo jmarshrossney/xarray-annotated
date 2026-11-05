@@ -19,12 +19,12 @@ from ._config import resolve_enabled
 from ._errors import ContractError
 from ._reader import Declared
 from .schema._check import (
+    _check_valid_schema,
     assert_valid_schema,
-    check_schema,
     dims_compatible,
     dtype_compatible,
 )
-from .temporal._check import assert_valid_freq, check_freq, freq_compatible
+from .temporal._check import _check_valid_freq, assert_valid_freq, freq_compatible
 from .units._check import (
     _check_input_unit,
     assert_valid_unit,
@@ -102,9 +102,9 @@ def _facet_checks(
     if declared.unit is not None:
         yield partial(_check_input_unit, value, declared.unit, name, qualname)
     for marker in declared.schema:
-        yield partial(check_schema, value, marker, name, qualname=qualname)
+        yield partial(_check_valid_schema, value, marker, name, qualname)
     if declared.freq is not None:
-        yield partial(check_freq, value, declared.freq, name, qualname=qualname)
+        yield partial(_check_valid_freq, value, declared.freq, name, qualname)
 
 
 def _check_valid_declared(

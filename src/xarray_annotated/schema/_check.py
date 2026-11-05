@@ -200,6 +200,24 @@ _CHECKERS: dict[type, Callable[[xr.DataArray, Any], tuple[bool, str]]] = {
 }
 
 
+def _check_valid_schema(
+    da: xr.DataArray,
+    declared: SchemaMarker | list[SchemaMarker],
+    name: str,
+    qualname: str | None,
+) -> None:
+    """`check_schema` on validated markers, whatever `enabled` says."""
+    prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
+    for marker in _as_list(declared):
+        ok, detail = _CHECKERS[type(marker)](da, marker)
+        if not ok:
+            raise SchemaError(f"{prefix} {detail}")
+
+
+def _as_list(declared: SchemaMarker | list[SchemaMarker]) -> list[SchemaMarker]:
+    return [declared] if isinstance(declared, (Dims, Coords, Dtype)) else declared
+
+
 def check_schema(
     da: xr.DataArray,
     declared: SchemaMarker | list[SchemaMarker],
@@ -222,14 +240,13 @@ def check_schema(
 
     Raises:
         SchemaError: On a mismatch.
+        ValueError: If a marker is malformed.
     """
     if not resolve_enabled():
         return da
 
-    markers = [declared] if isinstance(declared, (Dims, Coords, Dtype)) else declared
     prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
-    for marker in markers:
-        ok, detail = _CHECKERS[type(marker)](da, marker)
-        if not ok:
-            raise SchemaError(f"{prefix} {detail}")
+    for marker in _as_list(declared):
+        assert_valid_schema(marker, prefix)
+    _check_valid_schema(da, declared, name, qualname)
     return da

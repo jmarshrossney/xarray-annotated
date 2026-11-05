@@ -1148,3 +1148,37 @@ class TestFreqCompatibleOnDim:
     def test_an_unparseable_frequency_still_raises(self):
         with pytest.raises(ValueError, match="bogus"):
             temporal.freq_compatible(Freq("bogus", dim="a"), Freq("D", dim="b"))
+
+
+class TestMalformedFreqInCheckFreq:
+    @pytest.mark.parametrize(
+        "marker",
+        [
+            Freq("bogus"),
+            Freq("M"),
+            Freq("0month"),
+            Freq("D", dim=""),
+            Freq("B", gaps_ok=True),
+        ],
+        ids=repr,
+    )
+    @pytest.mark.parametrize(
+        "da",
+        [
+            xr.DataArray(
+                [1.0, 2.0],
+                dims="time",
+                coords={"time": pd.date_range("2000-01-01", periods=2, freq="D")},
+            ),
+            xr.DataArray([1.0, 2.0], dims="x"),
+        ],
+        ids=["time-axis", "no-time-axis"],
+    )
+    def test_raises_value_error_whatever_the_array(self, marker, da):
+        with pytest.raises(ValueError, match="'p'"):
+            temporal.check_freq(da, marker, "p")
+
+    def test_switched_off_checks_nothing(self):
+        da = xr.DataArray([1.0], dims="x")
+        with xra.enabled(False):
+            assert temporal.check_freq(da, Freq("bogus"), "p") is da

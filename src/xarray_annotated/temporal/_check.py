@@ -423,6 +423,22 @@ def _mismatch(marker: Freq, coord: xr.DataArray) -> str | None:
     )
 
 
+def _check_valid_freq(
+    da: xr.DataArray, declared: Freq, name: str, qualname: str | None
+) -> None:
+    """`check_freq` on a validated declaration, whatever `enabled` says."""
+    prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
+    dim, detail = _locate_axis(da, declared)
+    if dim is None:
+        raise FreqError(f"{prefix} {detail}")
+    got = _mismatch(declared, da[dim])
+    if got is not None:
+        raise FreqError(
+            f"{prefix} frequency mismatch on {dim!r}: expected {declared.freq!r}, "
+            f"got {got}"
+        )
+
+
 def check_freq(
     da: xr.DataArray,
     declared: Freq,
@@ -454,7 +470,8 @@ def check_freq(
 
     Raises:
         FreqError: On a mismatch.
-        ValueError: If `gaps_ok` is declared on a frequency with no step to compare.
+        ValueError: If the declaration is malformed, including `gaps_ok` on a frequency
+            with no step to compare.
 
     Examples:
         >>> import pandas as pd
@@ -474,15 +491,6 @@ def check_freq(
         return da
 
     prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
-    if declared.gaps_ok:
-        assert_valid_freq(declared, prefix)
-    dim, detail = _locate_axis(da, declared)
-    if dim is None:
-        raise FreqError(f"{prefix} {detail}")
-    got = _mismatch(declared, da[dim])
-    if got is not None:
-        raise FreqError(
-            f"{prefix} frequency mismatch on {dim!r}: expected {declared.freq!r}, "
-            f"got {got}"
-        )
+    assert_valid_freq(declared, prefix)
+    _check_valid_freq(da, declared, name, qualname)
     return da

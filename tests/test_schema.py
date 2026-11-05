@@ -386,3 +386,25 @@ class TestAnnotationsSurviveWraps:
         wrapped = xra.enforce(fn)
         hints = typing.get_type_hints(wrapped, include_extras=True)
         assert "return" in hints
+
+
+class TestMalformedMarkerInCheckSchema:
+    @pytest.mark.parametrize(
+        "marker",
+        [
+            Dtype("notdtype"),
+            Dims("x", "x"),
+            Dims("time", "time"),
+            [Dims("time"), Dtype("notdtype")],
+        ],
+        ids=["dtype", "dims-mismatching", "dims-matching", "in-a-list"],
+    )
+    def test_raises_value_error_whatever_the_array(self, marker):
+        da = xr.DataArray([1.0], dims="time")
+        with pytest.raises(ValueError, match="'p'"):
+            schema.check_schema(da, marker, "p")
+
+    def test_switched_off_checks_nothing(self):
+        da = xr.DataArray([1.0], dims="time")
+        with xra.enabled(False):
+            assert schema.check_schema(da, Dtype("notdtype"), "p") is da
