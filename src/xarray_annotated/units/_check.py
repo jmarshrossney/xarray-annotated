@@ -470,7 +470,7 @@ def convert(da: xr.DataArray, unit: str | Unit) -> xr.DataArray:
     return converted
 
 
-def apply_output_units(
+def check_output_units(
     da: xr.DataArray,
     declared: str | Unit,
     name: str,
@@ -506,9 +506,9 @@ def apply_output_units(
 
     Examples:
         >>> import xarray as xr
-        >>> from xarray_annotated.units import apply_output_units
+        >>> from xarray_annotated.units import check_output_units
         >>> da = xr.DataArray([1.0], attrs={"units": "pascal"})
-        >>> apply_output_units(da, "Pa", "return") is da
+        >>> check_output_units(da, "Pa", "return") is da
         True
     """
     if not resolve_enabled():

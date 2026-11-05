@@ -6,8 +6,8 @@ DataArrays.
 
 from ._annotations import Unit
 from ._check import (
-    apply_output_units,
     assert_valid_unit,
+    check_output_units,
     check_units,
     convert,
     dequantify,
@@ -23,8 +23,8 @@ from ._registry import (
 
 __all__ = [
     "Unit",
-    "apply_output_units",
     "assert_valid_unit",
+    "check_output_units",
     "check_units",
     "convert",
     "dequantify",

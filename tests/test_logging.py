@@ -70,13 +70,13 @@ class TestUnreadableInputs:
 class TestOutputs:
     @pytest.mark.parametrize("label", ["Pa", "pascal"])
     def test_a_matching_output_is_not_logged(self, audit, label):
-        units.apply_output_units(_da(label), "Pa", "return")
+        units.check_output_units(_da(label), "Pa", "return")
         assert _records(audit, UNITS) == []
 
     @pytest.mark.parametrize("label", [None, "hPa", "not_a_unit", "e" * 300])
     def test_a_mismatched_output_raises_and_is_not_logged(self, audit, label):
         with pytest.raises(ValueError, match="output 'return'"):
-            units.apply_output_units(_da(label), "Pa", "return")
+            units.check_output_units(_da(label), "Pa", "return")
         assert _records(audit, UNITS) == []
 
     def test_over_long_label_is_neither_parsed_nor_echoed(self, monkeypatch):
@@ -87,7 +87,7 @@ class TestOutputs:
 
         monkeypatch.setattr(units._check, "get_registry", fail)
         with pytest.raises(ValueError, match="over-long") as info:
-            units.apply_output_units(_da(label), "Pa", "return")
+            units.check_output_units(_da(label), "Pa", "return")
         assert label not in str(info.value)
 
 
@@ -95,7 +95,7 @@ class TestQuietByDefault:
     def test_nothing_reaches_a_warning_level_handler(self, caplog):
         caplog.set_level(logging.WARNING, logger="xarray_annotated")
         units.convert(_da(), "Pa")
-        units.apply_output_units(_da("pascal"), "Pa", "return")
+        units.check_output_units(_da("pascal"), "Pa", "return")
         assert caplog.records == []
 
     def test_switched_off_logs_nothing(self, audit):

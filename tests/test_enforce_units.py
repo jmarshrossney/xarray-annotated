@@ -275,7 +275,7 @@ class TestOutputs:
 
     def test_non_string_label_raises(self):
         with pytest.raises(ValueError, match="unparseable 'units' attribute"):
-            units.apply_output_units(_da([[1.0]]).assign_attrs(units=3), "Pa", "r")
+            units.check_output_units(_da([[1.0]]).assign_attrs(units=3), "Pa", "r")
 
     def test_compatible_label_raises_with_the_fix(self):
         with pytest.raises(ValueError, match=r"'hPa' differs.*assign_attrs"):
@@ -504,20 +504,20 @@ class TestOutputs:
             xra.enforce(units_on_output="stamp")  # type: ignore[call-arg]
 
 
-class TestApplyOutputUnitsPrimitive:
-    """``apply_output_units`` is public; it must behave standalone."""
+class TestCheckOutputUnitsPrimitive:
+    """``check_output_units`` is public; it must behave standalone."""
 
     def test_returns_the_same_object(self):
         da = _da([[1.0]], unit="pascal")
-        assert units.apply_output_units(da, "Pa", "return") is da
+        assert units.check_output_units(da, "Pa", "return") is da
 
     def test_has_no_setting(self):
         with pytest.raises(TypeError):
-            units.apply_output_units(_da([[1.0]]), "Pa", "r", on_output="stamp")  # type: ignore[call-arg]
+            units.check_output_units(_da([[1.0]]), "Pa", "r", on_output="stamp")  # type: ignore[call-arg]
 
     def test_qualname_omitted_when_none(self):
         with pytest.raises(ValueError, match="output 'return'") as excinfo:
-            units.apply_output_units(_da([[1.0]], unit="hPa"), "Pa", "return")
+            units.check_output_units(_da([[1.0]], unit="hPa"), "Pa", "return")
         assert "] output" not in str(excinfo.value)  # no empty '[] ' qualname prefix
 
 
@@ -533,22 +533,22 @@ class TestQuantifiedOutputs:
         # Same object, and crucially no copy of the buffer: dequantifying purely to
         # write an attrs string would cost one.
         da = _quantified([[1.0]], "Pa")
-        out = units.apply_output_units(da, "Pa", "return")
+        out = units.check_output_units(da, "Pa", "return")
         assert out is da
         assert "units" not in out.attrs
 
     def test_equivalent_spelling_is_not_a_conversion(self):
         da = _quantified([[1.0]], "pascal")
-        assert units.apply_output_units(da, "Pa", "return") is da
+        assert units.check_output_units(da, "Pa", "return") is da
 
     @pytest.mark.parametrize("declared", ["Pa", Unit("Pa")], ids=repr)
     def test_a_different_unit_raises_with_the_fix(self, declared):
         with pytest.raises(ValueError, match=r"'hPa' differs.*pint\.to\('Pa'\)"):
-            units.apply_output_units(_quantified([[1.0]], "hPa"), declared, "return")
+            units.check_output_units(_quantified([[1.0]], "hPa"), declared, "return")
 
     def test_an_incompatible_unit_raises(self):
         with pytest.raises(pint.DimensionalityError, match="'return'"):
-            units.apply_output_units(_quantified([[1.0]], "hPa"), "kg", "return")
+            units.check_output_units(_quantified([[1.0]], "hPa"), "kg", "return")
 
     def test_a_body_can_convert_it_itself(self):
         @xra.enforce
@@ -571,12 +571,12 @@ class TestQuantifiedOutputs:
         foreign.define("widget = [thing]")
         da = _da([[1.0]]).pint.quantify("widget", unit_registry=foreign)
         with pytest.raises(ValueError, match="unparseable 'units' attribute 'widget'"):
-            units.apply_output_units(da, "Pa", "return")
+            units.check_output_units(da, "Pa", "return")
 
     def test_disabled_policy_leaves_it_alone(self):
         da = _quantified([[1.0]], "hPa")
         with xra.enabled(False):
-            assert units.apply_output_units(da, "Pa", "return") is da
+            assert units.check_output_units(da, "Pa", "return") is da
 
 
 class TestQuantifiedThroughDecorator:

@@ -17,7 +17,7 @@ order was correct.
 
 This is deliberately the *convenience* layer over public primitives — the
 `declarations_from_signature` reader and the `check_units` /
-`apply_output_units` / `check_schema` / `check_freq` checkers.  A tool needing
+`check_output_units` / `check_schema` / `check_freq` checkers.  A tool needing
 different behaviour should build its own consumer from those.
 """
 
@@ -47,8 +47,8 @@ from .temporal import Freq
 from .temporal._check import assert_valid_freq, check_freq
 from .units import Unit
 from .units._check import (
-    apply_output_units,
     assert_valid_unit,
+    check_output_units,
     check_units,
 )
 
@@ -194,7 +194,7 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
     1. checks every declared input against its unit (`check_units`), then validates
        its structure (`check_schema`) and frequency (`check_freq`);
     2. runs the wrapped function;
-    3. checks each declared output against its unit (`apply_output_units`), then
+    3. checks each declared output against its unit (`check_output_units`), then
        validates structure and frequency on the value returned to the caller.
 
     A value that is not a `DataArray` raises, unless its hint allows it, as `| None`
@@ -276,7 +276,7 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
             _refuse_other_value(value, decl, f"[{qualname}] output {name!r}")
             return
         if decl.unit is not None:
-            apply_output_units(value, decl.unit, name, qualname)
+            check_output_units(value, decl.unit, name, qualname)
         if markers := decl.schema:
             check_schema(value, markers, name, qualname=qualname)
         if decl.freq is not None:

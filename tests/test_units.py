@@ -403,7 +403,7 @@ class TestUnitMarker:
         with pytest.raises(ValueError, match="declared 'Pa'"):
             units.check_units(_da([[1.0]]), Unit("Pa"), "p")
         da = _da([[1.0]], unit="pascal")
-        assert units.apply_output_units(da, Unit("Pa"), "r") is da
+        assert units.check_output_units(da, Unit("Pa"), "r") is da
 
     def test_equality(self):
         assert units.Unit("degC") == units.Unit("degC")
@@ -482,7 +482,7 @@ class TestUnitsEqualIsPhysical:
 
     def test_recomposed_output_label_is_no_mismatch(self):
         da = xr.DataArray([1.0], attrs={"units": "N/m**2"})
-        assert units.apply_output_units(da, "Pa", "return") is da
+        assert units.check_output_units(da, "Pa", "return") is da
 
 
 _PACKING = {"dtype": "int16", "scale_factor": 0.1, "_FillValue": -32768, "zlib": True}
@@ -525,7 +525,7 @@ class TestConversionClearsEncoding:
         da = _packed().pint.quantify().pint.to("Pa")
         assert da.encoding == _PACKING  # what pint-xarray leaves behind
         assert units.check_units(da, "Pa", "p").encoding == _PACKING
-        assert units.apply_output_units(da, "Pa", "return") is da
+        assert units.check_output_units(da, "Pa", "return") is da
 
 
 class _CountingBackend(BackendArray):
@@ -567,9 +567,9 @@ class TestLazyArrays:
         units.check_units(da, "Pa", "p")
         assert backend.reads == 0
 
-    def test_apply_output_units_reads_nothing(self, cache):
+    def test_check_output_units_reads_nothing(self, cache):
         da, backend = _lazy(cache)
-        units.apply_output_units(da, "Pa", "p")
+        units.check_output_units(da, "Pa", "p")
         assert backend.reads == 0
 
     def test_enforce_reads_nothing_and_stays_lazy(self, cache):
