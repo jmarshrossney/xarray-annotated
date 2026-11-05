@@ -23,8 +23,8 @@ How much a check proves depends on where the unit comes from:
 | Workflow | Input check | Output check |
 |---|---|---|
 | Labels only | Reads the label | Reads the label a body assigned by hand |
-| Labelled inputs, [pint in the body](pint.md#in-a-declared-function) | Reads the label | Verifies a unit pint computed |
-| [Quantified arrays between functions](pint.md#quantified-arrays-between-functions) (work in progress) | Reads the unit in the data | Verifies a unit pint computed |
+| Labelled inputs, [pint in the body](pint.md#in-a-declared-function) (recommended) | Reads the label | Verifies a unit pint computed |
+| [Quantified arrays between functions](pint.md#between-functions) | Reads the unit in the data | Verifies a unit pint computed |
 
 A check on a label cannot tell whether the label is true.
 

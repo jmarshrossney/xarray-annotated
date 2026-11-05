@@ -4,6 +4,7 @@ from typing import Annotated
 
 import numpy as np
 import pandas as pd
+import pint
 import pint_xarray  # noqa: F401  (registers the .pint accessor)
 import pytest
 import xarray as xr
@@ -135,3 +136,51 @@ class TestSwitchInWorkers:
         with xra.enabled(False):
             task = dask.delayed(self._checked)()
         assert task.compute(scheduler=scheduler) is True
+
+
+def _ffill(da: xr.DataArray) -> xr.DataArray:
+    pytest.importorskip("bottleneck")
+    return da.ffill("time")
+
+
+class TestOperationsThatLoseTheUnit:
+    """Upstream behaviour that `docs/guides/pint.md` warns about.
+
+    If a test here fails because upstream now keeps the unit, update the guide's "What
+    pint cannot catch" table and its section on declared functions, then delete it.
+    """
+
+    LOSSY = pytest.mark.parametrize(
+        "operation",
+        [
+            lambda da: da.rolling(time=2).mean(),
+            lambda da: da.rolling(time=2).sum(),
+            lambda da: da.rolling(time=2).std(),
+            _ffill,
+        ],
+        ids=["rolling.mean", "rolling.sum", "rolling.std", "ffill"],
+    )
+
+    @LOSSY
+    def test_the_unit_is_dropped_with_no_warning(self, lazy, recwarn, operation):
+        out = operation(units.quantify(lazy()))
+        assert not isinstance(out.variable._data, pint.Quantity)
+        assert "units" not in out.attrs
+        assert not recwarn.list
+
+    @LOSSY
+    def test_a_declared_output_raises_on_the_loss(self, lazy, operation):
+        @xra.enforce
+        def body(
+            da: Annotated[xr.DataArray, Unit("hPa")],
+        ) -> Annotated[xr.DataArray, Unit("hPa")]:
+            return units.dequantify(operation(units.quantify(da)))
+
+        with pytest.raises(ValueError, match="no 'units' attribute"):
+            body(lazy())
+
+    @LOSSY
+    def test_the_plain_array_keeps_the_unit(self, lazy, operation):
+        out = units.quantify(operation(units.dequantify(units.quantify(lazy()))))
+        assert isinstance(out.variable._data, pint.Quantity)
+        assert out.variable._data.units == units.get_registry().Unit("hPa")

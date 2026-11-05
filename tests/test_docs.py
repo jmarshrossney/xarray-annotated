@@ -125,14 +125,10 @@ class TestGettingStarted:
         assert len(namespaces) == 3
         return namespaces
 
-    @staticmethod
-    def _magnitude(array):
-        return getattr(array.data, "magnitude", array.data)
-
     def test_every_tab_gives_the_same_density(self, scripts):
         for names in scripts.values():
             out = names["daily_air_density"](names["p"], names["t"])
-            np.testing.assert_allclose(self._magnitude(out), 1.225, atol=5e-4)
+            np.testing.assert_allclose(out.data, 1.225, atol=5e-4)
 
     @pytest.mark.parametrize(
         ("change", "arg", "kwargs", "plain_cell", "plain_value", "error"),
@@ -196,7 +192,5 @@ class TestGettingStarted:
         for label in (self.ANNOTATED, self.QUANTIFIED):
             names = scripts[label]
             bad = names["hourly"](**kwargs)
-            if label == self.QUANTIFIED:
-                bad = names["xra"].units.quantify(bad)
             call = "daily_air_density(p, t)"
             _run(call, {**names, arg: bad}, f"raises {error}", f"{label}: {change}")

@@ -496,7 +496,10 @@ def _(Annotated, Coords, Dims, Dtype, Freq, Q, TypedDict, Unit, xr, xra):
         gpp = (reco - xra.units.quantify(nee)).where(  # no photosynthesis in the dark
             xra.units.quantify(ppfd) > Q(5.0, flux_unit), Q(0.0, flux_unit)
         )
-        return {"gpp": gpp, "reco": reco}
+        return {
+            "gpp": xra.units.dequantify(xra.units.convert(gpp, flux_unit)),
+            "reco": xra.units.dequantify(xra.units.convert(reco, flux_unit)),
+        }
 
     @xra.enforce
     def daily_mean_declared(
@@ -640,7 +643,9 @@ def _(mo):
 
     Let's add the missing function and run the pipeline (hopefully) one final time.
     We let [pint](guides/pint.md) work out the conversion from the molar mass, rather than
-    writing the factor by hand, so forgetting the molar mass would raise as well.
+    writing the factor by hand, so forgetting the molar mass would raise as well. As in
+    `partition_fluxes_declared`, the stage quantifies only inside the function and returns
+    a plain array, labelled with the unit pint computed.
     """)
     return
 
@@ -653,7 +658,7 @@ def _(Annotated, M_C, Q, Unit, xr, xra):
     ) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
         """Umol CO2 m-2 s-1 -> g C m-2 d-1, via the molar mass of carbon."""
         mass_flux = xra.units.quantify(flux) * Q(M_C, "g / mol")
-        return xra.units.convert(mass_flux, "g m-2 d-1")
+        return xra.units.dequantify(xra.units.convert(mass_flux, "g m-2 d-1"))
 
     return (to_mass_flux,)
 
@@ -682,7 +687,7 @@ def _(
 ):
     def annual_total(daily_rate):
         """Daily rates -> their total, multiplying by the time step that `Freq` declared."""
-        total = (daily_rate * Q(1.0, "d")).sum()
+        total = (xra.units.quantify(daily_rate) * Q(1.0, "d")).sum()
         return float(xra.units.convert(total, "g m-2").data.magnitude)
 
     def run_pipeline_final(nee_raw, qc, tair, ppfd):
@@ -729,7 +734,7 @@ def _(mo, results):
     | Annual NEE | **{results["nee_annual"]:+.0f}** g C m^-2^ yr^-1^ (negative = sink) |
     | Annual GPP | **{results["gpp_annual"]:+.0f}** g C m^-2^ yr^-1^ |
     | Annual RECO | **{results["reco_annual"]:+.0f}** g C m^-2^ yr^-1^ |
-    | Weekly GPP | {_weekly.sizes["time"]} weeks from {str(_weekly.time.values[0])[:10]} (a Sunday), mean **{float(_weekly.mean().data.magnitude):.2f}** g C m^-2^ d^-1^ |
+    | Weekly GPP | {_weekly.sizes["time"]} weeks from {str(_weekly.time.values[0])[:10]} (a Sunday), mean **{float(_weekly.mean()):.2f}** g C m^-2^ d^-1^ |
     | Satellite comparison | bias **{_cmp["bias"]:+.2f}**, rmse **{_cmp["rmse"]:.2f}** g C m^-2^ d^-1^ |
     """)
     return

@@ -5,8 +5,8 @@ xarray keeps it through arithmetic, so `p * 100` still says `hPa`, and `.assign_
 A [declaration](units.md) can check a label, but not whether the label is true.
 
 On a [pint](https://pint.readthedocs.io/en/stable/)-quantified array the unit is held in the data, and every operation works out the new one.
-**So use pint wherever it is feasible**, because a declared unit that was computed is worth more than one that was assigned by hand.
-Plain arrays with a `units` attribute stay fully supported, for the [cases where pint does not fit](#plain-arrays).
+**So use pint for the arithmetic inside your functions, and [pass plain arrays between them](#between-functions)**, because a declared unit that was computed is worth more than one that was assigned by hand.
+A function with no unit arithmetic, or one that needs the bare numbers, [can stay plain](#plain-arrays).
 
 ```python
 import numpy as np
@@ -31,9 +31,63 @@ mass + accel
 
 Constants need units too, as a bare number is dimensionless: use `Q(101325.0, "Pa")` rather than `101325.0`.
 
+## In a declared function { #in-a-declared-function }
+
+`enforce` only checks, so a body receives exactly what the caller passed.
+Pass plain arrays to the function and quantify inside it: call `xra.units.quantify` on each input you compute with, and return `xra.units.dequantify(xra.units.convert(result, unit))`.
+
+```python
+MOLAR_MASS_C = Q(12.011, "g / mol")
+
+
+@xra.enforce
+def to_mass_flux(
+    flux: Annotated[xr.DataArray, Unit("umol / m**2 / s")],
+) -> Annotated[xr.DataArray, Unit("g / m**2 / day")]:
+    mass_flux = xra.units.quantify(flux) * MOLAR_MASS_C
+    return xra.units.dequantify(xra.units.convert(mass_flux, "g / m**2 / day"))
+
+
+flux = xr.DataArray([3.0], dims="t", attrs={"units": "umol / m**2 / s"})
+to_mass_flux(flux)  # [3.113], labelled "gram / day / meter ** 2"
+```
+
+The arithmetic is now checked as well as the signature, and the caller receives a plain array whose label pint computed.
+Forget the molar mass, and the conversion fails:
+
+<!-- docs-test: raises DimensionalityError -->
+```python
+xra.units.convert(xra.units.quantify(flux), "g / m**2 / day")
+```
+
+A function with no unit arithmetic, such as a mean over time, needs neither call.
+
+On a dask-backed array, `rolling` and `ffill` lose the unit with no warning, so run them before quantifying:
+
+<!-- docs-test: skip -->
+```python
+smoothed = xra.units.quantify(x.rolling(time=3).mean())
+```
+
+See [What pint cannot catch](#what-pint-cannot-catch) for the details.
+
+## Plain arrays between functions { #between-functions }
+
+We recommend passing plain arrays between functions, and quantifying only inside them:
+
+- **Each body knows what it will receive:** a body written for plain arrays can give [a different answer](#where-pint-surprises) when handed a quantified one, with no error.
+- **The unit at each boundary is the one declared:** on a quantified array, `p * 2` keeps the unit `p` arrived in, so a result's unit can depend on its inputs until it is converted.
+- **Laziness is unaffected:** dask-backed arrays stay lazy either way, so open files with `chunks={}`.
+
+Quantified arrays still pass every check, as `Unit` reads the unit they hold without loading them, and `xra.units.quantify` returns one unchanged, so the functions above accept both kinds.
+They are worth keeping where the code between your functions does arithmetic of its own.
+
+`Unit` requires the declared unit exactly on either kind of array, so `hPa` raises against `Unit("Pa")`, even for a body that would give the right answer in any compatible unit.
+Convert [where you call the function](units.md#converting-an-input).
+
 ## From file to file
 
-Quantify when you read, compute, and dequantify when you are finished:
+In a script with no functions to declare, quantify when you read, compute, and dequantify when you are finished:
 
 <!-- docs-test: skip -->
 ```python
@@ -51,44 +105,6 @@ xra.units.dequantify(result).to_netcdf("out.nc")
 - **Work one variable at a time:** these functions take a `DataArray`, not a `Dataset`.
 
 A label is written as `hPa` under [the CF registry](registry.md) and as `hectopascal` on the default one, since each can read back its own spelling.
-
-## In a declared function
-
-`enforce` only checks, so a body receives exactly what the caller passed.
-A body written for pint starts by quantifying each input, which accepts both kinds of array, and returns its result with no `.assign_attrs`:
-
-```python
-MOLAR_MASS_C = Q(12.011, "g / mol")
-
-
-@xra.enforce
-def to_mass_flux(
-    flux: Annotated[xr.DataArray, Unit("umol / m**2 / s")],
-) -> Annotated[xr.DataArray, Unit("g / m**2 / day")]:
-    mass_flux = xra.units.quantify(flux) * MOLAR_MASS_C
-    return xra.units.convert(mass_flux, "g / m**2 / day")
-
-
-flux = xr.DataArray([3.0], dims="t", attrs={"units": "umol / m**2 / s"})
-to_mass_flux(flux)  # [3.113] g / day / m ** 2
-```
-
-The arithmetic is now checked as well as the signature.
-Forget the molar mass, and the conversion fails:
-
-<!-- docs-test: raises DimensionalityError -->
-```python
-xra.units.convert(xra.units.quantify(flux), "g / m**2 / day")
-```
-
-## Quantified arrays between functions { #quantified-arrays-between-functions }
-
-Passing quantified arrays from one declared function to the next is a work in progress, and may change.
-
-The checks themselves work: `Unit` reads the unit a quantified array holds, without loading it.
-The open question is what an input should declare.
-`Unit` requires the declared unit exactly, so `hPa` raises against `Unit("Pa")`, although a body that stays in pint gives the right answer for any compatible unit, and there is no marker for a physical dimension alone.
-The exact unit is still the safe choice for a body that strips units, where `hPa` would give wrong numbers.
 
 ## Conversion or physical factor
 
@@ -153,22 +169,7 @@ def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g / m**2 / day")]:
 
 Labelling a file's arrays when you read them is the same kind of statement.
 
-Because `enforce` only checks, a body written for plain arrays can be handed a quantified one, and [may then give a different answer](#where-pint-surprises).
-Starting with `xra.units.dequantify` makes it correct for both:
-
-```python
-@xra.enforce
-def dryness(
-    rh: Annotated[xr.DataArray, Unit("percent")],
-) -> Annotated[xr.DataArray, Unit("dimensionless")]:
-    rh = xra.units.dequantify(rh)
-    return (1 - rh / 100).assign_attrs(units="dimensionless")
-
-
-rh = xr.DataArray([60.0], dims="t", attrs={"units": "percent"})
-dryness(rh)  # 0.4
-dryness(xra.units.quantify(rh))  # 0.4
-```
+A body written for plain arrays [may give a different answer](#where-pint-surprises) when handed a quantified one, so if others may call it that way, start the body with `rh = xra.units.dequantify(rh)`.
 
 `float()` and `.values` also strip the unit, with no more than a `UnitStrippedWarning`.
 To leave pint on purpose, convert first and then read the magnitude, so the unit you meant is written down: `xra.units.convert(x, "hPa").data.magnitude`.
@@ -202,3 +203,4 @@ Each of these runs without a unit error, except where noted:
 | `mb` in a file | Parses as millibarn, and only a later conversion to `hPa` raises. The millibar is `mbar` |
 | The wrong species | `g` and `mol` do not track carbon or CO₂, so the wrong molar mass passes |
 | `differentiate` or `integrate` on a datetime axis | Values are scaled by `datetime_unit`, but the unit stays `m` rather than `m / s` |
+| `rolling` or `ffill` on a dask-backed array | `.rolling(...).mean()`, `.sum()`, `.std()` and `.ffill(...)` drop the unit with no warning, as of xarray 2026.9 and pint-xarray 0.6. A declared output then raises on the missing label, unless `.assign_attrs` hides the loss. To keep the unit, compute on the plain array: `xra.units.quantify(xra.units.dequantify(x).rolling(time=3).mean())` |

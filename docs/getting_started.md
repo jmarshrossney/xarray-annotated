@@ -37,7 +37,7 @@ Python 3.12, 3.13 and 3.14 are tested in CI.
 
 ## Before and after
 
-Here is a function that computes the daily mean density of dry air from pressure and temperature, written three ways: with its expectations in the docstring, where nothing checks them; with them in the signature, on arrays that carry their unit in `attrs`; and with them in the signature, on arrays quantified with [pint](guides/pint.md).
+Here is a function that computes the daily mean density of dry air from pressure and temperature, written three ways: with its expectations in the docstring, where nothing checks them; with them in the signature, on arrays that carry their unit in `attrs`; and with them in the signature, with [pint](guides/pint.md) checking the arithmetic inside the function.
 Each tab is a complete script that you can copy and run.
 
 === "xarray"
@@ -172,31 +172,33 @@ Each tab is a complete script that you can copy and run.
         t: Annotated[xr.DataArray, Dims("time", "site"), Unit("K"), Freq("h")],
     ) -> Annotated[xr.DataArray, Dims("time", "site"), Unit("kg/m^3"), Freq("D")]:
         """Daily mean density of dry air."""
-        rho = p / (R * t)  # (2)!
-        return xra.units.convert(rho.resample(time="D").mean(), "kg/m^3")  # (3)!
+        rho = xra.units.quantify(p) / (R * xra.units.quantify(t))  # (2)!
+        daily = rho.resample(time="D").mean()
+        return xra.units.dequantify(xra.units.convert(daily, "kg/m^3"))  # (3)!
 
 
-    p = xra.units.quantify(hourly(1013.25, "hPa"))  # (4)!
-    t = xra.units.quantify(hourly(288.15, "K"))
+    p = hourly(1013.25, "hPa")
+    t = hourly(288.15, "K")
     print(daily_air_density(p, t).round(3))
     ```
 
     1.  A constant needs a unit too, as a bare number is dimensionless.
     2.  Pint works out the unit, so the factor of 100 between `hPa` and `Pa` is not written by hand.
-    3.  The result is in `hPa kg / J`, which is a density but not yet the declared unit.
-    4.  The arrays are quantified before they reach the function. `enforce` only checks, so the body receives them as they are.
+    3.  The result is in `hPa kg / J`, which is a density but not yet the declared unit. Once converted, `dequantify` returns a plain array, labelled with the unit pint computed.
 
     ```
     <xarray.DataArray (time: 2, site: 2)> Size: 32B
-    Quantity(array([[1.225, 1.225],
-           [1.225, 1.225]]), "kilogram / meter ** 3")
+    array([[1.225, 1.225],
+           [1.225, 1.225]])
     Coordinates:
       * time     (time) datetime64[us] 16B 2024-07-01 2024-07-02
     Dimensions without coordinates: site
+    Attributes:
+        units:    kilogram / meter ** 3
     ```
 
-Whether units live in `attrs` or in pint-quantified arrays is a decision for the whole workflow, rather than for one function.
-We [recommend pint where it is feasible](guides/pint.md), because a unit that was computed is worth more than one that was assigned by hand.
+In both annotated versions, plain arrays with a `units` attribute pass between functions.
+We [recommend quantifying inside a function that does unit arithmetic](guides/pint.md#in-a-declared-function), because a unit that was computed is worth more than one that was assigned by hand.
 
 ## Now break it
 
