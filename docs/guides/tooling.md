@@ -1,11 +1,13 @@
 # Reading and writing declarations (advanced)
 
 The building blocks of `@xra.enforce` are public, for validating an array by hand or for building tools on top of declarations.
+See [Look before you leap](look_before_you_leap.md) for using them to check a pipeline before it runs.
 
 ## Validating by hand
 
 | Function | Use |
 |---|---|
+| [`check_declared`][xarray_annotated.check_declared] | Check one input against its whole declaration, as `enforce` does; returns it unchanged |
 | [`check_schema`][xarray_annotated.schema.check_schema], [`check_freq`][xarray_annotated.temporal.check_freq] | Validate one array; it is returned unchanged |
 | [`check_units`][xarray_annotated.units.check_units] | Check one input; returns it unchanged |
 | [`check_output_units`][xarray_annotated.units.check_output_units] | Check one output against a declaration; returns it unchanged |
@@ -14,11 +16,13 @@ The building blocks of `@xra.enforce` are public, for validating an array by han
 
 | Function | Use |
 |---|---|
+| [`declaration_conflicts`][xarray_annotated.declaration_conflicts] | List how two `Declared`s conflict, matching `enforce`; use this to compare a producer with a consumer |
 | [`assert_valid_unit`][xarray_annotated.units.assert_valid_unit], [`assert_valid_schema`][xarray_annotated.schema.assert_valid_schema], [`assert_valid_freq`][xarray_annotated.temporal.assert_valid_freq] | Raise `ValueError` on a malformed declaration |
-| [`units_compatible`][xarray_annotated.units.units_compatible], [`units_equal`][xarray_annotated.units.units_equal] | Compare two units |
+| [`units_equal`][xarray_annotated.units.units_equal] | Whether two units are the same, which is what `enforce` requires |
+| [`units_compatible`][xarray_annotated.units.units_compatible] | Whether two units have the same dimensionality, which `enforce` does not accept on its own: `Pa` and `hPa` are compatible, and `enforce` refuses one for the other |
 | [`dims_compatible`][xarray_annotated.schema.dims_compatible], [`dtype_compatible`][xarray_annotated.schema.dtype_compatible], [`freq_compatible`][xarray_annotated.temporal.freq_compatible] | Whether two markers can describe the same array |
 
-To check a graph at assembly time, read each node's inputs and outputs with `declarations_from_signature` and compare them pairwise with these.
+To check a graph at assembly time, read each node's inputs and outputs with `declarations_from_signature` and compare them pairwise with `declaration_conflicts`.
 
 ## Reading declarations
 

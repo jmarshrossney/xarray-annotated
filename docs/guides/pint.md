@@ -81,6 +81,15 @@ Forget the molar mass, and the conversion fails:
 xra.units.convert(xra.units.quantify(flux), "g / m**2 / day")
 ```
 
+## Quantified arrays between functions { #quantified-arrays-between-functions }
+
+Passing quantified arrays from one declared function to the next is a work in progress, and may change.
+
+The checks themselves work: `Unit` reads the unit a quantified array holds, without loading it.
+The open question is what an input should declare.
+`Unit` requires the declared unit exactly, so `hPa` raises against `Unit("Pa")`, although a body that stays in pint gives the right answer for any compatible unit, and there is no marker for a physical dimension alone.
+The exact unit is still the safe choice for a body that strips units, where `hPa` would give wrong numbers.
+
 ## Conversion or physical factor
 
 On a plain array, `p / 100` could be a change of unit or a real factor of 100.
