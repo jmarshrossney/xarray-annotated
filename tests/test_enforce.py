@@ -321,6 +321,41 @@ class TestValidatesOnce:
         f(_int_da("Pa"))
 
 
+class TestNothingDeclared:
+    def test_returns_the_function_itself(self):
+        def f(x: xr.DataArray, y: Annotated[int, "a description"]) -> xr.DataArray:
+            return x
+
+        assert xra.enforce(f) is f
+
+    def test_returns_a_coroutine_function_itself(self):
+        async def f(x: xr.DataArray) -> None:
+            pass
+
+        assert xra.enforce(f) is f
+
+    def test_returns_the_function_for_a_record_with_no_declared_fields(self):
+        class Plain(TypedDict):
+            x: xr.DataArray
+
+        def f() -> Plain:
+            return {"x": xr.DataArray([1.0])}
+
+        assert xra.enforce(f) is f
+
+    def test_a_stray_marker_still_raises(self):
+        def f(x: tuple[Annotated[xr.DataArray, Unit("Pa")], int]) -> None:
+            pass
+
+        with pytest.raises(ValueError, match="enforce cannot apply"):
+            xra.enforce(f)
+
+    @pytest.mark.parametrize("side", ["param", "ret"])
+    def test_a_declaration_on_either_side_is_wrapped(self, side):
+        func = _annotated(**{side: Annotated[xr.DataArray, Unit("Pa")]})
+        assert xra.enforce(func) is not func
+
+
 class TestVariadics:
     def test_declared_var_positional_is_rejected(self):
         with pytest.raises(ValueError, match=r"'xs'.*variadic"):

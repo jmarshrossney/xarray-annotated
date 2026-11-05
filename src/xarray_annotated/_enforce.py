@@ -190,7 +190,7 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
         func: The function to decorate.
 
     Returns:
-        The wrapped function.
+        The wrapped function, or `func` itself if it declares nothing to check.
 
     Raises:
         ValueError: If a declaration is malformed, a `*args` or `**kwargs` parameter
@@ -249,6 +249,8 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
     elif isinstance(output, dict):
         for name, decl in output.items():
             assert_valid_declaration(decl, f"{qualname} output {name!r}")
+    if not inputs and not output:
+        return func
 
     def _check_output(value: Any, decl: Declared, name: str) -> None:
         if not isinstance(value, xr.DataArray):
