@@ -114,7 +114,7 @@ class TestGettingStarted:
             _run(code, namespace, match["directive"], self.PAGE.name)
             if match["directive"] is None and "def daily_air_density(" in code:
                 found.append(namespace["daily_air_density"])
-        assert len(found) == 3
+        assert len(found) == 2
         return found
 
     def test_every_version_gives_the_same_density(self, versions):

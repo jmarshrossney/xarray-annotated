@@ -18,20 +18,25 @@ Copyright &copy; 2026 Joe Marsh Rossney
 
 nav = [
   { "Home" = "index.md" },
-  { "Getting Started" = "getting_started.md" },
-  { "Guides" = [
-    { "Declaration patterns" = "guides/declaring.md" },
-    { "Look before you leap" = "guides/look_before_you_leap.md" },
-    { "Units" = "guides/units.md" },
-    { "Computing with pint" = "guides/pint.md" },
-    { "Choosing a unit registry" = "guides/registry.md" },
-    { "Using with jaxtyping" = "guides/jaxtyping.md" },
-    { "Reading and writing declarations (advanced)" = "guides/tooling.md" },
+  { "Getting started" = "getting_started.md" },
+  { "User guide" = [
+    { "First principles" = "guides/first_principles.md" },
+    { "Schema declarations" = "guides/schema.md" },
+    { "Units declarations" = "guides/units.md" },
+    { "Temporal declarations" = "guides/temporal.md" },
     { "Troubleshooting" = "guides/troubleshooting.md" },
+    { "Advanced usage" = [
+      { "Accessing declarations" = "advanced/accessing_declarations.md" },
+      { "Pre-flight checks" = "advanced/preflight.md" },
+    ]},
+    { "Integrations" = [
+      { "Pint" = "integrations/pint.md" },
+      { "Jaxtyping" = "integrations/jaxtyping.md" },
+    ]},
   ]},
   { "Worked example" = "example.md" },
   { "FAQ" = "faq.md" },
-  { "API Reference" = [
+  { "API reference" = [
     { "xarray_annotated" = "api/package.md" },
     { "xarray_annotated.units" = "api/units.md" },
     { "xarray_annotated.schema" = "api/schema.md" },
@@ -66,14 +71,14 @@ features = [
     #"navigation.instant.progress",
     "navigation.path",
     #"navigation.prune",
-    # "navigation.sections",
-    #"navigation.tabs",
-    #"navigation.tabs.sticky",
+    "navigation.sections",
+    "navigation.tabs",
+    "navigation.tabs.sticky",
     # "navigation.top",
     "navigation.tracking",
     "search.highlight",
     # "toc.follow",
-    # "toc.integrate",
+    "toc.integrate",
 ]
 
 [project.theme.icon]

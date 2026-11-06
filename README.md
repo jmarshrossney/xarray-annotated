@@ -63,7 +63,7 @@ def daily_air_density(
 Anything that does not match its declaration raises.
 
 Many checks can run pre-flight, before any data is loaded, if a computational graph can be built, as in [catena](https://github.com/NERC-CEH/catena) or [dask](https://www.dask.org/).
-See [Look before you leap](https://jmarshrossney.github.io/xarray-annotated/guides/look_before_you_leap.html) for more details.
+See [Pre-flight checks](https://jmarshrossney.github.io/xarray-annotated/advanced/preflight.html) for more details.
 
 ## See Also
 
@@ -71,7 +71,7 @@ See [Look before you leap](https://jmarshrossney.github.io/xarray-annotated/guid
 
 - [xarray](https://xarray.dev/)
 - [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io), for unit parsing and conversion
-- [cf-xarray](https://cf-xarray.readthedocs.io/en/latest/) (optional, via the `cf` extra), for UDUNITS spellings such as `"g m-2 d-1"`; see [Choosing a unit registry](https://jmarshrossney.github.io/xarray-annotated/guides/registry.html)
+- [cf-xarray](https://cf-xarray.readthedocs.io/en/latest/) (optional, via the `cf` extra), for UDUNITS spellings such as `"g m-2 d-1"`; see [Choosing a unit registry](https://jmarshrossney.github.io/xarray-annotated/guides/units.html#choosing-a-unit-registry)
 
 **Used by:**
 

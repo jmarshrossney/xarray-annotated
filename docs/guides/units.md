@@ -1,9 +1,47 @@
-# Units
+# Units declarations
 
-`Unit` checks a value's unit and never changes its values.
-Units are checked with [pint](https://pint.readthedocs.io/en/stable/), so spellings are compared by meaning, and strings such as `"umol m-2 s-1"` need [the CF registry](registry.md).
+[`Unit`][xarray_annotated.Unit] checks a value's unit and never changes its values.
 
-The unit is read from `attrs["units"]`, or from the data if the array is quantified.
+## Choosing a unit registry
+
+A [pint](https://pint.readthedocs.io/en/stable/) registry decides which unit strings parse.
+The choice is process-wide, and quantities from different registries cannot be mixed, so use one registry for a whole codebase.
+A library that calls `use_cf_units()` makes that choice for you.
+
+### pint units (the default)
+
+`pint.get_application_registry()` needs no setup, and parses strings such as `"Pa"`, `"degC"` and `"m/s"`.
+
+### CF-convention units
+
+UDUNITS spellings use space-separated negative exponents (`"umol m-2 s-1"`, `"g m-2 d-1"`), which plain pint rejects.
+Install the [`cf` extra](../getting_started.md#installation) and activate its registry:
+
+```python
+from xarray_annotated.units import use_cf_units
+
+use_cf_units()
+```
+
+Call [`use_cf_units`][xarray_annotated.units.use_cf_units] near the top of your entry point or package `__init__`, before importing any module that declares such units, since declarations are validated when functions are decorated.
+
+### Your own registry
+
+```python
+import pint
+from xarray_annotated.units import set_registry
+
+ureg = pint.UnitRegistry()
+ureg.define("dobson_unit = 2.687e20 * meter**-2 = DU")
+set_registry(ureg)
+```
+
+[`set_registry`][xarray_annotated.units.set_registry] keeps pint and the `.pint` accessor in sync, and [`get_registry`][xarray_annotated.units.get_registry] returns the active registry.
+
+## How units are compared
+
+Units are compared with pint, so spellings are compared by meaning.
+The unit is read from `attrs["units"]`, or from the data if the array is [pint-quantified](../integrations/pint.md).
 
 | The unit is | Input | Output |
 |---|---|---|
@@ -12,25 +50,19 @@ The unit is read from `attrs["units"]`, or from the data if the array is quantif
 | Incompatible (`kg` for `Pa`) | `UnitError` | `UnitError` |
 | Missing, unparseable or over-long | `UnitError` | `UnitError` |
 
-These are checks only.
-The body receives the array you passed, quantified or not and with its label spelled as it was, and you receive the array the body returned.
+## Assigning units on output { #outputs }
 
-## Where the unit comes from { #where-the-unit-comes-from }
+An output must already match its declaration when the function returns, and nothing is converted or labelled on the author's behalf.
+How to get there depends on what the body does:
 
-`Unit` is most valuable where units are held in a `units` attribute, as is common in environmental datasets, because nothing else checks them.
-How much a check proves depends on where the unit comes from:
+| The body | Do this |
+|---|---|
+| Keeps the unit, as with a mean over time | Nothing, as xarray keeps `attrs` |
+| Computes a new quantity | State its unit with `.assign_attrs(units=...)` |
+| Changes the unit of the same quantity | Call [`xra.units.convert`][xarray_annotated.units.convert] |
+| Gets bare numbers from elsewhere | Build a `DataArray` and state the unit they are in |
 
-| Workflow | Input check | Output check |
-|---|---|---|
-| Labels only | Reads the label | Reads the label a body assigned by hand |
-| Labelled inputs, [pint in the body](pint.md#in-a-declared-function) (recommended) | Reads the label | Verifies a unit pint computed |
-| [Quantified arrays between functions](pint.md#between-functions) | Reads the unit in the data | Verifies a unit pint computed |
-
-A check on a label cannot tell whether the label is true.
-
-## Converting an input
-
-Convert where you know the conversion is right for the data, so the decision is visible where it is made:
+Here the arithmetic produces a new quantity, so the body states its unit:
 
 ```python
 @xra.enforce
@@ -39,52 +71,43 @@ def altitude(
 ) -> Annotated[xr.DataArray, Unit("m")]:
     alt = 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
     return alt.assign_attrs(units="m")
+```
+
+And here a library works on bare numbers, whose unit the body states and then converts:
+
+```python
+@xra.enforce
+def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g / m**2 / day")]:
+    raw = some_library.gpp(ppfd.values)  # documented as ug m-2 s-1
+    out = xr.DataArray(raw, dims=ppfd.dims, coords=ppfd.coords)
+    return xra.units.convert(out.assign_attrs(units="ug / m**2 / s"), "g / m**2 / day")
+```
+
+### Stale labels
+
+xarray keeps `attrs` through arithmetic, so this result is in `Pa` and still labelled `hPa`:
+
+```python
+@xra.enforce
+def to_pascals(
+    p: Annotated[xr.DataArray, Unit("hPa")],
+) -> Annotated[xr.DataArray, Unit("Pa")]:
+    return p * 100.0
 
 
 p = xr.DataArray([1013.0, 1000.0], dims="time", attrs={"units": "hPa"})
-altitude(xra.units.convert(p, "Pa"))
 ```
 
-[`convert`][xarray_annotated.units.convert] takes an array labelled in `attrs` or quantified, and returns the same kind of array in the new unit.
-
-- **Coordinates are left alone:** only the data is converted, so a coordinate labelled `degrees_north` neither stops it nor changes.
-- **Copies:** a converted array has a new buffer, and converting a lazy array that dask does not back reads it into memory. An array already in the unit shares its buffer and stays lazy.
-- **Encoding:** a converted array has empty `.encoding`, because packing such as `scale_factor` described the old values and would corrupt the new ones on write. Coordinates keep theirs. Set compression and packing again before writing.
-- **Auditing:** every conversion is logged at `DEBUG` on the `xarray_annotated.units` logger.
-
-It is not a check, so [`xra.enabled(False)`](troubleshooting.md#enabled) does not affect it.
-
-### Why conversion is not automatic
-
-Pint knows whether two units are compatible, but not whether converting between them is correct, because that depends on what the data means.
-In each of these cases the conversion succeeds and the result is wrong.
-
-An annual total and a daily mean rate can both be expressed as mass per area per time, but this only gives the annual total if every day of the year had that same rate:
-
+<!-- docs-test: raises UnitError -->
 ```python
-daily_mean = xr.DataArray([2.0], dims="site", attrs={"units": "g / m**2 / day"})
-xra.units.convert(daily_mean, "g / m**2 / year")  # 730.5
+to_pascals(p)
 ```
 
-A temperature anomaly labelled `K` is a difference, but `degC` is an absolute scale, so converting applies the offset.
-To declare a difference, use `Unit("delta_degC")`, which is the same unit as `K`.
+The package cannot tell a stale label from a forgotten conversion, where the label is true and the values are in the wrong unit.
+Both raise, because a false alarm is loud and a mislabelled result is silent.
+Here, return `xra.units.convert(p, "Pa")`, which changes the values and the label together.
 
-```python
-anomaly = xr.DataArray([5.0], dims="site", attrs={"units": "K"})
-xra.units.convert(anomaly, "degC")  # -268.15
-```
-
-## Output units { #outputs }
-
-A function's author controls what it returns, so an output must already match its declaration, and nothing is converted or labelled on the author's behalf.
-
-A label that differs could be a forgotten conversion, where the label is true and the values are in the wrong unit, or a stale label left behind by xarray, which keeps `attrs` through arithmetic.
-The package cannot tell them apart, and both raise, because a false alarm is loud and a mislabelled result is silent.
-
-Compute with pint where you can, so the unit follows from the arithmetic: see [Computing with pint](pint.md).
-A body that needs the bare numbers [states the unit it returns](pint.md#plain-arrays) with `.assign_attrs`, as `altitude` does above.
-
-Whether a label survives depends on xarray: inputs with conflicting labels leave none, as do `pascal` and `Pa`, and so does `xr.set_options(keep_attrs=False)`, so a body that relies on an inherited label will then raise.
+The opposite can also happen: inputs with conflicting labels leave no label, as do `pascal` and `Pa`, and so does `xr.set_options(keep_attrs=False)`, so a body that relies on an inherited label will then raise.
 
 ### What a label cannot catch { #what-a-label-cannot-catch }
 
@@ -99,14 +122,24 @@ def daily_carbon(
     return daily.assign_attrs(units="g / m**2 / day")
 ```
 
-Declarations catch wiring mistakes, not algebra.
-Two things keep the unit tied to the values:
-
-- **Let pint carry the unit.** Compute on a quantified array, and the return is checked against the declaration. Here the forgotten factor raises `DimensionalityError`; see [Computing with pint](pint.md#in-a-declared-function).
-
-    <!-- docs-test: skip -->
-    ```python
-    return xra.units.quantify(flux).resample(time="D").mean()
-    ```
+Declarations catch wiring mistakes, not algebra, so test the arithmetic like any other code.
+Two things narrow the gap:
 
 - **Declare a unit only where a stage defines it.** A stage that does not change the unit, such as a mean over time, need not declare one, so the label reaches the next declared input, which checks it. The [worked example](../example.md) catches its missing stage this way.
+- **Have the unit computed.** If you already compute with pint, the output check verifies a unit worked out from the arithmetic; see [Using with pint](../integrations/pint.md).
+
+## Converting an input
+
+Convert where you know the conversion is right for the data, so the decision is visible where it is made:
+
+```python
+altitude(xra.units.convert(p, "Pa"))
+```
+
+[`convert`][xarray_annotated.units.convert] takes an array labelled in `attrs` or quantified, and returns the same kind of array in the new unit.
+
+- **Coordinates are left alone:** only the data is converted, so a coordinate labelled `degrees_north` neither stops it nor changes.
+- **Encoding:** a converted array has empty `.encoding`, because packing such as `scale_factor` described the old values and would corrupt the new ones on write. Set compression and packing again before writing.
+- **Not a check:** [`xra.enabled(False)`](first_principles.md#enabled) does not affect it.
+
+A conversion can succeed and still be wrong for the data, which is [why it is never automatic](../faq.md#why-raise-on-a-compatible-unit-instead-of-converting-it).

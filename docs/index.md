@@ -21,61 +21,70 @@ If a mistake can be caught by an automated check, it should be.
 
 Add markers to the [`Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated) hint of each `DataArray` parameter or return value, and decorate the function with `enforce`:
 
-```python
-from typing import Annotated
+=== "Plain xarray"
 
-import xarray as xr
-import xarray_annotated as xra
-from xarray_annotated import Dims, Freq, Unit
+    ```python
+    import xarray as xr
 
-R = 287.05  # specific gas constant of dry air, J / kg / K
+    R = 287.05  # specific gas constant of dry air, J / kg / K
 
 
-@xra.enforce
-def daily_air_density(
-    p: Annotated[xr.DataArray, Dims("time", "site"), Unit("hPa"), Freq("h")],
-    t: Annotated[xr.DataArray, Dims("time", "site"), Unit("K"), Freq("h")],
-) -> Annotated[xr.DataArray, Dims("time", "site"), Unit("kg/m^3"), Freq("D")]:
-    """Daily mean density of dry air."""
-    rho = 100.0 * p / (R * t)
-    return rho.resample(time="D").mean().assign_attrs(units="kg/m^3")
-```
+    def daily_air_density(p: xr.DataArray, t: xr.DataArray) -> xr.DataArray:
+        """Daily mean density of dry air.
+
+        Args:
+            p: Hourly pressure in hPa, with dims (time, site).
+            t: Hourly temperature in K, with dims (time, site).
+
+        Returns:
+            Daily mean density in kg/m^3, with dims (time, site).
+        """
+        rho = 100.0 * p / (R * t)
+        return rho.resample(time="D").mean()
+    ```
+
+=== "With annotations"
+
+    ```python
+    from typing import Annotated
+
+    import xarray as xr
+    import xarray_annotated as xra
+    from xarray_annotated import Dims, Freq, Unit
+
+    R = 287.05  # specific gas constant of dry air, J / kg / K
+
+
+    @xra.enforce
+    def daily_air_density(
+        p: Annotated[xr.DataArray, Dims("time", "site"), Unit("hPa"), Freq("h")],
+        t: Annotated[xr.DataArray, Dims("time", "site"), Unit("K"), Freq("h")],
+    ) -> Annotated[xr.DataArray, Dims("time", "site"), Unit("kg/m^3"), Freq("D")]:
+        """Daily mean density of dry air."""
+        rho = 100.0 * p / (R * t)
+        return rho.resample(time="D").mean().assign_attrs(units="kg/m^3")
+    ```
 
 Anything that does not match its declaration raises.
 
 Many checks can run pre-flight, before any data is loaded, if a computational graph can be built, as in [catena](https://github.com/NERC-CEH/catena) or [dask](https://www.dask.org/).
-See [Look before you leap](guides/look_before_you_leap.md) for more details.
+See [Pre-flight checks](advanced/preflight.md) for more details.
 
 ## Where to next?
 
-- [Getting started](getting_started.md): installation and a walkthrough.
-- [Declaration patterns](guides/declaring.md): several outputs, optional arrays, irregular time axes and shared declarations.
-- [Look before you leap](guides/look_before_you_leap.md): checking a pipeline before it runs.
-- [Units](guides/units.md) and [Computing with pint](guides/pint.md): what to do when units differ, and getting them right in the first place.
-- [Worked example](example.md) and [API reference](api/package.md).
+- [Getting started](getting_started.md): install the package and add declarations to a function.
+- [User guide](guides/first_principles.md): writing declarations and how checks behave, then [schema](guides/schema.md), [units](guides/units.md) and [temporal](guides/temporal.md) declarations in detail.
+- Advanced usage: [accessing declarations](advanced/accessing_declarations.md) and [pre-flight checks](advanced/preflight.md).
+- Integrations: [pint](integrations/pint.md) and [jaxtyping](integrations/jaxtyping.md).
+- [Worked example](example.md): an end-to-end pipeline you can run.
 - [FAQ](faq.md): why the package raises, and what it leaves out.
+- [API reference](api/package.md): exactly what each marker and function accepts.
 - [CONTRIBUTING.md](https://github.com/jmarshrossney/xarray-annotated/blob/main/CONTRIBUTING.md): the package's scope and how to set up a development environment.
 
-## See also
-
-**Uses:**
-
-- [xarray](https://xarray.dev/)
-- [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io), for unit parsing and conversion
-- [cf-xarray](https://cf-xarray.readthedocs.io/en/latest/) (optional, via the `cf` extra), for UDUNITS spellings such as `"g m-2 d-1"`; see [Choosing a unit registry](guides/registry.md)
-
-**Used by:**
+## Used by
 
 - [NERC-CEH/catena](https://github.com/NERC-CEH/catena) - An opinionated integration of Apache Hamilton and xarray for building configurable environmental data pipelines.
 - [NERC-CEH/xharvest](https://github.com/NERC-CEH/xharvest) - Environmental data harvester that standardises data to metadata-rich netCDF or zarr.
-
-**Similar tools:**
-
-- [xarray-schema](https://github.com/carbonplan/xarray-schema) and [xarray-validate](https://github.com/leroyvn/xarray-validate/), for validating xarray objects against a schema.
-- [pint's `wraps` and `check`](https://pint.readthedocs.io/en/stable/advanced/wrapping.html), decorators that take units or dimensions as arguments rather than from annotations.
-- [TypedUnit](https://github.com/MartinPdeS/TypedUnit), for checking the dimensions of pint quantities from annotations.
-- [pydantic-pint](https://pypi.org/project/pydantic-pint/), for validating and converting pint quantities in Pydantic models.
-- [astropy's `quantity_input`](https://docs.astropy.org/en/stable/api/astropy.units.quantity_input.html), the same idea for astropy quantities.
 
 <!--
 ## Motivations

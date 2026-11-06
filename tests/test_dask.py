@@ -144,7 +144,7 @@ def _ffill(da: xr.DataArray) -> xr.DataArray:
 
 
 class TestOperationsThatLoseTheUnit:
-    """Upstream behaviour that `docs/guides/pint.md` warns about.
+    """Upstream behaviour that `docs/integrations/pint.md` warns about.
 
     If a test here fails because upstream now keeps the unit, update the guide's "What
     pint cannot catch" table and its section on declared functions, then delete it.

@@ -1,4 +1,4 @@
-# Look before you leap
+# Pre-flight checks
 
 A check reads only metadata and indexes, never an array's values.
 That makes it cheap enough to run before an expensive workflow starts, so a transposed axis or a `hPa`-for-`Pa` slip fails in a second rather than an hour into a run.
@@ -12,7 +12,7 @@ Contracts can be evaluated at three points:
 | [3. Running](#running) | Declarations with every array | Whatever the body computes | Whatever a body actually produced |
 
 [catena](https://github.com/NERC-CEH/catena) does the first two for [Apache Hamilton](https://hamilton.apache.org/) pipelines: `catena run --dry-run` checks every edge of the graph and every input's metadata without executing a node.
-The functions below are what a tool like that is built on.
+The functions below are what a tool like that is built on, and they take declarations read as described in [Accessing declarations](accessing_declarations.md).
 
 ## Comparing declarations { #declarations }
 
@@ -91,10 +91,10 @@ This stops working at the first body that calls `.compute()` or reads `.values`.
 
 Reading metadata is what makes these checks cheap, and it is also their limit:
 
-- **Values go unread:** a check cannot tell that a label is false, so 1000 labelled `Pa` that is really `hPa` passes. [Computing with pint](pint.md) gives you a unit worth trusting on outputs.
+- **Values go unread:** a check cannot tell that a label is false, so 1000 labelled `Pa` that is really `hPa` passes. See [What a label cannot catch](../guides/units.md#what-a-label-cannot-catch).
 - **Meaning goes unchecked:** two quantities in one unit look the same, such as specific humidity and mixing ratio in `kg/kg`.
 
 ## Respecting the switch
 
-`check_declared` does nothing when [the package is switched off](troubleshooting.md#enabled).
+`check_declared` does nothing when [the package is switched off](../guides/first_principles.md#enabled).
 `declaration_conflicts` reports a fact about declarations, so it ignores the switch, and a tool that should stay quiet can ask [`resolve_enabled`][xarray_annotated.resolve_enabled] first.

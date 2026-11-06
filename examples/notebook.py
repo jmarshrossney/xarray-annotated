@@ -642,7 +642,7 @@ def _(mo):
     have noticed, especially since the numbers came out looking highly plausible.
 
     Let's add the missing function and run the pipeline (hopefully) one final time.
-    We let [pint](guides/pint.md) work out the conversion from the molar mass, rather than
+    We let [pint](integrations/pint.md) work out the conversion from the molar mass, rather than
     writing the factor by hand, so forgetting the molar mass would raise as well. As in
     `partition_fluxes_declared`, the stage quantifies only inside the function and returns
     a plain array, labelled with the unit pint computed.

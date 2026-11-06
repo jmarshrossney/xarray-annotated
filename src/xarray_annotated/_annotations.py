@@ -56,7 +56,7 @@ def _is_dataarray_type(tp: Any) -> bool:
     which occupies the base-type slot of an `Annotated` hint rather than competing
     with it.  This is a duck-typed check: jaxtyping is never imported, and any
     other library following the same convention composes for free.  See
-    `docs/guides/jaxtyping.md`.
+    `docs/integrations/jaxtyping.md`.
 
     Args:
         tp: A type annotation to inspect.
