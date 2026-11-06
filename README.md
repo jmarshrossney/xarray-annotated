@@ -6,8 +6,8 @@
 [![Docs](https://github.com/jmarshrossney/xarray-annotated/actions/workflows/docs.yml/badge.svg)](https://jmarshrossney.github.io/xarray-annotated)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/jmarshrossney/xarray-annotated/blob/main/LICENSE)
 
-`xarray-annotated` turns function signatures into explicit, machine-readable contracts for `DataArray` structure, units and time frequency.
-The contracts are enforced at run time, but they read only metadata and indexes, so a mismatch in an input can be caught before its data is loaded.
+`xarray-annotated` turns function signatures into explicit, machine-readable contracts for `DataArray` structure, units and time frequency, so you can check that the functions in a pipeline agree about the arrays passing between them.
+The contracts are enforced at run time and can also be compared with each other, and they read only metadata and indexes, so a mismatch between stages or in an input can be caught before any data is loaded.
 
 For full user documentation please visit **[https://jmarshrossney.github.io/xarray-annotated/](https://jmarshrossney.github.io/xarray-annotated/)**.
 

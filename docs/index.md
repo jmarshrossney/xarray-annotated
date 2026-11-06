@@ -1,7 +1,7 @@
 # xarray-annotated
 
-`xarray-annotated` turns function signatures into explicit, machine-readable contracts for `DataArray` structure, units and time frequency.
-The contracts are enforced at run time, but they read only metadata and indexes, so a mismatch in an input can be caught before its data is loaded.
+`xarray-annotated` turns function signatures into explicit, machine-readable contracts for `DataArray` structure, units and time frequency, so you can check that the functions in a pipeline agree about the arrays passing between them.
+The contracts are enforced at run time and can also be compared with each other, and they read only metadata and indexes, so a mismatch between stages or in an input can be caught before any data is loaded.
 
 ## Why?
 

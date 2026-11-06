@@ -124,6 +124,10 @@ def daily_carbon(
 ```
 
 Declarations catch wiring mistakes, not algebra, so test the arithmetic like any other code.
+
+This is the normal case for a stage that computes a new quantity: its body states the unit its signature declares, so its own output check catches little more than a typo.
+The declaration is still useful further along, as what the next stage's input is compared with, both at run time and in [pre-flight checks](../advanced/preflight.md).
+
 Two things narrow the gap:
 
 - **Declare a unit only where a stage defines it.** A stage that does not change the unit, such as a mean over time, need not declare one, so the label reaches the next declared input, which checks it. The [worked example](../example.md) catches its missing stage this way.
