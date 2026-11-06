@@ -15,7 +15,6 @@ from typing import Annotated
 
 import numpy as np
 import pandas as pd
-import pint
 import pytest
 import xarray as xr
 
@@ -23,7 +22,7 @@ import xarray_annotated as xra
 from xarray_annotated import schema, temporal
 from xarray_annotated.schema import Coords, Dims, Dtype
 from xarray_annotated.temporal import Freq
-from xarray_annotated.units import Unit
+from xarray_annotated.units import Unit, UnitError
 
 
 def _da(dims=("time", "x"), dtype="float64", coords=(), unit=None, fill=0.0):
@@ -115,11 +114,11 @@ class TestComposeDecorators:
         ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
             return x
 
-        # Only a same-unit spelling passes; it is relabelled with the values untouched.
+        # Only a same-unit spelling passes, and it is left as it was.
         out = f(_da(("time", "x"), unit="pascal", fill=10.0))
-        assert out.attrs["units"] == "Pa"
+        assert out.attrs["units"] == "pascal"
         np.testing.assert_allclose(out.values, np.full(out.shape, 10.0))
-        with pytest.raises(ValueError, match=r"units\.convert"):
+        with pytest.raises(UnitError, match=r"units\.convert"):
             f(_da(("time", "x"), unit="hPa", fill=10.0))
 
     def test_dims_mismatch_raises_with_valid_units(self):
@@ -141,7 +140,7 @@ class TestComposeDecorators:
             return x
 
         # outer units runs first: kg vs Pa raises before schema sees the array
-        with pytest.raises(pint.DimensionalityError):
+        with pytest.raises(UnitError):
             f(_da(("time", "x"), unit="kg", fill=1.0))
 
     def test_full_composition_dims_coords_dtype_units(self):
@@ -158,7 +157,7 @@ class TestComposeDecorators:
             return x
 
         out = f(_da(("time", "x"), coords=("time",), unit="pascal", fill=10.0))
-        assert out.attrs["units"] == "Pa"
+        assert out.attrs["units"] == "pascal"
         np.testing.assert_allclose(out.values, np.full(out.shape, 10.0))
 
     def test_output_checked_and_validated(self):
@@ -167,7 +166,7 @@ class TestComposeDecorators:
             return _da(("time", "x"), unit="pascal", fill=5.0)
 
         out = f(1)
-        assert out.attrs["units"] == "Pa"
+        assert out.attrs["units"] == "pascal"
         np.testing.assert_allclose(out.values, np.full(out.shape, 5.0))  # not converted
 
     def test_output_dims_mismatch_raises(self):
@@ -218,7 +217,7 @@ class TestComposeAllThreeDomains:
         out = f(_timeseries(unit="kg", fill=1.0))
         assert out.attrs["units"] == "kg"
 
-    def test_units_respelled_alongside_freq_check(self):
+    def test_units_checked_alongside_freq_check(self):
         @xra.enforce
         def f(
             x: Annotated[xr.DataArray, Unit("Pa"), Freq("7D")],
@@ -226,5 +225,5 @@ class TestComposeAllThreeDomains:
             return x
 
         out = f(_timeseries(unit="pascal", fill=10.0))
-        assert out.attrs["units"] == "Pa"
+        assert out.attrs["units"] == "pascal"
         np.testing.assert_allclose(out.values, np.full(out.shape, 10.0))

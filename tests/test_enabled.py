@@ -9,6 +9,7 @@ import xarray as xr
 
 import xarray_annotated as xra
 from xarray_annotated import Unit, _config
+from xarray_annotated.units import UnitError
 
 
 def _resolve() -> bool:
@@ -98,7 +99,7 @@ class TestOnlyABoolIsAccepted:
 
 class TestOffIsTotal:
     def test_on_checks(self):
-        with pytest.raises(ValueError, match="'hPa' differs"):
+        with pytest.raises(UnitError, match="'hPa' differs"):
             _to_pa(_hpa())
 
     def test_off_skips_checks(self):

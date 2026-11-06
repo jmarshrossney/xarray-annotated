@@ -26,7 +26,7 @@ import xarray_annotated as xra
 from xarray_annotated import Declared, annotate, declarations_from_signature
 from xarray_annotated._annotations import _is_dataarray_type
 from xarray_annotated.schema import Dims, SchemaError
-from xarray_annotated.units import Unit
+from xarray_annotated.units import Unit, UnitError
 
 jaxtyping = pytest.importorskip("jaxtyping")
 
@@ -139,8 +139,8 @@ class TestDecorators:
         ) -> Annotated[FloatDA, Unit("Pa")]:
             return x
 
-        assert f(_da(unit="pascal", fill=1.0)).attrs["units"] == "Pa"
-        with pytest.raises(ValueError, match="'hPa' differs"):
+        assert f(_da(unit="pascal", fill=1.0)).attrs["units"] == "pascal"
+        with pytest.raises(UnitError, match="'hPa' differs"):
             f(_da(unit="hPa", fill=1.0))
 
     def test_schema_mismatch_still_raises(self):
@@ -161,7 +161,7 @@ class TestDecorators:
 
 
 class TestFullStack:
-    """The stack documented in ``docs/guides/jaxtyping.md``, pinned end to end.
+    """The stack documented in ``docs/tools/jaxtyping.md``, pinned end to end.
 
     ``jaxtyped`` must be **outermost** so it sees the original call, before
     ``enforce`` has touched anything; the size-symbol binding it provides is
@@ -183,7 +183,7 @@ class TestFullStack:
         return f
 
     def test_units_checked_under_full_stack(self):
-        out = self._stack()(_da(unit="pascal", fill=1.0), _da(unit="Pa", fill=1.0))
+        out = self._stack()(_da(unit="Pa", fill=1.0), _da(unit="Pa", fill=1.0))
         assert out.attrs["units"] == "Pa"
 
     def test_wrong_dtype_caught_by_jaxtyping(self):

@@ -47,16 +47,17 @@ def _is_dataarray_type(tp: Any) -> bool:
     """Return whether `tp` is `DataArray` (possibly wrapped or in a Union).
 
     Accepts a bare `DataArray` as well as `DataArray | None` /
-    `Optional[DataArray]` (and any other union that includes `DataArray`), so an
-    optional DataArray parameter can still carry a declaration.  Anything else
-    (scalars, `str`, `bool`, `Dataset`, …) is not a declaration-bearing type.
+    `Optional[DataArray]` (and any other union that includes `DataArray`), so the
+    reader can refuse markers on such a union by name, rather than treating it as an
+    unrelated type.  Anything else (scalars, `str`, `bool`, `Dataset`, …) is not a
+    declaration-bearing type.
 
     Also accepts any *array-type wrapper* that exposes the underlying array class
     as an `array_type` attribute — notably jaxtyping's `Float[DataArray, "t x"]`,
     which occupies the base-type slot of an `Annotated` hint rather than competing
     with it.  This is a duck-typed check: jaxtyping is never imported, and any
     other library following the same convention composes for free.  See
-    `docs/guides/jaxtyping.md`.
+    `docs/tools/jaxtyping.md`.
 
     Args:
         tp: A type annotation to inspect.

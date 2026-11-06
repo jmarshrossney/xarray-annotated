@@ -6,22 +6,25 @@
 [![Docs](https://github.com/jmarshrossney/xarray-annotated/actions/workflows/docs.yml/badge.svg)](https://jmarshrossney.github.io/xarray-annotated)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/jmarshrossney/xarray-annotated/blob/main/LICENSE)
 
-`xarray-annotated` checks `xarray.DataArray` arguments and return values against properties declared in the function signature with [`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated):
-
-- **structure**: dimensions, coordinates and dtype;
-- **physical units**;
-- **time frequency** and phase.
-
-Making signatures the single source of truth has several advantages: the same declaration
-
-- can be used by automated checks and validation, and hence enforced at run time;
-- appears in generated documentation without needing to be hand-written;
-- provides rich context for AI coding agents.
-
-For physical units we lean on the excellent [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io).
-([cf-xarray](https://cf-xarray.readthedocs.io) is an optional dependency for CF/UDUNITS unit strings.)
+`xarray-annotated` turns function signatures into explicit, machine-readable contracts for `DataArray` structure, units and time frequency, so you can check that the functions in a pipeline agree about the arrays passing between them.
+The contracts are enforced at run time and can also be compared with each other, and they read only metadata and indexes, so a mismatch between stages or in an input can be caught before any data is loaded.
 
 For full user documentation please visit **[https://jmarshrossney.github.io/xarray-annotated/](https://jmarshrossney.github.io/xarray-annotated/)**.
+
+## Why?
+
+**Why check at all?**
+A mistake that raises an error gets fixed.
+One that doesn't can produce plausible numbers, which can travel all the way into published results.
+xarray doesn't check the dimensions, dtype, units or time axis of the arrays a function receives, and an expectation written in a docstring protects nothing.
+If a mistake can be caught by an automated check, it should be.
+
+**Why annotations?**
+
+- **One source of truth:** an expectation is written once, in the signature, so the checks and the generated documentation cannot drift apart.
+- **Machine-readable:** annotations are code, so pipeline tools, documentation generators and AI agents can all use them.
+- **Usable before running:** a check inside a function body only runs when the function does, whereas a declaration can be compared with other declarations and with opened files before anything expensive starts.
+
 
 ## Installation
 
@@ -33,107 +36,60 @@ uv add xarray-annotated
 pip install xarray-annotated
 ```
 
-CF-convention / UDUNITS unit strings (e.g. `"umol m-2 s-1"`) need the optional `cf` extra, which pulls in [cf-xarray](https://cf-xarray.readthedocs.io).
+## Usage
 
-```sh
-uv add "xarray-annotated[cf]"
-# or
-pip install "xarray-annotated[cf]"
-```
+Add markers to the [`Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated) hint of each `DataArray` parameter or return value, and decorate the function with `enforce`:
 
-## A short example
-
-Here is a function that converts barometric pressure to altitude.
-It assumes a unit (pascals) and says so in the docstring but doesn't check or enforce it.
-
-```python
-import xarray as xr
-
-
-def altitude(p: xr.DataArray) -> xr.DataArray:
-    """Barometric altitude. Assumes p is in Pa."""
-    return 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
-
-
-p = xr.DataArray([1013.0, 1000.0], dims=["time"], attrs={"units": "hPa"})
-altitude(p)
-```
-```
-<xarray.DataArray (time: 2)> Size: 16B
-array([25876.55998663, 25921.86206292])
-Dimensions without coordinates: time
-Attributes:
-    units:    hPa
-```
-
-The input units are wrong (hPa vs Pa) but the onus is on the user to check, and in reality we all know that such bugs can go unnoticed for a terrifyingly long time.
-The returned altitude is numerically wrong and carries a completely bogus hPa units in `attrs`.
-
-Here we use `xarray-annotated` to declare expected properties in the signature and enforce them at run-time with minimal boilerplate (one decorator).
-
-<!-- docs-test: raises ValueError -->
 ```python
 from typing import Annotated
+
 import xarray as xr
 import xarray_annotated as xra
-from xarray_annotated import Dims, Unit
+from xarray_annotated import Dims, Freq, Unit
+
+R = 287.05  # specific gas constant of dry air, J / kg / K
 
 
 @xra.enforce
-def altitude(
-    p: Annotated[xr.DataArray, Dims("time"), Unit("Pa")],
-) -> Annotated[xr.DataArray, Dims("time"), Unit("m")]:
-    """Barometric altitude."""
-    alt = 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
-    return alt.assign_attrs(units="m")
-
-
-p = xr.DataArray([1013.0, 1000.0], dims=["time"], attrs={"units": "hPa"})
-altitude(p)
-# ValueError: [altitude] input 'p': unit 'hPa' differs from declared 'Pa'.
-#   Converting would change the values; if that is correct for this quantity,
-#   pass xra.units.convert(da, 'Pa').
+def daily_air_density(
+    p: Annotated[xr.DataArray, Dims("time", "site"), Unit("hPa"), Freq("h")],
+    t: Annotated[xr.DataArray, Dims("time", "site"), Unit("K"), Freq("h")],
+) -> Annotated[xr.DataArray, Dims("time", "site"), Unit("kg/m^3"), Freq("D")]:
+    """Daily mean density of dry air."""
+    rho = 100.0 * p / (R * t)
+    return rho.resample(time="D").mean().assign_attrs(units="kg/m^3")
 ```
 
-The wrong unit is now an error rather than a wrong answer.
-Pressure is safe to convert, so we can do that explicitly:
+Anything that does not match its declaration raises.
 
-```python
-altitude(xra.units.convert(p, "Pa"))
-```
-```
-<xarray.DataArray (time: 2)> Size: 16B
-array([  2.08162886, 110.90398059])
-Dimensions without coordinates: time
-Attributes:
-    units:    m
-```
+A check compares a declaration with another declaration, or with an array's metadata, such as its `units` attribute.
+It never reads values, so a wrong calculation with the right label passes, and needs testing like any other code.
 
-Now the outputs are physical and carry the unit the signature promised.
-The body has to state that unit, because xarray would otherwise leave the `Pa` label on the result, and a label that disagrees with the declaration raises: it could just as easily mean a forgotten conversion.
-Nothing is [converted automatically](https://jmarshrossney.github.io/xarray-annotated/guides/units.html#converting-an-input), because whether a conversion is correct depends on the quantity, and a compatible unit is not always the right one.
-The docstring no longer needs to say "assumes Pa", because the signature does --- and unlike the docstring, it is actually enforced.
+Many checks can run pre-flight, before any data is loaded, if a computational graph can be built, as in [catena](https://github.com/NERC-CEH/catena) or [dask](https://www.dask.org/).
+See [Pre-flight checks](https://jmarshrossney.github.io/xarray-annotated/advanced/preflight.html) for more details.
 
-An array whose units were _dimensionally_ wrong would also have raised:
+## See Also
 
-<!-- docs-test: raises DimensionalityError -->
-```python
-altitude(xr.DataArray([1.0, 2.0], dims=["time"], attrs={"units": "kg"}))
-# DimensionalityError: Cannot convert from 'kilogram' ([mass])
-#   to 'pascal' ([mass] / [length] / [time] ** 2)
-```
+**Uses:**
 
-And so would one with an extra dimension:
+- [xarray](https://xarray.dev/)
+- [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io), for unit parsing and conversion
+- [cf-xarray](https://cf-xarray.readthedocs.io/en/latest/) (optional, via the `cf` extra), for UDUNITS spellings such as `"g m-2 d-1"`; see [Choosing a unit registry](https://jmarshrossney.github.io/xarray-annotated/guides/units.html#choosing-a-unit-registry)
 
-<!-- docs-test: raises SchemaError -->
-```python
-altitude(
-    xr.DataArray([[101300.0, 100000.0]], dims=["run", "time"], attrs={"units": "Pa"})
-)
-# SchemaError: [altitude] 'p' dims mismatch: expected ('time',) in any order, got ('run', 'time')
-```
+**Used by:**
+
+- [NERC-CEH/catena](https://github.com/NERC-CEH/catena) - An opinionated integration of Apache Hamilton and xarray for building configurable environmental data pipelines.
+- [NERC-CEH/xharvest](https://github.com/NERC-CEH/xharvest) - Environmental data harvester that standardises data to metadata-rich netCDF or zarr.
+
+**Similar tools:**
+
+- [xarray-schema](https://github.com/carbonplan/xarray-schema) and [xarray-validate](https://github.com/leroyvn/xarray-validate/), for validating xarray objects against a schema.
+- [pint's `wraps` and `check`](https://pint.readthedocs.io/en/stable/advanced/wrapping.html), decorators that take units or dimensions as arguments rather than from annotations.
+- [TypedUnit](https://github.com/MartinPdeS/TypedUnit), for checking the dimensions of pint quantities from annotations.
+- [pydantic-pint](https://pypi.org/project/pydantic-pint/), for validating and converting pint quantities in Pydantic models.
+- [astropy's `quantity_input`](https://docs.astropy.org/en/stable/api/astropy.units.quantity_input.html), the same idea for astropy quantities.
 
 ## Contributing
 
 Issues and pull requests are welcome.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the package's scope and how to set up a development environment.
+See [CONTRIBUTING.md](https://github.com/jmarshrossney/xarray-annotated/blob/main/CONTRIBUTING.md) for the package's scope and how to set up a development environment.

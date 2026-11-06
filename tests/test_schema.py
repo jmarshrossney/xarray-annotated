@@ -208,6 +208,14 @@ class TestDtypeCompatible:
         assert not schema.dtype_compatible(Dtype("float"), Dtype("int32"))
         assert not schema.dtype_compatible(Dtype("int"), Dtype("uint"))
 
+    @pytest.mark.parametrize(
+        ("a", "b"),
+        [(Dtype("nope"), Dtype("int")), (Dtype("int"), Dtype("nope"))],
+    )
+    def test_an_invalid_dtype_on_either_side_is_a_value_error(self, a, b):
+        with pytest.raises(ValueError, match="invalid dtype 'nope'"):
+            schema.dtype_compatible(a, b)
+
 
 # ---------------------------------------------------------------------------
 # check_schema router behaviour
@@ -291,7 +299,7 @@ class TestDeclareSchema:
     def test_optional_none_input_skipped(self):
         @xra.enforce
         def f(
-            x: Annotated[xr.DataArray | None, Dims("time", "x")] = None,
+            x: Annotated[xr.DataArray, Dims("time", "x")] | None = None,
         ) -> xr.DataArray | None:
             return x
 
@@ -386,3 +394,25 @@ class TestAnnotationsSurviveWraps:
         wrapped = xra.enforce(fn)
         hints = typing.get_type_hints(wrapped, include_extras=True)
         assert "return" in hints
+
+
+class TestMalformedMarkerInCheckSchema:
+    @pytest.mark.parametrize(
+        "marker",
+        [
+            Dtype("notdtype"),
+            Dims("x", "x"),
+            Dims("time", "time"),
+            [Dims("time"), Dtype("notdtype")],
+        ],
+        ids=["dtype", "dims-mismatching", "dims-matching", "in-a-list"],
+    )
+    def test_raises_value_error_whatever_the_array(self, marker):
+        da = xr.DataArray([1.0], dims="time")
+        with pytest.raises(ValueError, match="'p'"):
+            schema.check_schema(da, marker, "p")
+
+    def test_switched_off_checks_nothing(self):
+        da = xr.DataArray([1.0], dims="time")
+        with xra.enabled(False):
+            assert schema.check_schema(da, Dtype("notdtype"), "p") is da

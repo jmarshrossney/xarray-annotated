@@ -47,12 +47,16 @@ def set_registry(ureg: pint.UnitRegistry | pint.registry.ApplicationRegistry) ->
 
     Args:
         ureg: The `UnitRegistry` to install as the process-global registry.
+
+    Raises:
+        AttributeError: If `ureg` is not a registry, leaving the active one in place.
+        TypeError: If `ureg` is not a registry, leaving the active one in place.
     """
     global _UREG, _using_cf
-    _UREG = ureg
-    _using_cf = False
     pint_xarray.setup_registry(ureg)
     pint.set_application_registry(ureg)
+    _UREG = ureg
+    _using_cf = False
 
 
 def use_cf_units() -> None:
@@ -82,6 +86,16 @@ def use_cf_units() -> None:
         ) from exc
     set_registry(cf_xarray.units.units)
     _using_cf = True
+
+
+def _label_format() -> str | None:
+    """Return the pint format that spells a label the active registry can read back.
+
+    CF spelling such as `"g d-1 m-2"` does not parse on a plain registry, and pint's
+    `"cf"` format depends on `cf_xarray` having been imported, so it is used only
+    when the CF registry is active.  `None` is pint's long form, which always parses.
+    """
+    return "cf" if _using_cf else None
 
 
 def _cf_hint(unit: str) -> str:

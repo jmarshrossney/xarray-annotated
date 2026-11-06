@@ -18,6 +18,7 @@ import numpy as np
 import xarray as xr
 
 from .._config import resolve_enabled
+from .._errors import ContractError
 from ._annotations import Coords, Dims, Dtype, SchemaMarker
 
 #: Dtype names meaning any dtype of that kind.  numpy reads each as one dtype, whose
@@ -27,7 +28,7 @@ _KIND_NAMES = frozenset(
 )
 
 
-class SchemaError(Exception):
+class SchemaError(ContractError):
     """Raised for a structural mismatch.
 
     Deliberately **not** a ``ValueError``: a structural mismatch (the *data* fails
@@ -171,6 +172,9 @@ def dtype_compatible(a: Dtype, b: Dtype) -> bool:
     Returns:
         `True` unless the two are provably inconsistent.
 
+    Raises:
+        ValueError: If either dtype is invalid.
+
     Examples:
         >>> from xarray_annotated.schema import Dtype, dtype_compatible
         >>> dtype_compatible(Dtype("float"), Dtype("float32"))
@@ -180,6 +184,8 @@ def dtype_compatible(a: Dtype, b: Dtype) -> bool:
         >>> dtype_compatible(Dtype("float"), Dtype("int"))
         False
     """
+    assert_valid_schema(a, "dtype_compatible")
+    assert_valid_schema(b, "dtype_compatible")
     if _kind(a) != _kind(b):
         return False
     if not (_is_exact(a) and _is_exact(b)):
@@ -197,6 +203,24 @@ _CHECKERS: dict[type, Callable[[xr.DataArray, Any], tuple[bool, str]]] = {
     Coords: _check_coords,
     Dtype: _check_dtype,
 }
+
+
+def _check_valid_schema(
+    da: xr.DataArray,
+    declared: SchemaMarker | list[SchemaMarker],
+    name: str,
+    qualname: str | None,
+) -> None:
+    """`check_schema` on validated markers, whatever `enabled` says."""
+    prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
+    for marker in _as_list(declared):
+        ok, detail = _CHECKERS[type(marker)](da, marker)
+        if not ok:
+            raise SchemaError(f"{prefix} {detail}")
+
+
+def _as_list(declared: SchemaMarker | list[SchemaMarker]) -> list[SchemaMarker]:
+    return [declared] if isinstance(declared, (Dims, Coords, Dtype)) else declared
 
 
 def check_schema(
@@ -221,14 +245,14 @@ def check_schema(
 
     Raises:
         SchemaError: On a mismatch.
+        ValueError: If a marker is malformed, or `XARRAY_ANNOTATED_ENABLED` holds an
+            unrecognised value.
     """
     if not resolve_enabled():
         return da
 
-    markers = [declared] if isinstance(declared, (Dims, Coords, Dtype)) else declared
     prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
-    for marker in markers:
-        ok, detail = _CHECKERS[type(marker)](da, marker)
-        if not ok:
-            raise SchemaError(f"{prefix} {detail}")
+    for marker in _as_list(declared):
+        assert_valid_schema(marker, prefix)
+    _check_valid_schema(da, declared, name, qualname)
     return da

@@ -66,8 +66,8 @@ def _(mo):
     |---|---|---|
     | `sat_gpp` | `g m-2 d-1` | weekly mean GPP, **week-ending Sunday** |
 
-    Throughout, a mass flux written `g m-2 d-1` means grams *of carbon*: pint has no way
-    to say "grams of carbon" rather than "grams", so the species lives in the prose.
+    Throughout, a mass flux written `g m-2 d-1` means grams *of carbon*: a unit string has
+    no way to say "grams of carbon" rather than "grams", so the species lives in the prose.
     """)
     return
 
@@ -233,7 +233,7 @@ def _(mo):
         NEEM --> DCN(["daily_mean"]) --> NEED["nee daily<br/>g m-2 d-1 · D"]
         GPPM --> DCG(["daily_mean"]) --> GPPD["gpp daily<br/>g m-2 d-1 · D"]
 
-        NEED --> SUM([".sum()"]) --> BUD["annual budget<br/>g C m-2 yr-1"]
+        NEED --> SUM(["× 1 day, .sum()"]) --> BUD["annual budget<br/>g C m-2"]
 
         GPPD --> WM(["weekly_mean"]) --> GPPW["gpp weekly<br/>g m-2 d-1 · W-SUN"]
         GPPW --> CMP(["compare_with_satellite"])
@@ -484,9 +484,11 @@ def _(Annotated, Coords, Dims, Dtype, Freq, TypedDict, Unit, xr, xra):
     ) -> Partitioned:
         """Partition NEE into GPP and respiration via a Q10 model."""
         reco = 2.60 * 2.0 ** ((tair - 10.0) / 10.0)
-        reco = reco.assign_attrs(units="umol m-2 s-1")  # otherwise labelled degC
         gpp = (reco - nee).where(ppfd > 5.0, 0.0)  # no photosynthesis in the dark
-        return {"gpp": gpp, "reco": reco}
+        return {
+            "gpp": gpp.assign_attrs(units="umol m-2 s-1"),
+            "reco": reco.assign_attrs(units="umol m-2 s-1"),
+        }
 
     @xra.enforce
     def daily_mean_declared(
@@ -614,7 +616,7 @@ def _(mo):
     mo.md("""
     ## The bug we missed
 
-    The pipeline crashes with a `pint.errors.DimensionalityError` since it cannot
+    The pipeline crashes with a `UnitError` since it cannot
     reconcile the declared units, `g m-2 d-1`, with the `units` attribute stored in
     the input `DataArray`, `umol m-2 s-1`.
 
@@ -626,6 +628,10 @@ def _(mo):
     have noticed, especially since the numbers came out looking highly plausible.
 
     Let's add the missing function and run the pipeline (hopefully) one final time.
+
+    Its output label is written by hand, so the declarations check that this stage is wired
+    into the pipeline, not that its factor is right. The factor needs a test of its own,
+    or a tool that computes with units; see [Using with pint](tools/pint.md).
     """)
     return
 
@@ -654,6 +660,9 @@ def _(mo):
 
 @app.cell
 def _(
+    Annotated,
+    Freq,
+    Unit,
     compare_with_satellite_declared,
     daily_mean_declared,
     partition_fluxes_declared,
@@ -661,8 +670,16 @@ def _(
     screen_quality_declared,
     to_mass_flux,
     weekly_mean_declared,
+    xr,
     xra,
 ):
+    @xra.enforce
+    def annual_total(
+        daily_rate: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("D")],
+    ) -> float:
+        """Daily rates -> their total in g m-2: each value spans the one day declared."""
+        return float(daily_rate.sum())
+
     def run_pipeline_final(nee_raw, qc, tair, ppfd):
         nee = screen_quality_declared(nee_raw, qc)
         tair_degc = xra.units.convert(tair, "degC")
@@ -673,7 +690,7 @@ def _(
         reco_daily = daily_mean_declared(to_mass_flux(fluxes["reco"]))
 
         # Product 1: the annual carbon budget.
-        nee_annual = float(nee_daily.sum())
+        nee_annual = annual_total(nee_daily)
 
         # Product 2: weekly GPP, against the satellite retrieval.
         gpp_weekly = weekly_mean_declared(gpp_daily)
@@ -681,8 +698,8 @@ def _(
 
         return {
             "nee_annual": nee_annual,
-            "gpp_annual": float(gpp_daily.sum()),
-            "reco_annual": float(reco_daily.sum()),
+            "gpp_annual": annual_total(gpp_daily),
+            "reco_annual": annual_total(reco_daily),
             "gpp_weekly": gpp_weekly,
             "comparison": comparison,
         }
@@ -726,6 +743,10 @@ def _(mo):
 
     The fourth is the one that matters most since a 3.6% error in a flux budget does not
     obviously look like an error.
+
+    The declarations caught these by comparing what each stage said with what the next
+    stage needed. They did not check any arithmetic, so the Q10 model and the conversion
+    factor still need tests.
     """)
     return
 

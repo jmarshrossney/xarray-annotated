@@ -2,6 +2,8 @@
 
 use_directory_urls = false
 
+exclude_docs = "adr/"
+
 site_name = "xarray-annotated"
 site_description = "Run-time validation of xarray DataArray structure, units and frequency, declared via typing.Annotated"
 site_author = "Joe Marsh Rossney"
@@ -16,17 +18,29 @@ Copyright &copy; 2026 Joe Marsh Rossney
 
 nav = [
   { "Home" = "index.md" },
-  { "Getting Started" = "getting_started.md" },
-  { "Guides" = [
-    { "Declaring properties" = "guides/declaring.md" },
-    { "Units" = "guides/units.md" },
-    { "Choosing a unit registry" = "guides/registry.md" },
-    { "Using with jaxtyping" = "guides/jaxtyping.md" },
-    { "Reading and writing declarations (advanced)" = "guides/tooling.md" },
-    { "Troubleshooting" = "guides/troubleshooting.md" },
+  { "Getting started" = "getting_started.md" },
+  { "User guide" = [
+    { "First principles" = "guides/first_principles.md" },
+    { "Schema declarations" = "guides/schema.md" },
+    { "Units declarations" = "guides/units.md" },
+    { "Temporal declarations" = "guides/temporal.md" },
+    { "Keeping signatures readable" = "guides/readable_signatures.md" },
+    { "Advanced usage" = [
+      { "Working with declarations" = "advanced/working_with_declarations.md" },
+      { "Pre-flight checks" = "advanced/preflight.md" },
+    ]},
+    { "Alongside other tools" = [
+      { "Pint" = "tools/pint.md" },
+      { "Jaxtyping" = "tools/jaxtyping.md" },
+      { "Dask" = "tools/dask.md" },
+    ]},
   ]},
   { "Worked example" = "example.md" },
-  { "API Reference" = [
+  { "Help" = [
+    { "Troubleshooting" = "guides/troubleshooting.md" },
+    { "FAQ" = "faq.md" },
+  ]},
+  { "API reference" = [
     { "xarray_annotated" = "api/package.md" },
     { "xarray_annotated.units" = "api/units.md" },
     { "xarray_annotated.schema" = "api/schema.md" },
@@ -61,9 +75,9 @@ features = [
     #"navigation.instant.progress",
     "navigation.path",
     #"navigation.prune",
-    # "navigation.sections",
-    #"navigation.tabs",
-    #"navigation.tabs.sticky",
+    "navigation.sections",
+    "navigation.tabs",
+    "navigation.tabs.sticky",
     # "navigation.top",
     "navigation.tracking",
     "search.highlight",

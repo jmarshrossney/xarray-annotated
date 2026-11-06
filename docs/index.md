@@ -1,41 +1,49 @@
 # xarray-annotated
 
-`xarray-annotated` checks `xarray.DataArray` arguments and return values against properties declared in the function signature with [`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated):
+`xarray-annotated` turns function signatures into explicit, machine-readable contracts for `DataArray` structure, units and time frequency, so you can check that the functions in a pipeline agree about the arrays passing between them.
+The contracts are enforced at run time and can also be compared with each other, and they read only metadata and indexes, so a mismatch between stages or in an input can be caught before any data is loaded.
 
-- **structure**: dimensions, coordinates and dtype;
-- **physical units**;
-- **time frequency** and phase.
+## Why?
 
-Making signatures the single source of truth has several advantages: the same declaration
+**Why check at all?**
+A mistake that raises an error gets fixed.
+One that doesn't can produce plausible numbers, which can travel all the way into published results.
+xarray doesn't check the dimensions, dtype, units or time axis of the arrays a function receives, and an expectation written in a docstring protects nothing.
+If a mistake can be caught by an automated check, it should be.
 
-- can be used by automated checks and validation, and hence enforced at run time;
-- appears in generated documentation without needing to be hand-written;
-- provides rich context for AI coding agents.
+**Why annotations?**
 
+- **One source of truth:** an expectation is written once, in the signature, so the checks and the generated documentation cannot drift apart.
+- **Machine-readable:** annotations are code, so pipeline tools, documentation generators and AI agents can all use them.
+- **Usable before running:** a check inside a function body only runs when the function does, whereas a declaration can be compared with other declarations and with opened files before anything expensive starts.
 
-## How it works
+## How?
 
-Here is the same function twice: with its expectations in the docstring, where nothing checks them, and with them in the signature.
+Add markers to the [`Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated) hint of each `DataArray` parameter or return value, and decorate the function with `enforce`:
 
 === "Plain xarray"
 
     ```python
     import xarray as xr
 
+    R = 287.05  # specific gas constant of dry air, J / kg / K
 
-    def daily_mean_pressure(p: xr.DataArray) -> xr.DataArray:
-        """Daily mean pressure.
+
+    def daily_air_density(p: xr.DataArray, t: xr.DataArray) -> xr.DataArray:
+        """Daily mean density of dry air.
 
         Args:
-            p: Pressure in Pa, with dims (time, x).
+            p: Hourly pressure in hPa, with dims (time, site).
+            t: Hourly temperature in K, with dims (time, site).
 
         Returns:
-            Daily mean pressure in Pa, with dims (time, x).
+            Daily mean density in kg/m^3, with dims (time, site).
         """
-        return p.resample(time="D").mean()
+        rho = 100.0 * p / (R * t)
+        return rho.resample(time="D").mean()
     ```
 
-===+ "With xarray-annotated"
+=== "With annotations"
 
     ```python
     from typing import Annotated
@@ -44,33 +52,44 @@ Here is the same function twice: with its expectations in the docstring, where n
     import xarray_annotated as xra
     from xarray_annotated import Dims, Freq, Unit
 
+    R = 287.05  # specific gas constant of dry air, J / kg / K
+
 
     @xra.enforce
-    def daily_mean_pressure(
-        p: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")],
-    ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa"), Freq("D")]:
-        """Daily mean pressure."""
-        return p.resample(time="D").mean()
+    def daily_air_density(
+        p: Annotated[xr.DataArray, Dims("time", "site"), Unit("hPa"), Freq("h")],
+        t: Annotated[xr.DataArray, Dims("time", "site"), Unit("K"), Freq("h")],
+    ) -> Annotated[xr.DataArray, Dims("time", "site"), Unit("kg/m^3"), Freq("D")]:
+        """Daily mean density of dry air."""
+        rho = 100.0 * p / (R * t)
+        return rho.resample(time="D").mean().assign_attrs(units="kg/m^3")
     ```
-
-If signatures get long or repetitive, [type aliases can shorten them](guides/declaring.md#reusing-a-declaration).
-
-### 1. Declare
-
-Add markers to the `Annotated` hint of each `DataArray` parameter or return value.
-
-### 2. Enforce
-
-Decorate the function with `enforce`, or wrap an existing one: `xra.enforce(daily_mean_pressure)`.
-
-On each call, `enforce` checks inputs against their declared units with [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io).
-A different unit raises, so the function body sees `Pa` or does not run at all.
-Structure and frequency are then checked, and everything is checked again on the return value.
 
 Anything that does not match its declaration raises.
 
-See [Getting started](getting_started.md) for a worked walkthrough, [Declaring properties](guides/declaring.md) for each marker in detail, and [Units](guides/units.md) for what to do when the units differ.
+A check compares a declaration with another declaration, or with an array's metadata, such as its `units` attribute.
+It never reads values, so a wrong calculation with the right label passes, and needs testing like any other code.
 
+Many checks can run pre-flight, before any data is loaded, if a computational graph can be built, as in [catena](https://github.com/NERC-CEH/catena) or [dask](https://www.dask.org/).
+See [Pre-flight checks](advanced/preflight.md) for more details.
+
+## Where to next?
+
+- [Getting started](getting_started.md): install the package and add declarations to a function.
+- [User guide](guides/first_principles.md): writing declarations and how checks behave, then [schema](guides/schema.md), [units](guides/units.md) and [temporal](guides/temporal.md) declarations in detail.
+- Advanced usage: [working with declarations](advanced/working_with_declarations.md) and [pre-flight checks](advanced/preflight.md).
+- Alongside other tools: [pint](tools/pint.md), [jaxtyping](tools/jaxtyping.md) and [dask](tools/dask.md).
+- [Worked example](example.md): an end-to-end pipeline you can run.
+- Help: [troubleshooting](guides/troubleshooting.md) when something fails, and the [FAQ](faq.md) on why the package raises and what it leaves out.
+- [API reference](api/package.md): exactly what each marker and function accepts.
+- [CONTRIBUTING.md](https://github.com/jmarshrossney/xarray-annotated/blob/main/CONTRIBUTING.md): the package's scope and how to set up a development environment.
+
+## Used by
+
+- [NERC-CEH/catena](https://github.com/NERC-CEH/catena) - An opinionated integration of Apache Hamilton and xarray for building configurable environmental data pipelines.
+- [NERC-CEH/xharvest](https://github.com/NERC-CEH/xharvest) - Environmental data harvester that standardises data to metadata-rich netCDF or zarr.
+
+<!--
 ## Motivations
 
 `xarray.DataArray` objects carry properties that matter for correctness but are invisible to the type system: dimensions, coordinates and dtype describe the structure of every array, and the `units` attribute (`"hPa"`, `"degC"`, `"g m-2 d-1"`) carries a physical unit.
@@ -86,21 +105,4 @@ Storing metadata in the function signature with `typing.Annotated` is a well-tro
 The same declarations help when working with AI agents: they tell an agent what each function expects, and the checks catch it when the agent gets it wrong.
 Automated correctness checks are a prerequisite for semi-automated development of, and experimentation with, scientific code: if you aren't sure the outputs are correct then you have to audit every step by hand, at which point you may as well have slowed down and written it yourself.
 My hope is that tools like this let scientists actually make use of AI in the areas where correctness *can* be checked mechanically.
-
-## Contributing
-
-Issues and pull requests are welcome.
-See [CONTRIBUTING.md](https://github.com/jmarshrossney/xarray-annotated/blob/main/CONTRIBUTING.md) for the package's scope and how to set up a development environment.
-
-## See also
-
-**Uses:**
-
-- [xarray](https://xarray.dev/)
-- [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io), for unit parsing and conversion
-- [cf-xarray](https://cf-xarray.readthedocs.io/en/latest/) (optional, via the `cf` extra), for UDUNITS spellings such as `"g m-2 d-1"`; see [Choosing a unit registry](guides/registry.md)
-
-**Used by:**
-
-- [NERC-CEH/conduit](https://github.com/NERC-CEH/conduit) - An opinionated integration of Apache Hamilton and xarray for building configurable environmental data pipelines.
-- [NERC-CEH/xharvest](https://github.com/NERC-CEH/xharvest) - Environmental data harvester that standardises data to metadata-rich netCDF or zarr.
+-->

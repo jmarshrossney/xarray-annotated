@@ -22,7 +22,6 @@ from typing import (
 
 import numpy as np
 import pandas as pd
-import pint
 import pint_xarray  # noqa: F401  (registers the .pint accessor)
 import pytest
 import xarray as xr
@@ -31,7 +30,7 @@ import xarray_annotated as xra
 from xarray_annotated import Declared, schema, units
 from xarray_annotated.schema import Coords, Dims, Dtype, SchemaError
 from xarray_annotated.temporal import Freq
-from xarray_annotated.units import Unit
+from xarray_annotated.units import Unit, UnitError
 
 
 def _int_da(unit: str | None = "hPa") -> xr.DataArray:
@@ -49,7 +48,7 @@ class TestOrdering:
         def f(p: Annotated[xr.DataArray, Unit("Pa"), Dtype("float64")]):
             return p
 
-        with pytest.raises(ValueError, match="'hPa' differs"):
+        with pytest.raises(UnitError, match="'hPa' differs"):
             f(_int_da())
 
     def test_output_units_checked_before_schema_check(self):
@@ -58,7 +57,7 @@ class TestOrdering:
         def f() -> Annotated[xr.DataArray, Unit("Pa"), Dtype("float64")]:
             return _int_da()
 
-        with pytest.raises(ValueError, match="'hPa' differs"):
+        with pytest.raises(UnitError, match="'hPa' differs"):
             f()
 
     def test_output_schema_mismatch_reported_after_units(self):
@@ -78,7 +77,7 @@ class TestOrdering:
             return {"p": x}
 
         out = f(_int_da("pascal"))
-        assert out["p"].attrs["units"] == "Pa"
+        assert out["p"].attrs["units"] == "pascal"
 
     def test_all_facets_on_dataclass_return_checks_quantified_field(self):
         @dataclass
@@ -110,7 +109,7 @@ class TestNoOptions:
         @xra.enforce
         def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
 
-        with pytest.raises(ValueError, match="no 'units' attribute"):
+        with pytest.raises(UnitError, match="no 'units' attribute"):
             f(_int_da(unit=None))
 
     @pytest.mark.parametrize("kwarg", ["temporal_on_uninferable", "units_on_output"])
@@ -174,12 +173,12 @@ class TestWrapper:
         @xra.enforce
         def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
 
-        with pytest.raises(pint.DimensionalityError):
+        with pytest.raises(UnitError):
             f(_int_da(unit="kg"))
 
     def test_optional_output_field_of_none_passes(self):
         class Out(TypedDict):
-            p: Annotated[xr.DataArray | None, Unit("Pa"), Dims("x")]
+            p: Annotated[xr.DataArray, Unit("Pa"), Dims("x")] | None
 
         @xra.enforce
         def f() -> Out:
@@ -189,7 +188,7 @@ class TestWrapper:
 
 
 class TestAsync:
-    def test_output_is_applied_to_the_awaited_result(self):
+    def test_output_is_checked_on_the_awaited_result(self):
         @xra.enforce
         async def f(
             p: Annotated[xr.DataArray, Unit("Pa")],
@@ -197,7 +196,7 @@ class TestAsync:
             return (p / 1000.0).assign_attrs(units="kilopascal")
 
         out = asyncio.run(f(_int_da("Pa").astype(float)))
-        assert out.attrs["units"] == "kPa"
+        assert out.attrs["units"] == "kilopascal"
 
     def test_output_checks_run(self):
         @xra.enforce
@@ -212,14 +211,14 @@ class TestAsync:
         async def f() -> Annotated[xr.DataArray, Unit("Pa")]:
             return _int_da("hPa")
 
-        with pytest.raises(ValueError, match="'hPa' differs"):
+        with pytest.raises(UnitError, match="'hPa' differs"):
             asyncio.run(f())
 
     def test_input_checks_run(self):
         @xra.enforce
         async def f(p: Annotated[xr.DataArray, Unit("kg")]) -> None: ...
 
-        with pytest.raises(pint.DimensionalityError):
+        with pytest.raises(UnitError):
             asyncio.run(f(_int_da("Pa")))
 
     def test_disabled_is_a_noop(self):
@@ -237,59 +236,141 @@ class TestAsync:
         assert inspect.iscoroutinefunction(f)
 
 
-class TestOutputRespellingLeavesTheInputAlone:
+class TestChecksChangeNothing:
+    """The body gets what the caller passed, the caller what the body returned."""
+
     def _passthrough(self):
         @xra.enforce
-        def f(x: xr.DataArray) -> Annotated[xr.DataArray, Unit("Pa")]:
+        def f(
+            x: Annotated[xr.DataArray, Unit("Pa")],
+        ) -> Annotated[xr.DataArray, Unit("Pa")]:
             return x
 
         return f
 
-    def test_caller_array_keeps_its_label(self):
-        da = _int_da("pascal")
-        out = self._passthrough()(da)
-        assert out.attrs["units"] == "Pa"
-        assert da.attrs["units"] == "pascal"
+    @pytest.mark.parametrize(
+        "make",
+        [
+            lambda: _int_da("pascal"),
+            lambda: _int_da("Pa"),
+            lambda: xr.DataArray([1.0], attrs={"units": "pascal"}).pint.quantify(),
+        ],
+        ids=["respelled", "same", "quantified"],
+    )
+    def test_same_object_in_and_out(self, make):
+        da = make()
+        assert self._passthrough()(da) is da
 
-    def test_data_is_not_copied(self):
-        da = xr.DataArray(np.zeros(3), dims="x", attrs={"units": "pascal"})
-        assert np.shares_memory(self._passthrough()(da).values, da.values)
+    def test_the_body_sees_a_quantified_input(self):
+        seen = {}
 
-    def test_later_check_failure_leaves_it_alone(self):
         @xra.enforce
-        def f(x: xr.DataArray) -> Annotated[xr.DataArray, Unit("Pa"), Dims("nope")]:
+        def f(x: Annotated[xr.DataArray, Unit("Pa")]) -> None:
+            seen["x"] = x
+
+        da = xr.DataArray([1.0], attrs={"units": "Pa"}).pint.quantify()
+        f(da)
+        assert seen["x"] is da
+
+    def test_the_label_keeps_its_spelling(self):
+        da = _int_da("pascal")
+        assert self._passthrough()(da).attrs["units"] == "pascal"
+
+    def test_encoding_is_left_alone(self):
+        da = xr.DataArray([1.0], attrs={"units": "Pa"}).pint.quantify()
+        da.encoding = {"dtype": "int16"}
+        assert self._passthrough()(da).encoding == {"dtype": "int16"}
+
+    def test_same_result_when_switched_off(self):
+        @xra.enforce
+        def dry(rh: Annotated[xr.DataArray, Unit("percent")]) -> xr.DataArray:
+            return 1 - rh / 100
+
+        rh = xr.DataArray([60.0], attrs={"units": "percent"}).pint.quantify()
+        on = dry(rh)
+        with xra.enabled(False):
+            off = dry(rh)
+        xr.testing.assert_identical(on, off)
+
+    def test_two_spellings_in_a_plain_body_lose_the_label(self):
+        # xarray drops conflicting attrs, so the output has no label to check.
+        @xra.enforce
+        def add(
+            a: Annotated[xr.DataArray, Unit("Pa")],
+            b: Annotated[xr.DataArray, Unit("Pa")],
+        ) -> Annotated[xr.DataArray, Unit("Pa")]:
+            return a + b
+
+        with pytest.raises(UnitError, match="no 'units' attribute"):
+            add(_int_da("pascal"), _int_da("Pa"))
+
+
+class TestValidatesOnce:
+    def test_nothing_is_validated_when_called(self, monkeypatch):
+        @xra.enforce
+        def f(
+            p: Annotated[xr.DataArray, Unit("Pa")],
+        ) -> Annotated[xr.DataArray, Unit("Pa")]:
+            return p
+
+        def fail(*_):
+            raise AssertionError("validated again")
+
+        monkeypatch.setattr("xarray_annotated._contract.assert_valid_unit", fail)
+        monkeypatch.setattr("xarray_annotated.units._check.assert_valid_unit", fail)
+        f(_int_da("Pa"))
+
+    def test_nothing_is_validated_when_called_on_any_facet(self, monkeypatch):
+        @xra.enforce
+        def f(
+            p: Annotated[xr.DataArray, Dtype("int"), Freq("D")],
+        ) -> Annotated[xr.DataArray, Dtype("int"), Freq("D")]:
+            return p
+
+        def fail(*_):
+            raise AssertionError("validated again")
+
+        for module in ("_contract", "schema._check"):
+            monkeypatch.setattr(f"xarray_annotated.{module}.assert_valid_schema", fail)
+        for module in ("_contract", "temporal._check"):
+            monkeypatch.setattr(f"xarray_annotated.{module}.assert_valid_freq", fail)
+        time = pd.date_range("2000-01-01", periods=3, freq="D")
+        f(xr.DataArray(np.arange(3), dims="time", coords={"time": time}))
+
+
+class TestNothingDeclared:
+    def test_returns_the_function_itself(self):
+        def f(x: xr.DataArray, y: Annotated[int, "a description"]) -> xr.DataArray:
             return x
 
-        da = _int_da("pascal")
-        with pytest.raises(schema.SchemaError):
-            f(da)
-        assert da.attrs["units"] == "pascal"
+        assert xra.enforce(f) is f
 
-    @pytest.mark.parametrize("frozen", [True, False])
-    def test_dataclass_field(self, frozen):
-        @dataclass(frozen=frozen)
-        class Out:
-            p: Annotated[xr.DataArray, Unit("Pa")]
+    def test_returns_a_coroutine_function_itself(self):
+        async def f(x: xr.DataArray) -> None:
+            pass
 
-        @xra.enforce
-        def f(x: xr.DataArray) -> Out:
-            return Out(p=x)
+        assert xra.enforce(f) is f
 
-        da = _int_da("pascal")
-        assert f(da).p.attrs["units"] == "Pa"
-        assert da.attrs["units"] == "pascal"
+    def test_returns_the_function_for_a_record_with_no_declared_fields(self):
+        class Plain(TypedDict):
+            x: xr.DataArray
 
-    def test_dict_field(self):
-        class Out(TypedDict):
-            p: Annotated[xr.DataArray, Unit("Pa")]
+        def f() -> Plain:
+            return {"x": xr.DataArray([1.0])}
 
-        @xra.enforce
-        def f(x: xr.DataArray) -> Out:
-            return {"p": x}
+        assert xra.enforce(f) is f
 
-        da = _int_da("pascal")
-        assert f(da)["p"].attrs["units"] == "Pa"
-        assert da.attrs["units"] == "pascal"
+    def test_a_stray_marker_still_raises(self):
+        def f(x: tuple[Annotated[xr.DataArray, Unit("Pa")], int]) -> None:
+            pass
+
+        with pytest.raises(ValueError, match="enforce cannot apply"):
+            xra.enforce(f)
+
+    @pytest.mark.parametrize("side", ["param", "ret"])
+    def test_a_declaration_on_either_side_is_wrapped(self, side):
+        func = _annotated(**{side: Annotated[xr.DataArray, Unit("Pa")]})
+        assert xra.enforce(func) is not func
 
 
 class TestVariadics:
@@ -331,6 +412,8 @@ type _DA = xr.DataArray
 type _OptionalDA = xr.DataArray | None
 type _Extended = Annotated[_Alias, Dims("x")]
 type _FloatAlias = Annotated[float, Unit("Pa")]
+type _FloatOrDA = xr.DataArray | float
+type _MarkedOptional = Annotated[xr.DataArray | None, Unit("Pa")]
 
 
 class _Fields(TypedDict):
@@ -378,12 +461,45 @@ class TestStrayMarkers:
             Annotated[_FloatAlias, Dims("x")],
             Annotated[_StrayGeneric[xr.DataArray], Dims("x")],
             Annotated[_OptionalAlias, Dims("x")],
+            _PA | list[_PA],
+            _PA | dict[str, _PA],
+            _PA | tuple[_PA, _PA],
+            _PA | Annotated[int, Unit("kg")],
+            _PA | _FloatAlias,
+            _PA | int | list[_PA] | None,
+            _DeclaredRecursive,
         ],
     )
     @pytest.mark.parametrize("side", ["param", "ret"])
     def test_raises_at_decoration(self, hint, side):
         with pytest.raises(ValueError, match="enforce cannot apply"):
             xra.enforce(_annotated(**{side: hint}))
+
+    @pytest.mark.parametrize(
+        "hint",
+        [
+            Annotated[xr.DataArray | float, Dims("x")],
+            Annotated[xr.DataArray | None, Unit("Pa")],
+            Annotated[typing.Optional[xr.DataArray], Unit("Pa")],  # noqa: UP045
+            Annotated[_OptionalDA, Unit("Pa")],
+            _MarkedOptional,
+            Annotated[xr.DataArray | xr.Dataset, Unit("Pa")],
+            Annotated[xr.DataArray | float | None, Dims("x")],
+            Annotated[_FloatOrDA, Dims("x")],
+            NotRequired[Annotated[xr.DataArray | float, Dims("x")]],
+            Annotated[xr.DataArray | float, Dims("x")] | None,  # pyright: ignore[reportOperatorIssue]
+        ],
+    )
+    def test_markers_on_a_union_with_another_type_raise(self, hint):
+        message = r"Write Annotated\[DataArray, \.\.\.\] \|"
+        with pytest.raises(ValueError, match=message):
+            xra.declaration_from_hint(hint)
+        with pytest.raises(ValueError, match=message):
+            xra.enforce(_annotated(param=hint))
+
+    def test_the_message_names_the_outer_union_for_none(self):
+        with pytest.raises(ValueError, match=r"\.\.\.\] \| None\.$"):
+            xra.declaration_from_hint(Annotated[xr.DataArray | None, Unit("Pa")])
 
     def test_raises_on_a_typeddict_field(self):
         with pytest.raises(ValueError, match="enforce cannot apply") as info:
@@ -408,7 +524,14 @@ class TestStrayMarkers:
             _Generic[int],
             _Recursive,
             _RecursiveGeneric[int],
-            _DeclaredRecursive,
+            _PA | None,
+            _PA | float,
+            _PA | int | None,
+            _PA | xr.Dataset,
+            _PA | list[xr.DataArray],
+            _PA | Annotated[int, "a description"],
+            Annotated[xr.DataArray | None, "a description"],
+            Annotated[xr.DataArray | float, "a description"],
         ],
     )
     @pytest.mark.parametrize("side", ["param", "ret"])
@@ -425,12 +548,13 @@ class TestTypeAliases:
     @pytest.mark.parametrize("hint", [_Alias, _OptionalAlias, _Alias | None])
     def test_parameter_is_enforced(self, hint):
         f = xra.enforce(_annotated(param=hint))
-        with pytest.raises(ValueError, match="differs from declared"):
+        with pytest.raises(UnitError, match="differs from declared"):
             f(xr.DataArray([1.0], attrs={"units": "hPa"}))
 
     def test_return_is_checked(self):
         f = xra.enforce(_annotated(ret=_Alias))
-        assert f(xr.DataArray([1.0], attrs={"units": "pascal"})).attrs["units"] == "Pa"
+        with pytest.raises(UnitError, match="'hPa' differs"):
+            f(xr.DataArray([1.0], attrs={"units": "hPa"}))
 
     @pytest.mark.parametrize(
         ("hint", "expected"),
@@ -444,7 +568,6 @@ class TestTypeAliases:
             ),
             (Annotated[_Alias, "a description"], Declared(Unit("Pa"))),
             (Annotated[_DA, Unit("Pa")], Declared(Unit("Pa"))),
-            (Annotated[_OptionalDA, Unit("Pa")], Declared(Unit("Pa"))),
             (
                 NotRequired[Annotated[_Alias, Dims("x")]],
                 Declared(Unit("Pa"), Dims("x")),
@@ -469,7 +592,7 @@ class TestTypeAliases:
     def test_merged_markers_are_all_enforced(self):
         f = xra.enforce(_annotated(param=Annotated[_Alias, Dims("x")]))
         f(xr.DataArray([1.0], dims="x", attrs={"units": "Pa"}))
-        with pytest.raises(ValueError, match="differs from declared"):
+        with pytest.raises(UnitError, match="differs from declared"):
             f(xr.DataArray([1.0], dims="x", attrs={"units": "hPa"}))
         with pytest.raises(SchemaError):
             f(xr.DataArray([1.0], dims="y", attrs={"units": "Pa"}))
@@ -481,8 +604,8 @@ class TestTypeAliases:
 
     def test_aliased_typeddict_return_is_read_per_field(self):
         f = xra.enforce(_annotated(ret=_FieldsAlias))
-        out = f({"pa": xr.DataArray([1.0], attrs={"units": "pascal"})})
-        assert out["pa"].attrs["units"] == "Pa"
+        with pytest.raises(UnitError, match="'hPa' differs"):
+            f({"pa": xr.DataArray([1.0], attrs={"units": "hPa"})})
 
 
 @dataclass
@@ -572,7 +695,7 @@ class TestReturnContainers:
     )
     def test_read_field_by_field(self, hint, value):
         f = xra.enforce(_annotated(ret=hint))
-        with pytest.raises(pint.DimensionalityError):
+        with pytest.raises(UnitError):
             f(value())
 
     @pytest.mark.parametrize(
@@ -660,72 +783,38 @@ def _pa() -> xr.DataArray:
     return xr.DataArray([1.0], attrs={"units": "Pa"})
 
 
-class TestOutputWriteBack:
-    """A return container is never changed in place, and its arrays are not copied."""
+class TestRecordReturnsAreNotTouched:
+    """A record return comes back as the same object, once every field has passed."""
 
     def _identity(self, hint):
         return xra.enforce(_annotated(ret=hint))
 
-    def test_failed_dict_check_leaves_the_dict_as_it_was(self):
-        d = {"a": _pascal(), "b": _kg()}
-        before = d["a"]
-        with pytest.raises(pint.DimensionalityError):
-            self._identity(_Respelled)(d)
-        assert d["a"] is before
-        assert d["a"].attrs["units"] == "pascal"
+    def test_failed_dict_check_raises(self):
+        with pytest.raises(UnitError):
+            self._identity(_Respelled)({"a": _pascal(), "b": _kg()})
 
-    def test_failed_dataclass_check_leaves_it_as_it_was(self):
-        r = _RespelledRecord(_pascal(), _kg())
-        before = r.a
-        with pytest.raises(pint.DimensionalityError):
-            self._identity(_RespelledRecord)(r)
-        assert r.a is before
+    def test_failed_dataclass_check_raises(self):
+        with pytest.raises(UnitError):
+            self._identity(_RespelledRecord)(_RespelledRecord(_pascal(), _kg()))
 
-    def test_passing_dict_leaves_the_callers_dict_alone(self):
+    def test_dict_comes_back_as_itself(self):
         d = {"a": _pascal(), "b": _pa(), "extra": 1}
         before = d["a"]
-        out = self._identity(_Respelled)(d)
+        assert self._identity(_Respelled)(d) is d
         assert d["a"] is before
         assert d["a"].attrs["units"] == "pascal"
-        assert out["a"].attrs["units"] == "Pa"
-        assert out["extra"] == 1
 
-    def test_passing_dataclass_leaves_the_callers_object_alone(self):
+    def test_dataclass_comes_back_as_itself(self):
         r = _RespelledRecord(_pascal(), _pa())
-        before = r.a
-        out = self._identity(_RespelledRecord)(r)
-        assert r.a is before
-        assert out.a.attrs["units"] == "Pa"
-        assert type(out) is _RespelledRecord
+        assert self._identity(_RespelledRecord)(r) is r
 
-    def test_nothing_to_write_returns_the_same_object(self):
+    def test_undeclared_value_comes_back_as_itself(self):
         @dataclass
         class Plain:
-            n: Annotated[xr.DataArray | int, Unit("Pa")]
+            n: Annotated[xr.DataArray, Unit("Pa")] | int
 
         r = Plain(1)
         assert self._identity(Plain)(r) is r
-
-    @pytest.mark.parametrize(
-        ("hint", "make", "read"),
-        [
-            (
-                _Respelled,
-                lambda a, b: {"a": a, "b": b},
-                lambda out: out["a"],
-            ),
-            (
-                _RespelledRecord,
-                lambda a, b: _RespelledRecord(a, b),
-                lambda out: out.a,
-            ),
-        ],
-        ids=["dict", "dataclass"],
-    )
-    def test_arrays_are_not_copied(self, hint, make, read):
-        a = _pascal()
-        out = self._identity(hint)(make(a, _pa()))
-        assert np.shares_memory(read(out).values, a.values)
 
     @pytest.mark.parametrize(
         "options", [{"frozen": True}, {"frozen": True, "slots": True}], ids=str
@@ -736,9 +825,7 @@ class TestOutputWriteBack:
             a: _PA
 
         r = Out(_pascal())
-        out = self._identity(Out)(r)
-        assert out.a.attrs["units"] == "Pa"
-        assert r.a.attrs["units"] == "pascal"
+        assert self._identity(Out)(r) is r
 
     def test_frozen_dataclass_with_an_initvar(self):
         @dataclass(frozen=True)
@@ -746,8 +833,8 @@ class TestOutputWriteBack:
             a: _PA
             scale: InitVar[float]
 
-        out = self._identity(Out)(Out(_pascal(), 2.0))
-        assert out.a.attrs["units"] == "Pa"
+        r = Out(_pascal(), 2.0)
+        assert self._identity(Out)(r) is r
 
     def test_frozen_dataclass_with_an_init_false_field(self):
         @dataclass(frozen=True)
@@ -757,7 +844,8 @@ class TestOutputWriteBack:
             def __post_init__(self):
                 object.__setattr__(self, "a", _pascal())
 
-        assert self._identity(Out)(Out()).a.attrs["units"] == "Pa"
+        r = Out()
+        assert self._identity(Out)(r) is r
 
     def test_post_init_does_not_run_again(self):
         calls = []
@@ -785,21 +873,21 @@ class TestOtherValues:
         @xra.enforce
         def f(p: Annotated[xr.DataArray, Dims("x")]): ...
 
-        with pytest.raises(TypeError, match="input 'p': declared a DataArray"):
+        with pytest.raises(xra.ContractError, match="input 'p': declared a DataArray"):
             f(value)
 
     def test_none_raises_at_a_default_the_hint_does_not_allow(self):
         @xra.enforce
         def f(p: Annotated[xr.DataArray, Dims("x")] = None): ...  # type: ignore[assignment]
 
-        with pytest.raises(TypeError, match=r"got None.*\| None"):
+        with pytest.raises(xra.ContractError, match=r"got None.*\| None"):
             f()
 
     @pytest.mark.parametrize(
         "hint",
         [
-            Annotated[xr.DataArray | None, Dims("x")],
             Annotated[xr.DataArray, Dims("x")] | None,  # pyright: ignore[reportOperatorIssue]
+            typing.Optional[Annotated[xr.DataArray, Dims("x")]],  # noqa: UP045
         ],
     )
     def test_optional_allows_none_only(self, hint):
@@ -807,27 +895,21 @@ class TestOtherValues:
         def f(p: hint): ...  # pyright: ignore[reportInvalidTypeForm]
 
         f(None)
-        with pytest.raises(TypeError, match="got float"):
+        with pytest.raises(xra.ContractError, match="got float"):
             f(1.0)
 
-    @pytest.mark.parametrize(
-        "hint",
-        [
-            Annotated[xr.DataArray | float, Dims("x")],
-            Annotated[xr.DataArray, Dims("x")] | float,
-        ],
-    )
-    def test_another_type_passes_but_does_not_allow_none(self, hint):
+    @pytest.mark.parametrize("value", [1.0, "not a float"])
+    def test_another_type_allows_every_other_value_but_not_none(self, value):
         @xra.enforce
-        def f(p: hint): ...  # pyright: ignore[reportInvalidTypeForm]
+        def f(p: Annotated[xr.DataArray, Dims("x")] | float): ...
 
-        f(1.0)
-        with pytest.raises(TypeError, match="got None"):
-            f(None)
+        f(value)  # pyright: ignore[reportArgumentType]
+        with pytest.raises(xra.ContractError, match="got None"):
+            f(None)  # pyright: ignore[reportArgumentType]
 
     def test_a_dataarray_under_a_union_is_still_checked(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray | None, Dims("x")]): ...
+        def f(p: Annotated[xr.DataArray, Dims("x")] | None): ...
 
         with pytest.raises(schema.SchemaError):
             f(xr.DataArray([1.0], dims="y"))

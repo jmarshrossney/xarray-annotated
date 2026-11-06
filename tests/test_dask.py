@@ -4,6 +4,7 @@ from typing import Annotated
 
 import numpy as np
 import pandas as pd
+import pint
 import pint_xarray  # noqa: F401  (registers the .pint accessor)
 import pytest
 import xarray as xr
@@ -76,17 +77,28 @@ class TestNothingIsComputed:
 class TestQuantified:
     """A quantified dask array holds a `Quantity` wrapping a dask array."""
 
-    def test_check_units_unwraps_it(self, lazy, computes):
-        out = units.check_units(lazy().pint.quantify(), "hPa", "p")
-        assert isinstance(out.data, dask_array.Array)
-        assert out.attrs["units"] == "hPa"
+    def test_check_units_leaves_it_uncomputed(self, lazy, computes):
+        da = lazy().pint.quantify()
+        assert units.check_units(da, "hPa", "p") is da
         assert computes == []
 
-    def test_convert_unwraps_it(self, lazy, computes):
-        out = units.convert(lazy().pint.quantify(), "Pa")
+    def test_dequantify_leaves_it_uncomputed(self, lazy, computes):
+        out = units.dequantify(units.quantify(lazy()))
         assert isinstance(out.data, dask_array.Array)
         assert computes == []
-        np.testing.assert_allclose(out.values, [100000.0, 101000.0, 102000.0])
+
+    def test_quantify_leaves_it_uncomputed(self, lazy, computes):
+        out = units.quantify(lazy())
+        assert isinstance(out.data.magnitude, dask_array.Array)
+        assert computes == []
+
+    def test_convert_keeps_it_quantified_and_uncomputed(self, lazy, computes):
+        out = units.convert(lazy().pint.quantify(), "Pa")
+        assert isinstance(out.data.magnitude, dask_array.Array)
+        assert computes == []
+        np.testing.assert_allclose(
+            out.data.magnitude.compute(), [100000.0, 101000.0, 102000.0]
+        )
 
     def test_output_stays_quantified_and_uncomputed(self, lazy, computes):
         @xra.enforce
@@ -108,7 +120,7 @@ class TestSwitchInWorkers:
 
         try:
             f(xr.DataArray([1.0], attrs={"units": "hPa"}))
-        except ValueError:
+        except units.UnitError:
             return True
         return False
 
@@ -124,3 +136,159 @@ class TestSwitchInWorkers:
         with xra.enabled(False):
             task = dask.delayed(self._checked)()
         assert task.compute(scheduler=scheduler) is True
+
+
+class TestWhatTheDaskPageSays:
+    """Behaviour `docs/tools/dask.md` describes, much of it upstream's.
+
+    If a test here fails because upstream changed, update the page, then this.
+    """
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            lambda da: da * 2,
+            np.sqrt,
+            lambda da: da.resample(time="2D").mean(),
+            lambda da: da.rolling(time=2).mean(),
+            lambda da: da.where(da > 0),
+        ],
+        ids=["arithmetic", "numpy", "resample", "rolling", "where"],
+    )
+    def test_these_stay_lazy(self, lazy, computes, operation):
+        operation(lazy())
+        assert computes == []
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            lambda da: da.values,
+            lambda da: da.compute(),
+            lambda da: float(da.max()),
+            np.asarray,
+            lambda da: bool((da > 0).any()),
+            lambda da: da.dropna("time"),
+        ],
+        ids=[
+            "values",
+            "compute",
+            "float",
+            "asarray",
+            "branch",
+            "dropna",
+        ],
+    )
+    def test_these_read_the_data(self, lazy, computes, operation):
+        operation(lazy())
+        assert computes
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            lambda da, mask: da.where(mask, drop=True),
+            lambda da, mask: da.isel(time=mask),
+        ],
+        ids=["where_drop", "isel"],
+    )
+    def test_a_lazy_mask_reads_then_raises(self, lazy, computes, operation):
+        da = lazy()
+        with pytest.raises(KeyError, match="boolean dask array"):
+            operation(da, da > 0)
+        assert computes
+        computes.clear()
+        out = operation(da, (da > 0).compute())
+        assert isinstance(out.data, dask_array.Array)
+        assert computes == [1]
+
+    def test_apply_ufunc_needs_telling_about_dask(self, lazy):
+        with pytest.raises(ValueError, match="dask"):
+            xr.apply_ufunc(np.sqrt, lazy())
+
+    def test_an_output_check_reads_what_dask_expects(self, lazy):
+        @xra.enforce
+        def f(
+            x: Annotated[xr.DataArray, Unit("hPa")],
+        ) -> Annotated[xr.DataArray, Unit("hPa"), Dtype("float64")]:
+            return xr.apply_ufunc(
+                lambda values: values.astype("float32"),
+                x,
+                dask="parallelized",
+                output_dtypes=[np.float64],
+                keep_attrs=True,
+            )
+
+        out = f(lazy())
+        assert out.dtype == np.float64
+        assert out.compute().dtype == np.float32
+
+    def test_delayed_defers_the_check_to_compute(self, lazy):
+        @xra.enforce
+        def f(x: Annotated[xr.DataArray, Unit("Pa")]) -> xr.DataArray:
+            return x
+
+        task = dask.delayed(f)(lazy())
+        with pytest.raises(units.UnitError):
+            task.compute(scheduler="synchronous")
+
+    def test_map_blocks_calls_on_a_stand_in_then_on_each_block(self, lazy):
+        sizes = []
+
+        @xra.enforce
+        def f(
+            x: Annotated[xr.DataArray, Unit("hPa"), Freq("D")],
+        ) -> Annotated[xr.DataArray, Unit("hPa")]:
+            sizes.append(x.sizes["time"])
+            return x
+
+        built = xr.map_blocks(f, lazy().chunk(time=1))
+        assert sizes == [0]
+        built.compute(scheduler="synchronous")
+        assert sorted(sizes) == [0, 1, 1, 1]
+
+
+def _ffill(da: xr.DataArray) -> xr.DataArray:
+    pytest.importorskip("bottleneck")
+    return da.ffill("time")
+
+
+class TestOperationsThatLoseTheUnit:
+    """Upstream behaviour that `docs/tools/pint.md` warns about.
+
+    If a test here fails because upstream now keeps the unit, update the guide's "What
+    pint cannot catch" table and its section on declared functions, then delete it.
+    """
+
+    LOSSY = pytest.mark.parametrize(
+        "operation",
+        [
+            lambda da: da.rolling(time=2).mean(),
+            lambda da: da.rolling(time=2).sum(),
+            lambda da: da.rolling(time=2).std(),
+            _ffill,
+        ],
+        ids=["rolling.mean", "rolling.sum", "rolling.std", "ffill"],
+    )
+
+    @LOSSY
+    def test_the_unit_is_dropped_with_no_warning(self, lazy, recwarn, operation):
+        out = operation(units.quantify(lazy()))
+        assert not isinstance(out.variable._data, pint.Quantity)
+        assert "units" not in out.attrs
+        assert not recwarn.list
+
+    @LOSSY
+    def test_a_declared_output_raises_on_the_loss(self, lazy, operation):
+        @xra.enforce
+        def body(
+            da: Annotated[xr.DataArray, Unit("hPa")],
+        ) -> Annotated[xr.DataArray, Unit("hPa")]:
+            return units.dequantify(operation(units.quantify(da)))
+
+        with pytest.raises(units.UnitError, match="no 'units' attribute"):
+            body(lazy())
+
+    @LOSSY
+    def test_the_plain_array_keeps_the_unit(self, lazy, operation):
+        out = units.quantify(operation(units.dequantify(units.quantify(lazy()))))
+        assert isinstance(out.variable._data, pint.Quantity)
+        assert out.variable._data.units == units.get_registry().Unit("hPa")

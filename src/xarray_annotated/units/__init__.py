@@ -6,10 +6,13 @@ DataArrays.
 
 from ._annotations import Unit
 from ._check import (
-    apply_output_units,
+    UnitError,
     assert_valid_unit,
+    check_output_units,
     check_units,
     convert,
+    dequantify,
+    quantify,
     units_compatible,
     units_equal,
 )
@@ -21,11 +24,14 @@ from ._registry import (
 
 __all__ = [
     "Unit",
-    "apply_output_units",
+    "UnitError",
     "assert_valid_unit",
+    "check_output_units",
     "check_units",
     "convert",
+    "dequantify",
     "get_registry",
+    "quantify",
     "set_registry",
     "units_compatible",
     "units_equal",

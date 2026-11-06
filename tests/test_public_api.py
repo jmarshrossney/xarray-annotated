@@ -7,6 +7,7 @@ that boundary in both directions: everything promised is importable, and nothing
 internal leaks.
 """
 
+import ast
 import importlib
 import inspect
 import pathlib
@@ -169,6 +170,25 @@ def test_version_matches_pyproject():
     assert xra.__version__ == expected
 
 
+def test_annotations_are_never_stringized():
+    """`from __future__ import annotations` makes `enforce` re-evaluate hints.
+
+    A function-local alias or a `TYPE_CHECKING`-only name then raises `NameError` at
+    decoration, so neither the package nor code exercising it may use the import.
+    """
+    root = pathlib.Path(__file__).parent.parent
+    hits = [
+        path.relative_to(root).as_posix()
+        for folder in ("src", "tests", "examples")
+        for path in (root / folder).rglob("*.py")
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "__future__"
+        and any(alias.name == "annotations" for alias in node.names)
+    ]
+    assert hits == []
+
+
 class TestEveryFailedCheckRaises:
     """A declaration holds or raises, so a passing array means a checked one.
 
@@ -186,10 +206,11 @@ class TestEveryFailedCheckRaises:
             xra.Dtype,
             xra.Freq,
             xra.Unit,
+            xra.check_declared,
             xra.schema.check_schema,
             xra.temporal.check_freq,
             xra.units.check_units,
-            xra.units.apply_output_units,
+            xra.units.check_output_units,
         ],
         ids=lambda item: item.__name__,
     )

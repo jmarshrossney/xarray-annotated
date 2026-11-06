@@ -1,54 +1,74 @@
 # AGENTS.md
 
-## Commands
+Commands are in the `justfile`.
 
-- See justfile.
+## Deliberate omissions
 
-## Gotchas
+These look like gaps but are decisions, so don't fill them unasked.
 
-- **No `from __future__ import annotations`** — stringizes annotations, so `get_type_hints` re-evaluates them at decoration; markers survive at module scope, but a function-local alias or `TYPE_CHECKING`-only name raises `NameError`. Not silent, and Python 3.14's deferred annotations do not lift the `TYPE_CHECKING` case.
-- **pint registry is process-global** — `use_cf_units()`/`set_registry()` is one-time startup; two registries can't mix. Tests isolate per test via `conftest.py:_isolate_registry`.
-- **No global behaviour config; `enabled` is the only behavioural global** — the registry is process-wide too, but decides only which units parse. Don't add a `set_policy`, a per-axis env var, or anything else that changes behaviour away from the signature: a process-wide setting can loosen checks with nothing at the definition site to show it (guarded by `test_public_api.py:TestNoGlobalBehaviourConfig`). The switch is root `_config.py`: an `xra.enabled(...)` block (a `ContextVar`, so no test isolation needed) beats `XARRAY_ANNOTATED_ENABLED` in both directions. Off is total: no checks. `units.convert` is not a check, so it ignores the switch.
-- **A value that is not a `DataArray` raises `TypeError`, unless the hint allows it** — `_refuse_other_value`, reading `Declared.others`, which holds what the hint's union allows besides a `DataArray` and takes no part in equality. `| None` allows `None`, and any other member allows anything else, unchecked, since a member may be `list[int]`. A record return is held to the same rule, with a missing required `TypedDict` key raising; `__required_keys__` is what tells it from `NotRequired`, as both read to `None` with `.get`.
-- **Every failed check raises; there are no severity settings** — no `on_mismatch`, no `on_uninferable`, no warnings (`test_public_api.py:TestEveryFailedCheckRaises`). A softened marker reads the same as a checked one to everything downstream, including `dtype_compatible`/`freq_compatible`, and softening `Freq` also let through arrays with no time axis. To tolerate something, correct or remove the declaration; prototyping uses `xra.enabled(False)`.
-- **`check_freq` tests every axis, so nothing is "uninferable"** — 3+ points: `infer_freq`, with `None` a mismatch, as irregular spacing contradicts any declared frequency. 2 points: `_two_points_conform` compares spacing and phase, passing only business-day and custom offsets. 0–1 points pass. Known gap: `Freq` cannot describe an axis pandas has no frequency for, such as monthly means stamped at midpoints. `infer_freq` drops the weekday on cftime (`7D`, not `W-WED`), hence `_on_declared_weekday`.
-- **Audit trail is `logging`, never a mode or a warning** — the only logger is `xarray_annotated.units`, at DEBUG, for every `units.convert`. Never log at WARNING+ (`test_logging.py:TestQuietByDefault`).
-- **`check_units` re-stamps `attrs["units"]`** — pint dequantify writes canonical spelling (e.g. `"pascal"` for `"Pa"`); `check_units` overwrites with declared unit. Bypassing it causes attribute drift.
-- **Equal units never convert** — `_stamped` is `da.copy(deep=False)` + restamp, sharing the buffer. Converting copies it, for nothing when the values do not change.
-- **`units.convert` never touches coords** — it goes through `Quantity(da.data, have)`, not `da.pint.quantify()`, which also parses every coord's `units` attr, so a `degrees_north` label would abort the conversion. `quantify({coord: None})` is no way out: it deletes the coord's label.
-- **`Freq.freq` stores raw string — never normalise** — pandas `to_offset("W").freqstr` silently becomes `"W-SUN"`. Raw spelling preserves anchoredness. Never store/compare normalised `freqstr`.
-- **Only a coord with a `PandasIndex` is a time axis** — `_is_datetime_like` asks `da.xindexes`, so `check_freq` never reads the disk, and scalar, 2-D and aux datetime coords never compete with the real one. A custom index on the axis is a mismatch, as it may leave the coord lazy (`test_temporal.py:test_custom_index_on_the_axis_is_refused_unread`). Errors name the coord and its fix from dtype, shape and index alone (`_why_not_axis`), which is why an unindexed cftime gets generic wording. Never value-based cftime detection or `da.indexes`: the first reads every unindexed object coord, the second casts every index to pandas and raises on a custom one.
-- **Mismatch errors are never `ValueError`** — `SchemaError`/`FreqError` extend `Exception` directly. Malformed declaration raises `ValueError` at decoration time so catching mismatch never swallows declaration error.
-- **Declarations never convert; `units.convert(da, unit)` does, at the call site** — a compatible-but-different input unit raises `ValueError`. No marker setting, `enforce` keyword or global: whether a conversion is correct is a property of the quantity (`g m-2 yr-1` vs `g m-2 d-1` is compatible and wrong), and a body that relied on one would change results under `enabled(False)`. Same-unit respellings always pass. Adding automatic conversion later breaks nothing; removing it does.
-- **A conversion or a quantified array clears `.encoding`, on the array only** — packing such as `scale_factor` described the old values and overflows on write, silently corrupting the file. `encoding = {}`, not `drop_encoding()`, which also clears coords. `.pint.to` keeps encoding, so a quantified array is never trusted, on either side. A plain same-unit array keeps it.
-- **`check_units` on dimensional mismatch always raises** — no policy knob; always raises `pint.DimensionalityError`. So does a missing/unparseable/over-long input unit (`ValueError`): no `on_missing` axis, no `UnitsWarning`, by design — a never-checked declared unit is indistinguishable downstream from a checked one; prototyping uses `xra.enabled(False)`.
-- **Quantified arrays are read via `_quantified_units`, never attrs or `.pint.units`** — a `Quantity` holds its unit in the data and has empty attrs. `.pint.units` goes through `da.data`, which reads a whole lazily opened variable from disk, so the helper asks `da.variable._data` instead (`test_units.py:TestLazyArrays`). `attrs` never wins: `quantify()` *raises* ("Cannot attach units") when a leftover attrs label disagrees, so reading attrs first breaks the pipeline. Inputs come back dequantified+stamped; outputs **stay quantified** (`dequantify()` copies the whole buffer even with nothing to convert). See `notes/logs/2026-07-31-quantified-arrays.md`.
-- **`apply_output_units`' return must be used, never discarded** — a label is respelled on a shallow copy, never in place, since a body may return the caller's own array; a quantified array comes back as itself. The decorator writes results onto a shallow copy of a dict or dataclass return, after every field has passed (`_with_fields`), so the caller's object is never changed, even when frozen or holding an `InitVar`; `__post_init__` does not re-run. Never `dataclasses.replace`, which fails on those.
-- **`_is_dataarray_type` accepts `array_type` wrappers — never import jaxtyping** — the check is duck-typed so the composition stays structural; a real import would make it a hard dependency (guarded by `test_public_api.py:test_integrations_are_never_imported`). Hence jaxtyping/beartype sit in the **`integrations` dependency group**, not an extra — nothing to install to "enable" it, unlike the `cf` extra which really is imported. dask and netCDF4 sit there too, for `test_dask.py` and `test_netcdf.py`. jaxtyping's dim strings are positional *size symbols*, not xarray dim names, so `Dims` is not redundant with them.
-- **`Dtype("float64")` means `float64`** — no `exact=`, as a marker must mean what it reads. A name with no width (`_KIND_NAMES`) means the kind, though numpy reads it as one dtype; byte order is never compared, as it says nothing about the values (`_same_dtype`).
-- **At most one marker of each type per hint** — `_annotations._single_marker` makes `declaration_from_hint` raise `ValueError` on a second `Unit`/`Dims`/`Dtype`/`Coords`/`Freq`, which is what makes `Declared`'s one-slot-per-type shape lossless. Don't relax it to first-wins or collect-all; merge `Coords` names into one marker instead.
-- **`enforce` refuses a declared `*args`/`**kwargs`** — the bound value is a tuple or dict, so the declaration could never be checked. It raises at decoration rather than expanding them; the reader still reports them, as they are what the signature says.
-- **`enforce` refuses a marker it cannot apply** — a marker inside `tuple`/`list`/`dict`/`Callable`, on a non-`DataArray` base, or in a generic alias (`type F[T] = Annotated[T, Unit("Pa")]`) raises at decoration (`_refuse_stray_markers`): someone wrote it expecting a check. So does a parameter, return or field holding a class whose fields carry markers, when `_walk_signature` does not read it (any parameter, `NamedTuple`, `list[R]`, `R1 | R2`, a record nested in a field; `_refuse_unread_fields`); it reads one return record, one level deep, through `| None`, aliases, `Annotated` and generic parameters. The reader still returns `None` for these. Only the non-`DataArray` half of a partly declared union remains silent.
-- **The reader sees through unions, `type` aliases and `TypedDict` qualifiers** — `Annotated[DataArray, ...] | None` and `NotRequired[Annotated[...]]` declare, as `Annotated[DataArray | None, ...]` always did. Two declared union members raise `ValueError`. A new wrapper in `typing` needs adding to `_reader._QUALIFIERS`, or it silently declares nothing. `Annotated[Alias, Dims("x")]` merges the markers of a `type` alias in the base slot, inner first (`_flatten_aliases`), since `Annotated` only flattens a nested `Annotated` itself. An alias that contains itself outside a container raises `ValueError` (`_enter_alias`, a per-path set, since one alias may legitimately appear on two branches). A generic one (`type G[T] = G[T] | None`) is not entered, so it reads as nothing, and `_strip_return_hint` needs its own guard against it.
-- **`Unit` has no settings** — `check_units`/`apply_output_units`/`convert` take `str | Unit`, and `annotate` takes a string as a writer convenience, but a hand-written annotation always spells the marker.
-- **One reader, at the root** — `declaration_from_hint`/`declarations_from_signature` return `Declared`, which keeps the markers. Domains export no readers (`test_public_api.py:TestReaders`). `_reader.py` is the only code that turns `Annotated` metadata into a declaration; `_annotations.py` and `_enforce.py` also walk hints, to find a return's record and to refuse stray markers.
-- **Outputs must already match; nothing is stamped or converted** — the author controls the return, so a different, missing or unparseable unit raises, in one rule with no setting. No `on_output`, no `stamp`: the package cannot tell a stale label (`p * 100` keeps `hPa`) from a true one (a forgotten conversion), and a false alarm is loud where a mislabelled result is silent. A correct body that changes the unit states it with `.assign_attrs(units=...)`, which is taken on trust; see #26. A labelled output must never convert: a stale label would apply the arithmetic twice. An optional return is written `| None`; see below.
-- **A string in `Annotated` is a description, in every domain** — ignored without error, so `Annotated[DataArray, "Pa"]` declares nothing (`test_enforce_units.py:test_bare_string_declares_nothing`). Only markers declare.
-- **`just docs` reporting a failed notebook cell is expected** — `examples/notebook.py` demonstrates a `DimensionalityError` by raising one, so marimo prints "Export was successful, but some cells failed to execute" and the export continues. Not a regression; don't "fix" the example. Check a stashed tree before treating any docs failure as new.
+- **Every failed check raises, and nothing softens it.**
+  There are no severity settings, warnings, `enforce` options or global behaviour settings, because a softened marker reads the same as a checked one to everything downstream.
+  `xra.enabled` is the only behavioural global, and it is how to prototype.
+- **Checks change nothing.**
+  `enforce` passes on the objects it was given, with no converting, stamping, dequantifying or encoding changes, so a body behaves identically under `enabled(False)`.
+- **Declarations never convert, and outputs must already match.**
+  A compatible-but-different unit raises, because whether a conversion is correct depends on the quantity: `g m-2 yr-1` and `g m-2 d-1` are compatible, and treating one as the other is wrong.
+  On outputs, the package cannot tell a stale label (`p * 100` keeps `hPa`) from a forgotten conversion, and converting a stale label would apply the arithmetic twice.
+  `units.convert`, at the call site, is the only thing that converts or respells a label.
+- **`Unit` stays exact, and docs recommend plain arrays between functions.**
+  Don't add a dimension-only marker or show quantified arrays crossing a function boundary as the default: a plain body handed a quantified array can silently change its answer.
+  See `docs/adr/0001-exact-units-plain-arrays-between-functions.md`.
+- **Non-`DataArray` union members are not checked.**
+  `A | float` given a string passes, as `n: int` given a string does, because checking those types is a type checker's job and not this package's.
+  Don't add `isinstance` checks: what stops a user being misled is that every marker is either enforced or refused at decoration, so `A | list[A]` and `Annotated[DataArray | float, ...]` raise.
+  `| None` is the exception, because `None` is the common mistake on an array parameter: without it, `None` raises.
+- **A union with another type goes outside the `Annotated`, with no exception for `None`.**
+  `Annotated[DataArray | None, ...]` raises, so `Annotated[DataArray, ...] | None` is the one spelling, and markers never read as applying to `None`.
+- **`Freq(..., gaps_ok=True)` and `Freq("month")` are declarations, not softened checks.**
+  The smallest step must equal the declared one, accepting a loud false alarm over letting every midnight-stamped axis pass.
+  See `docs/adr/0002-sampling-period-and-calendar-steps.md`.
 
-## Design steers
+## Traps
 
-- **New domain facet: touch `_writer.py`, `_reader.py` and `_enforce.py`** — `annotate()` writes facet values → `Annotated`; `declaration_from_hint()` reads one hint → `Declared` (add a slot), which `declarations_from_signature()` drives over a signature. Round-trip exact. In `_enforce.py`, add its check in the wrapper *after* units on both sides; it raises on failure, with no severity setting or `enforce` keyword. Re-export its marker from the root `__init__.py`. No per-domain decorator.
-- **New property within domain: follow existing patterns** — Schema's `_CHECKERS` dict dispatches marker type → checker; additive via registry. Each domain mirrors layout: `_annotations.py` / `_check.py`, flat re-export via `__all__`.
-- **`_walk_signature` is the shared reader kernel, and private** — `_annotations._walk_signature(func, extract)`. `extract` turns one `Annotated` hint into a payload or `None` (`declaration_from_hint` for the built-in facets); handles `TypedDict`/dataclass/single return shapes once.
-- **One decorator, `enforce`, in `_enforce.py`; units always first** — inputs: `check_units`, *then* `check_schema`/`check_freq`; outputs: `apply_output_units`, *then* schema/freq check what the caller receives. That order is the reason it replaced the stackable per-domain decorators; don't split it back up. It takes no options, and reads through `declarations_from_signature`.
-- **Root `__init__.py` imports subpackages, never re-exports domain names except the markers** — `from xarray_annotated import units; units.check_units`. Checker names stay put. Exceptions: cross-domain names (`enforce`, `enabled`, `annotate`, `declaration_from_hint`, `declarations_from_signature`) and the markers (`Coords`, `Dims`, `Dtype`, `Freq`, `Unit`), which are unique and mixed in one hint. A new domain's marker joins the root too (`test_public_api.py:TestMarkersAtRoot`). Docs import markers from the root.
+- **No `from __future__ import annotations`.**
+  It makes `get_type_hints` re-evaluate annotations at decoration, so a function-local alias or `TYPE_CHECKING`-only name raises `NameError`.
+- **Checks must never read array values.**
+  Contracts run before data loads (see `CONTRIBUTING.md`), and the obvious xarray and pint-xarray calls break this:
+  - `.pint.units` goes through `da.data` and reads a lazily opened variable from disk, so use `_quantified_units`.
+  - `da.indexes` casts every index to pandas and raises on a custom one, so use `da.xindexes`.
+  - Detecting cftime from values reads every unindexed object coord, so a time axis is only ever a coord with a `PandasIndex`.
+- **pint-xarray's own helpers are wrong here, so don't simplify to them.**
+  - `.pint.quantify()` also parses coord labels: `degrees_north` aborts a conversion, and a bare `.sel(lat=20.0, method="nearest")` on a quantified coord silently selects the wrong row.
+    `quantify({coord: None})` is no way out, as it deletes the label.
+  - `.pint.dequantify()` and `.pint.to` keep `.encoding`, and a stale `scale_factor` overflows on write and silently corrupts the file.
+    Clear it with `encoding = {}`, on the array only, since `drop_encoding()` also clears coords.
+  - `quantify()` raises when a leftover attrs label disagrees with the `Quantity`, so a quantified array's unit is never read from attrs.
+- **Mismatch errors are never `ValueError` or `TypeError`.**
+  `UnitError`, `SchemaError` and `FreqError` extend `ContractError`, which extends `Exception`, while a malformed declaration raises `ValueError`, so catching a mismatch never swallows a declaration error.
+  A value that is not a `DataArray`, or a returned record of the wrong class or missing a required field, raises `ContractError` itself, so `except ContractError` catches every failed check.
+  `quantify` and `convert` are operations rather than checks, and keep raising `ValueError` and `pint.DimensionalityError`.
+- **`Freq.freq` stores the raw string, so never normalise or compare `freqstr`.**
+  `to_offset("W").freqstr` becomes `"W-SUN"`, which loses whether the phase was pinned.
+  `.freq` is not always a pandas alias, so go through `_declared_spacing` rather than `to_offset`.
 
-## Conventions
+## Adding a facet
 
-- **Docs**: zensical (`zensical.toml`) with mkdocstrings, Google-style docstrings. API pages use `::: xarray_annotated.units` directive.
-- **Doctests**: embedded in docstrings; `just doctest`.
-- **Docs snippets are tested** (`tests/test_docs.py`): every `python` fence in `docs/` and the README runs, per page, top to bottom, on the default registry. Fences inside a top-level `=== "Label"` tab run in a separate namespace per label, as linked tabs are alternative versions of the page. Mark a fragment with `<!-- docs-test: skip -->` and a deliberate failure with `<!-- docs-test: raises SomeError -->` on the line before the fence.
-- **Examples**: `examples/notebook.py` is a marimo notebook; `just docs` exports to `docs/example.md` via `marimo-md-export`.
-- **Formatting**: ruff (line-length 88), pyright, Python ≥3.12.
-- **`notes/` is gitignored on purpose** — a local working area (`plans/`, `logs/`, `upstream_issues/`), not part of the package. Write there freely, but never `git add -f` it, and don't mistake its absence from a clone for something missing. Committed files may still reference it: the pointer is for whoever has the tree, not for the repo.
+Each of these needs the new marker.
+A new `Declared` slot fails `tests/test_facet_wiring.py` until it joins that file's `FACETS` table, which then checks every row below:
+
+| File | Change |
+| --- | --- |
+| `_writer.py` | `annotate` |
+| `_reader.py` | a `Declared` slot and `declaration_from_hint` |
+| `_contract.py` | `assert_valid_declaration`, `_facet_checks`, `declaration_conflicts` |
+| `_enforce.py` | `_check_output`, and the hard-coded marker list in `_markers_in` |
+| `__init__.py` | re-export the marker from the root |
+
+Units are checked first on both sides, as that fixed order is the reason there is one decorator, so add the new check after them.
+
+## Docs
+
+- Every `python` fence in `docs/` and the README runs under `tests/test_docs.py`, per page, top to bottom.
+  On the line before a fence, mark a fragment with `<!-- docs-test: skip -->` and a deliberate failure with `<!-- docs-test: raises SomeError -->`.
+- ADRs in `docs/adr/` are excluded from the site, so user-facing pages must not link to them.
+- `just docs` reporting a failed notebook cell is expected: `examples/notebook.py` demonstrates a `UnitError` by raising one.
