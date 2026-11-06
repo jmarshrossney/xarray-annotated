@@ -1,5 +1,6 @@
 """Tests for ``enforce`` over unit declarations (plain-pint registry)."""
 
+import re
 import typing
 from dataclasses import dataclass
 from typing import Annotated, Any, NotRequired, TypedDict
@@ -282,6 +283,24 @@ class TestOutputs:
         with pytest.raises(UnitError, match=r"'hPa' differs.*assign_attrs"):
             self._returning("hPa")()
 
+    @pytest.mark.parametrize("label", [None, "hPa"], ids=["missing", "compatible"])
+    def test_fix_recommends_no_way_of_computing(self, label):
+        with pytest.raises(UnitError) as info:
+            self._returning(label)()
+        assert not re.search("pint|quantif", str(info.value), re.IGNORECASE)
+
+    @pytest.mark.parametrize(
+        ("label", "caveat"),
+        [
+            (None, "does not correct them"),
+            ("hPa", "converting is correct for this quantity"),
+            ("hPa", "a new label does not change the values"),
+        ],
+    )
+    def test_fix_does_not_offer_a_way_to_silence_the_check(self, label, caveat):
+        with pytest.raises(UnitError, match=caveat):
+            self._returning(label)()
+
     def test_incompatible_label_raises_with_the_fix(self):
         with pytest.raises(UnitError, match=r"'return'.*Fix the body"):
             self._returning("kg")()
@@ -550,6 +569,12 @@ class TestQuantifiedOutputs:
             UnitError, match=r"'hPa' differs.*units\.convert\(da, 'Pa'\)"
         ):
             units.check_output_units(_quantified([[1.0]], "hPa"), declared, "return")
+
+    def test_the_fix_asks_about_the_calculation_before_converting(self):
+        with pytest.raises(
+            UnitError, match=r"check the calculation first.*fix the body"
+        ):
+            units.check_output_units(_quantified([[1.0]], "hPa"), "Pa", "return")
 
     def test_an_incompatible_unit_raises(self):
         with pytest.raises(UnitError, match="'return'"):

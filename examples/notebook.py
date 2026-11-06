@@ -66,8 +66,8 @@ def _(mo):
     |---|---|---|
     | `sat_gpp` | `g m-2 d-1` | weekly mean GPP, **week-ending Sunday** |
 
-    Throughout, a mass flux written `g m-2 d-1` means grams *of carbon*: pint has no way
-    to say "grams of carbon" rather than "grams", so the species lives in the prose.
+    Throughout, a mass flux written `g m-2 d-1` means grams *of carbon*: a unit string has
+    no way to say "grams of carbon" rather than "grams", so the species lives in the prose.
     """)
     return
 
@@ -95,16 +95,12 @@ def _():
 
     # 1 umol m-2 s-1 sustained for a day, expressed as g C m-2 d-1.
     UMOL_S_TO_G_D = 1e-6 * M_C * SEC_PER_DAY
-
-    Q = xra.units.get_registry().Quantity
     return (
         Annotated,
         Coords,
         Dims,
         Dtype,
         Freq,
-        M_C,
-        Q,
         TypedDict,
         UMOL_S_TO_G_D,
         Unit,
@@ -453,7 +449,7 @@ def _(mo):
 
 
 @app.cell
-def _(Annotated, Coords, Dims, Dtype, Freq, Q, TypedDict, Unit, xr, xra):
+def _(Annotated, Coords, Dims, Dtype, Freq, TypedDict, Unit, xr, xra):
     @xra.enforce
     def screen_quality_declared(
         flux: Annotated[
@@ -487,18 +483,11 @@ def _(Annotated, Coords, Dims, Dtype, Freq, Q, TypedDict, Unit, xr, xra):
         ppfd: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
     ) -> Partitioned:
         """Partition NEE into GPP and respiration via a Q10 model."""
-        # With pint, the units of the result follow from the arithmetic.
-        flux_unit = "umol m-2 s-1"
-        q10_exponent = (xra.units.quantify(tair) - Q(10.0, "degC")) / Q(
-            10.0, "delta_degC"
-        )
-        reco = Q(2.60, flux_unit) * 2.0**q10_exponent
-        gpp = (reco - xra.units.quantify(nee)).where(  # no photosynthesis in the dark
-            xra.units.quantify(ppfd) > Q(5.0, flux_unit), Q(0.0, flux_unit)
-        )
+        reco = 2.60 * 2.0 ** ((tair - 10.0) / 10.0)
+        gpp = (reco - nee).where(ppfd > 5.0, 0.0)  # no photosynthesis in the dark
         return {
-            "gpp": xra.units.dequantify(xra.units.convert(gpp, flux_unit)),
-            "reco": xra.units.dequantify(xra.units.convert(reco, flux_unit)),
+            "gpp": gpp.assign_attrs(units="umol m-2 s-1"),
+            "reco": reco.assign_attrs(units="umol m-2 s-1"),
         }
 
     @xra.enforce
@@ -521,11 +510,8 @@ def _(Annotated, Coords, Dims, Dtype, Freq, Q, TypedDict, Unit, xr, xra):
         observed: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")],  # (10)
     ) -> dict[str, float]:
         """Bias and RMSE of modelled weekly GPP against the satellite retrieval."""
-        _diff = xra.units.quantify(modelled) - xra.units.quantify(observed)
-        return {
-            "bias": float(_diff.mean().data.magnitude),
-            "rmse": float(((_diff**2).mean() ** 0.5).data.magnitude),
-        }
+        _diff = modelled - observed
+        return {"bias": float(_diff.mean()), "rmse": float((_diff**2).mean() ** 0.5)}
 
     return (
         compare_with_satellite_declared,
@@ -642,23 +628,22 @@ def _(mo):
     have noticed, especially since the numbers came out looking highly plausible.
 
     Let's add the missing function and run the pipeline (hopefully) one final time.
-    We let [pint](tools/pint.md) work out the conversion from the molar mass, rather than
-    writing the factor by hand, so forgetting the molar mass would raise as well. As in
-    `partition_fluxes_declared`, the stage quantifies only inside the function and returns
-    a plain array, labelled with the unit pint computed.
+
+    Its output label is written by hand, so the declarations check that this stage is wired
+    into the pipeline, not that its factor is right. The factor needs a test of its own,
+    or a tool that computes with units; see [Using with pint](tools/pint.md).
     """)
     return
 
 
 @app.cell
-def _(Annotated, M_C, Q, Unit, xr, xra):
+def _(Annotated, UMOL_S_TO_G_D, Unit, xr, xra):
     @xra.enforce
     def to_mass_flux(
         flux: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
     ) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
         """Umol CO2 m-2 s-1 -> g C m-2 d-1, via the molar mass of carbon."""
-        mass_flux = xra.units.quantify(flux) * Q(M_C, "g / mol")
-        return xra.units.dequantify(xra.units.convert(mass_flux, "g m-2 d-1"))
+        return (flux * UMOL_S_TO_G_D).assign_attrs(units="g m-2 d-1")
 
     return (to_mass_flux,)
 
@@ -675,7 +660,9 @@ def _(mo):
 
 @app.cell
 def _(
-    Q,
+    Annotated,
+    Freq,
+    Unit,
     compare_with_satellite_declared,
     daily_mean_declared,
     partition_fluxes_declared,
@@ -683,12 +670,15 @@ def _(
     screen_quality_declared,
     to_mass_flux,
     weekly_mean_declared,
+    xr,
     xra,
 ):
-    def annual_total(daily_rate):
-        """Daily rates -> their total, multiplying by the time step that `Freq` declared."""
-        total = (xra.units.quantify(daily_rate) * Q(1.0, "d")).sum()
-        return float(xra.units.convert(total, "g m-2").data.magnitude)
+    @xra.enforce
+    def annual_total(
+        daily_rate: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("D")],
+    ) -> float:
+        """Daily rates -> their total in g m-2: each value spans the one day declared."""
+        return float(daily_rate.sum())
 
     def run_pipeline_final(nee_raw, qc, tair, ppfd):
         nee = screen_quality_declared(nee_raw, qc)
@@ -753,6 +743,10 @@ def _(mo):
 
     The fourth is the one that matters most since a 3.6% error in a flux budget does not
     obviously look like an error.
+
+    The declarations caught these by comparing what each stage said with what the next
+    stage needed. They did not check any arithmetic, so the Q10 model and the conversion
+    factor still need tests.
     """)
     return
 

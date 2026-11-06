@@ -62,6 +62,18 @@ def _run(code: str, namespace: dict, directive: str | None, where: str) -> None:
     assert type(raised).__name__ == expected, f"{where}: got {raised!r}"
 
 
+def _pages_about_declarations() -> list[Path]:
+    """Every page but those on other tools, and the ADRs, plus the worked example."""
+    pages = (p for p in _pages() if not {"tools", "adr"} & set(p.parts))
+    return [*pages, DOCS.parent / "examples" / "notebook.py"]
+
+
+@pytest.mark.parametrize("page", _pages_about_declarations(), ids=lambda p: p.name)
+def test_pint_arithmetic_stays_on_the_pages_about_other_tools(page: Path):
+    """How a body computes is not this package's concern; see ADR 0003."""
+    assert not re.search(r"units\.(de)?quantify|\.pint\.|\.magnitude", page.read_text())
+
+
 @pytest.fixture(autouse=True)
 def _isolate_logging():
     """Undo a page's logging setup, which would outlive the test."""

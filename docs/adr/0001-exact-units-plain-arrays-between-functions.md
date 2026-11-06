@@ -1,4 +1,4 @@
-# ADR 0001: Exact units at function boundaries, pint inside
+# ADR 0001: Exact units and plain arrays at function boundaries
 
 | | |
 |---|---|
@@ -21,10 +21,10 @@ That raises two questions:
 ## Decision
 
 1. **`Unit` stays exact, and there is no dimension-only marker.** A caller with a different unit converts at the call site with `xra.units.convert`.
-2. **We recommend plain arrays between functions, and quantifying only inside them.** The declaration states the contract at the boundary, and pint checks the arithmetic inside.
-3. **Quantified arrays stay supported.** Every check reads the unit they hold, and `xra.units.quantify` returns one unchanged, so a body written this way accepts both kinds.
+2. **We recommend plain arrays between functions, and take no position on how a body computes.** The declaration states the contract at the boundary. A body that computes with pint quantifies its inputs itself, so pint checks the arithmetic inside.
+3. **Quantified arrays stay supported.** Every check reads the unit they hold, and `xra.units.quantify` returns one unchanged, so a body that quantifies its inputs accepts both kinds.
 
-The recommended function looks like this:
+A function that computes with pint looks like this:
 
 ```python
 Q = xra.units.get_registry().Quantity
@@ -112,9 +112,9 @@ These are good fits for a library whose callers' units are unknown.
 ## Consequences
 
 - **Explicit conversion:** a body that would work for any compatible unit still refuses all but one, and each caller with a different unit needs a `convert`.
-- **Boilerplate:** a function has a `quantify` for each input and a `dequantify(convert(...))` on return, and the output unit is written in both the signature and the body.
+- **Boilerplate:** a function that computes with pint has a `quantify` for each input and a `dequantify(convert(...))` on return, and the output unit is written in both the signature and the body.
 - **Stable results:** `enabled(False)` does not change what a function computes, since nothing relies on `enforce` to convert.
-- **Limit of the checks:** pint starts from the label in the file, so a wrong label stays wrong.
+- **Limit of the checks:** a check reads the label in the file, and pint starts from it, so a wrong label stays wrong.
 
 ## When to revisit
 

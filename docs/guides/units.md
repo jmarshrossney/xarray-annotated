@@ -111,6 +111,7 @@ The opposite can also happen: inputs with conflicting labels leave no label, as 
 
 ### What a label cannot catch { #what-a-label-cannot-catch }
 
+An output check shows that a body and its signature agree, not that the values are right.
 Values are never inspected, so `assign_attrs` is a claim rather than a check, and it can silence a wrong body as easily as a right one:
 
 ```python
@@ -126,7 +127,7 @@ Declarations catch wiring mistakes, not algebra, so test the arithmetic like any
 Two things narrow the gap:
 
 - **Declare a unit only where a stage defines it.** A stage that does not change the unit, such as a mean over time, need not declare one, so the label reaches the next declared input, which checks it. The [worked example](../example.md) catches its missing stage this way.
-- **Have the unit computed.** If you already compute with pint, the output check verifies a unit worked out from the arithmetic; see [Using with pint](../tools/pint.md).
+- **Have the unit computed.** A body that computes with pint hands the output check a unit worked out from the arithmetic, at the cost of some failure modes of its own; see [Using with pint](../tools/pint.md).
 
 ## Converting an input
 

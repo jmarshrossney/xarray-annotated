@@ -39,8 +39,9 @@ _ATTACH_UNIT = (
 )
 
 _STATE_UNIT = (
-    "Compute on `xra.units.quantify(...)` so the result carries its unit, or, for "
-    "values from outside pint, state the unit with `.assign_attrs(units=...)`."
+    "Work out which unit the values are in and state it with "
+    "`.assign_attrs(units=...)`. A label is a claim about the values and does not "
+    "correct them."
 )
 
 
@@ -551,13 +552,16 @@ def _check_output_unit(
     if units_equal(have, declared):
         return
     hint = (
-        f"Convert it in the body with xra.units.convert(da, {declared!r})."
+        f"The unit follows from the arithmetic, so check the calculation first. If it "
+        f"is right, and converting is correct for this quantity, use "
+        f"xra.units.convert(da, {declared!r}). Otherwise fix the body."
         if quantified
         else (
-            f"A label does not follow arithmetic: compute on xra.units.quantify(...) "
-            f"and convert with xra.units.convert(da, {declared!r}). If the values come "
-            f"from outside pint and really are in {declared!r}, state that with "
-            f".assign_attrs(units={declared!r})."
+            f"A label does not follow arithmetic, so first work out which unit the "
+            f"values are in. If {have!r}, and converting is correct for this quantity, "
+            f"use xra.units.convert(da, {declared!r}). If {declared!r}, correct the "
+            f"label with .assign_attrs(units={declared!r}). If neither, fix the body, "
+            f"as a new label does not change the values."
         )
     )
     _refuse(have, declared, where, hint, "Fix the body or the declaration.")

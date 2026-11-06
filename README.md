@@ -62,6 +62,9 @@ def daily_air_density(
 
 Anything that does not match its declaration raises.
 
+A check compares a declaration with another declaration, or with an array's metadata, such as its `units` attribute.
+It never reads values, so a wrong calculation with the right label passes, and needs testing like any other code.
+
 Many checks can run pre-flight, before any data is loaded, if a computational graph can be built, as in [catena](https://github.com/NERC-CEH/catena) or [dask](https://www.dask.org/).
 See [Pre-flight checks](https://jmarshrossney.github.io/xarray-annotated/advanced/preflight.html) for more details.
 

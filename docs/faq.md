@@ -26,25 +26,22 @@ Call [`xra.units.convert`][xarray_annotated.units.convert] where you know the co
 
 ## Why can't I declare only a physical dimension, such as "a pressure"?
 
-Accepting any pressure is safe only if the function body stays in pint throughout, and a check cannot see the body.
-A body that uses `p.data.magnitude / 100` gets 1013.25 from 101325 `Pa`, but 10.13 from the same pressure in `hPa`, with no error.
-A dimension does not identify a quantity either: `K` and `degC` are both temperatures, but `T * 2` works in `K` and raises in `degC`.
+Accepting any pressure is safe only if every line of the body works for any pressure unit, and a check cannot see the body.
+A body that computes `p / 100` gets 1013.25 from 101325 `Pa`, but 10.13 from the same pressure in `hPa`, with no error.
+A dimension does not identify a quantity either: `K` and `degC` are both temperatures, but `T * 2` doubles the temperature only in `K`.
 
 So `Unit` requires the exact unit, and the caller converts with [`xra.units.convert`][xarray_annotated.units.convert] where needed.
 If a function really should accept any compatible unit, leave the input undeclared and start the body with `p = xra.units.convert(p, "Pa")`.
-This works for plain and quantified arrays, and raises on a missing label or the wrong dimension.
+This raises on a missing label or the wrong dimension.
 The signature no longer states the expectation, so say it in the docstring.
 
 See [Converting an input](guides/units.md#converting-an-input).
 
-## If I compute with pint, why quantify inside each function?
+## Should a function body compute with pint?
 
-A body written for plain arrays can give a different answer when handed a quantified one, with no error: `1 - rh / 100` gives 0.4 for 60 `percent` on a plain array, and 0.994 on a quantified one.
-If only plain arrays cross function boundaries, each body knows what it will receive.
-
-Laziness does not affect the choice, as dask-backed arrays stay lazy either way, so open files with `chunks={}`.
-Quantified arrays still pass every check, and they are worth keeping where the code between your functions does arithmetic of its own.
-See [Plain arrays between functions](tools/pint.md#between-functions).
+That is your choice, and declarations work the same either way.
+A check compares declarations and metadata, and has no view on how a body gets its result.
+Computing with pint closes some failure modes and opens others; see [Using with pint](tools/pint.md).
 
 ## Why can't I declare constraints on values, such as a range?
 

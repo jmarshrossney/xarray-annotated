@@ -4,7 +4,8 @@ xarray-annotated checks units, and has no opinion on how a body computes with th
 Plain arrays with a `units` attribute are fully supported, as covered in [Units declarations](../guides/units.md), so nothing on this page is required.
 
 If you compute with [pint](https://pint.readthedocs.io/en/stable/) and [pint-xarray](https://pint-xarray.readthedocs.io), the unit is held in the data and every operation works out the new one.
-This page covers how that fits with declarations.
+That closes some failure modes, such as stale labels and hand-written units, and [opens others](#where-pint-surprises), so whether it suits a body is a choice about that body.
+This page covers how it fits with declarations.
 
 ```python
 Q = xra.units.get_registry().Quantity
