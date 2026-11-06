@@ -94,7 +94,7 @@ Nothing is converted for you, because whether a conversion is correct depends on
 
 Read the user guide in order:
 
-1. [First principles](guides/first_principles.md): writing a declaration, several outputs, optional arrays, how checks behave and how to switch them off.
+1. [First principles](guides/first_principles.md): writing a declaration, how checks behave, multiple returns, optional arguments and unions, and how to switch the package off.
 2. [Schema](guides/schema.md), [Units](guides/units.md) and [Temporal](guides/temporal.md) declarations: each kind of marker in more detail, as you need it.
 
 The [worked example](example.md) shows all of this in an end-to-end pipeline you can run.

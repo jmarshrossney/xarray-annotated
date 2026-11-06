@@ -108,10 +108,9 @@ class TestSingleHint:
         ("hint", "others"),
         [
             (Annotated[xr.DataArray, Unit("Pa")], ()),
-            (Annotated[xr.DataArray | None, Unit("Pa")], (type(None),)),
             (Annotated[xr.DataArray, Unit("Pa")] | None, (type(None),)),  # pyright: ignore[reportOperatorIssue]
             (Annotated[xr.DataArray, Unit("Pa")] | float, (float,)),
-            (Annotated[xr.DataArray | None, Unit("Pa")] | int, (type(None), int)),
+            (Annotated[xr.DataArray, Unit("Pa")] | None | int, (type(None), int)),  # pyright: ignore[reportOperatorIssue]
         ],
     )
     def test_others_records_what_else_a_hint_allows(self, hint, others):
@@ -121,7 +120,7 @@ class TestSingleHint:
         assert declared == Declared(unit=Unit("Pa"))  # not a marker, so not compared
 
     def test_optional_dataarray_is_read(self):
-        hint = Annotated[xr.DataArray | None, Unit("Pa"), Freq("D")]
+        hint = Annotated[xr.DataArray, Unit("Pa"), Freq("D")] | None  # pyright: ignore[reportOperatorIssue]
         assert declaration_from_hint(hint) == Declared(unit=Unit("Pa"), freq=Freq("D"))
 
     @pytest.mark.parametrize(

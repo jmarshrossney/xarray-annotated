@@ -61,7 +61,7 @@ Marking up a `Dataset` directly raises `ValueError` when the function is decorat
 
 Pass the arrays you need as separate parameters, as in `f(ds["p"], ds["t"])`.
 For several outputs, return a `TypedDict` or dataclass with a declared field for each array.
-See [Return several arrays](guides/first_principles.md#return-several-arrays).
+See [Multiple returns](guides/first_principles.md#multiple-returns).
 
 ## Why is there no warning or lenient mode?
 

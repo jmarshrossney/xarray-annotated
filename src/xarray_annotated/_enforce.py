@@ -200,9 +200,9 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
         ValueError: If a declaration is malformed, a `*args` or `**kwargs` parameter
             carries a declaration, a hint carries two markers of one kind, or a hint
             carries a marker that cannot apply, such as in a tuple, on a `Dataset`, on a
-            union member other than the `DataArray`, on a field of a `NamedTuple` return
-            or of a class nested in a field, or on a field of a parameter (at
-            decoration).
+            union member other than the `DataArray`, on a union as a whole, as in
+            `Annotated[DataArray | None, ...]`, on a field of a `NamedTuple` return or
+            of a class nested in a field, or on a field of a parameter (at decoration).
         TypeError: If a declared value is not a `DataArray` and its hint does not allow
             it, or a `TypedDict` return lacks a required declared field (when called).
         UnitError: If a unit does not match its declaration (when called).

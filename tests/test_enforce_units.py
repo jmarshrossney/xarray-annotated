@@ -84,7 +84,7 @@ class TestBareDecorator:
 
     def test_optional_dataarray_none_is_skipped(self):
         @xra.enforce
-        def f(x: Annotated[xr.DataArray | None, Unit("Pa")] = None) -> xr.DataArray:
+        def f(x: Annotated[xr.DataArray, Unit("Pa")] | None = None) -> xr.DataArray:
             return _da([[1.0]], unit="Pa")
 
         out = f()  # x defaults to None; must not raise

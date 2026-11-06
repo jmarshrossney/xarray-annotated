@@ -307,7 +307,7 @@ class TestDeclareFreq:
     def test_optional_none_input_skipped(self):
         @xra.enforce
         def f(
-            x: Annotated[xr.DataArray | None, Freq("D")] = None,
+            x: Annotated[xr.DataArray, Freq("D")] | None = None,
         ) -> xr.DataArray | None:
             return x
 

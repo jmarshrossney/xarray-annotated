@@ -178,7 +178,7 @@ class TestWrapper:
 
     def test_optional_output_field_of_none_passes(self):
         class Out(TypedDict):
-            p: Annotated[xr.DataArray | None, Unit("Pa"), Dims("x")]
+            p: Annotated[xr.DataArray, Unit("Pa"), Dims("x")] | None
 
         @xra.enforce
         def f() -> Out:
@@ -413,6 +413,7 @@ type _OptionalDA = xr.DataArray | None
 type _Extended = Annotated[_Alias, Dims("x")]
 type _FloatAlias = Annotated[float, Unit("Pa")]
 type _FloatOrDA = xr.DataArray | float
+type _MarkedOptional = Annotated[xr.DataArray | None, Unit("Pa")]
 
 
 class _Fields(TypedDict):
@@ -478,6 +479,10 @@ class TestStrayMarkers:
         "hint",
         [
             Annotated[xr.DataArray | float, Dims("x")],
+            Annotated[xr.DataArray | None, Unit("Pa")],
+            Annotated[typing.Optional[xr.DataArray], Unit("Pa")],  # noqa: UP045
+            Annotated[_OptionalDA, Unit("Pa")],
+            _MarkedOptional,
             Annotated[xr.DataArray | xr.Dataset, Unit("Pa")],
             Annotated[xr.DataArray | float | None, Dims("x")],
             Annotated[_FloatOrDA, Dims("x")],
@@ -491,6 +496,10 @@ class TestStrayMarkers:
             xra.declaration_from_hint(hint)
         with pytest.raises(ValueError, match=message):
             xra.enforce(_annotated(param=hint))
+
+    def test_the_message_names_the_outer_union_for_none(self):
+        with pytest.raises(ValueError, match=r"\.\.\.\] \| None\.$"):
+            xra.declaration_from_hint(Annotated[xr.DataArray | None, Unit("Pa")])
 
     def test_raises_on_a_typeddict_field(self):
         with pytest.raises(ValueError, match="enforce cannot apply") as info:
@@ -521,7 +530,7 @@ class TestStrayMarkers:
             _PA | xr.Dataset,
             _PA | list[xr.DataArray],
             _PA | Annotated[int, "a description"],
-            Annotated[xr.DataArray | None, Unit("Pa")],
+            Annotated[xr.DataArray | None, "a description"],
             Annotated[xr.DataArray | float, "a description"],
         ],
     )
@@ -559,7 +568,6 @@ class TestTypeAliases:
             ),
             (Annotated[_Alias, "a description"], Declared(Unit("Pa"))),
             (Annotated[_DA, Unit("Pa")], Declared(Unit("Pa"))),
-            (Annotated[_OptionalDA, Unit("Pa")], Declared(Unit("Pa"))),
             (
                 NotRequired[Annotated[_Alias, Dims("x")]],
                 Declared(Unit("Pa"), Dims("x")),
@@ -878,8 +886,8 @@ class TestOtherValues:
     @pytest.mark.parametrize(
         "hint",
         [
-            Annotated[xr.DataArray | None, Dims("x")],
             Annotated[xr.DataArray, Dims("x")] | None,  # pyright: ignore[reportOperatorIssue]
+            typing.Optional[Annotated[xr.DataArray, Dims("x")]],  # noqa: UP045
         ],
     )
     def test_optional_allows_none_only(self, hint):
@@ -901,7 +909,7 @@ class TestOtherValues:
 
     def test_a_dataarray_under_a_union_is_still_checked(self):
         @xra.enforce
-        def f(p: Annotated[xr.DataArray | None, Dims("x")]): ...
+        def f(p: Annotated[xr.DataArray, Dims("x")] | None): ...
 
         with pytest.raises(schema.SchemaError):
             f(xr.DataArray([1.0], dims="y"))

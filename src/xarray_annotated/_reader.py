@@ -148,15 +148,7 @@ def _read_hint(hint: Any, path: frozenset[Any] = frozenset()) -> Declared | None
     base, metadata = _flatten_aliases(base, metadata, path)
     if not _is_dataarray_type(base):
         return None
-    others = tuple(
-        arg
-        for arg in (
-            get_args(base) if get_origin(base) in (Union, types.UnionType) else ()
-        )
-        if not _is_dataarray_type(arg)
-    )
     declared = Declared(
-        others=others,
         unit=_single_marker(metadata, Unit),
         dims=_single_marker(metadata, Dims),
         dtype=_single_marker(metadata, Dtype),
@@ -165,9 +157,16 @@ def _read_hint(hint: Any, path: frozenset[Any] = frozenset()) -> Declared | None
     )
     if declared == Declared():
         return None
-    unchecked = [arg for arg in others if arg is not types.NoneType]
-    if unchecked:
-        names = " | ".join(getattr(arg, "__name__", repr(arg)) for arg in unchecked)
+    others = (
+        [arg for arg in get_args(base) if not _is_dataarray_type(arg)]
+        if get_origin(base) in (Union, types.UnionType)
+        else []
+    )
+    if others:
+        names = " | ".join(
+            "None" if arg is types.NoneType else getattr(arg, "__name__", repr(arg))
+            for arg in others
+        )
         raise ValueError(
             f"{hint!r} reads as declaring its markers for {names} too, but they apply "
             f"only to a DataArray. Write Annotated[DataArray, ...] | {names}."
@@ -183,9 +182,8 @@ def declaration_from_hint(hint: Any) -> Declared | None:
     `DataArray`, and a hint with no marker all declare nothing.
 
     Reads through a union (`Annotated[DataArray, ...] | None`) and the `TypedDict`
-    qualifiers (`NotRequired[Annotated[DataArray, ...]]`, or the other way round), so
-    every way of spelling an optional value declares the same thing, and through a
-    `type` alias, whose markers merge with any written around it
+    qualifiers (`NotRequired[Annotated[DataArray, ...]]`, or the other way round), and
+    through a `type` alias, whose markers merge with any written around it
     (`Annotated[Alias, Dims("x")]`).
 
     Args:
@@ -197,9 +195,9 @@ def declaration_from_hint(hint: Any) -> Declared | None:
     Raises:
         ValueError: If the hint carries two markers of the same type, or is a union
             of two declared members, since a value could not say which one applies,
-            or puts markers on a union with a member other than `None`, as in
-            `Annotated[DataArray | float, ...]`, or is a `type` alias that refers to
-            itself.
+            or puts markers on a union with another type, as in
+            `Annotated[DataArray | None, ...]`, where the union belongs outside the
+            `Annotated`, or is a `type` alias that refers to itself.
 
     Examples:
         >>> from typing import Annotated

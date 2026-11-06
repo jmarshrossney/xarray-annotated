@@ -24,6 +24,7 @@ nav = [
     { "Schema declarations" = "guides/schema.md" },
     { "Units declarations" = "guides/units.md" },
     { "Temporal declarations" = "guides/temporal.md" },
+    { "Keeping signatures readable" = "guides/readable_signatures.md" },
     { "Troubleshooting" = "guides/troubleshooting.md" },
     { "Advanced usage" = [
       { "Accessing declarations" = "advanced/accessing_declarations.md" },

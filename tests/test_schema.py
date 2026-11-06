@@ -291,7 +291,7 @@ class TestDeclareSchema:
     def test_optional_none_input_skipped(self):
         @xra.enforce
         def f(
-            x: Annotated[xr.DataArray | None, Dims("time", "x")] = None,
+            x: Annotated[xr.DataArray, Dims("time", "x")] | None = None,
         ) -> xr.DataArray | None:
             return x
 

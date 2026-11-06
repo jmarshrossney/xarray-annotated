@@ -30,97 +30,97 @@ def mean_over_time(
 
 Declare as much or as little as you like: a marker you leave off is not checked, and neither is a parameter with no markers, so you can adopt this one function at a time.
 
-## Return several arrays
+## How checks behave
+
+- **Declarations are checked at decoration:** a malformed declaration, such as a misspelled unit, raises `ValueError` when the module is imported.
+- **Arrays are checked on each call:** inputs before the body, and outputs after it.
+- **Each array stops at its first failure:** units are checked first, then structure, then frequency.
+- **Every failed check raises:** `UnitError`, `SchemaError` or `FreqError`, each a [`ContractError`][xarray_annotated.ContractError] and not a `ValueError`.
+  There are no warnings and no lenient mode.
+- **Only a `DataArray` passes:** anything else raises `TypeError`, including `None`, [unless the hint allows it](#optional-arguments-and-unions).
+- **Only metadata is read:** names, dtypes, unit labels and indexes, never values, so a lazily opened array stays unread.
+  A check therefore [cannot tell whether a label is true](units.md#what-a-label-cannot-catch).
+- **Checks change nothing:** the body receives the arrays the caller passed, and the caller receives what the body returned, with no conversion or relabelling.
+- **Only markers declare anything:** [anything else in the hint is ignored](troubleshooting.md#a-declaration-is-silently-ignored), so `Annotated[xr.DataArray, "Pa"]` checks nothing.
+
+## Multiple returns
 
 Return a `TypedDict` or dataclass, and declare its fields:
 
-```python
-from typing import NotRequired, TypedDict
+=== "TypedDict"
 
-import numpy as np
+    ```python
+    from typing import NotRequired, TypedDict
 
-
-class Wind(TypedDict):
-    speed: Annotated[xr.DataArray, Dims("time"), Unit("m/s")]
-    direction: Annotated[xr.DataArray, Dims("time"), Unit("degree")]
-    gust: NotRequired[Annotated[xr.DataArray, Dims("time"), Unit("m/s")]]
+    import numpy as np
 
 
-@xra.enforce
-def wind(
-    u: Annotated[xr.DataArray, Dims("time"), Unit("m/s")],
-    v: Annotated[xr.DataArray, Dims("time"), Unit("m/s")],
-) -> Wind:
-    speed = np.hypot(u, v).assign_attrs(units="m/s")
-    direction = np.degrees(np.arctan2(u, v)).assign_attrs(units="degree")
-    return {"speed": speed, "direction": direction}
-```
-
-A dataclass works the same way:
-
-```python
-from dataclasses import dataclass
+    class Wind(TypedDict):
+        speed: Annotated[xr.DataArray, Dims("time"), Unit("m/s")]
+        direction: Annotated[xr.DataArray, Dims("time"), Unit("degree")]
+        gust: NotRequired[Annotated[xr.DataArray, Dims("time"), Unit("m/s")]]
 
 
-@dataclass
-class WindSummary:
-    speed: Annotated[xr.DataArray, Dims("time"), Unit("m/s")]
-    direction: Annotated[xr.DataArray, Dims("time"), Unit("degree")]
+    @xra.enforce
+    def wind(
+        u: Annotated[xr.DataArray, Dims("time"), Unit("m/s")],
+        v: Annotated[xr.DataArray, Dims("time"), Unit("m/s")],
+    ) -> Wind:
+        speed = np.hypot(u, v).assign_attrs(units="m/s")
+        direction = np.degrees(np.arctan2(u, v)).assign_attrs(units="degree")
+        return {"speed": speed, "direction": direction}
+    ```
+
+=== "Dataclass"
+
+    ```python
+    from dataclasses import dataclass
+
+    import numpy as np
 
 
-@xra.enforce
-def wind_summary(
-    u: Annotated[xr.DataArray, Dims("time"), Unit("m/s")],
-    v: Annotated[xr.DataArray, Dims("time"), Unit("m/s")],
-) -> WindSummary:
-    speed = np.hypot(u, v).assign_attrs(units="m/s")
-    direction = np.degrees(np.arctan2(u, v)).assign_attrs(units="degree")
-    return WindSummary(speed=speed, direction=direction)
-```
+    @dataclass
+    class Wind:
+        speed: Annotated[xr.DataArray, Dims("time"), Unit("m/s")]
+        direction: Annotated[xr.DataArray, Dims("time"), Unit("degree")]
+        gust: Annotated[xr.DataArray, Dims("time"), Unit("m/s")] | None = None
 
-- **Missing fields:** leaving out a required field raises `TypeError`, whereas a `NotRequired` field may be absent.
+
+    @xra.enforce
+    def wind(
+        u: Annotated[xr.DataArray, Dims("time"), Unit("m/s")],
+        v: Annotated[xr.DataArray, Dims("time"), Unit("m/s")],
+    ) -> Wind:
+        speed = np.hypot(u, v).assign_attrs(units="m/s")
+        direction = np.degrees(np.arctan2(u, v)).assign_attrs(units="degree")
+        return Wind(speed=speed, direction=direction)
+    ```
+
+- **Missing fields:** leaving out a required field raises `TypeError`, whereas a `NotRequired` field may be absent, and a dataclass field declared `| None` may be `None`.
 - **Undeclared fields:** a field with no markers is not checked.
 - **The container itself:** the caller receives a shallow copy of the dict or dataclass, which shares its arrays, and `__post_init__` does not run again.
 
 A `tuple` or `NamedTuple` return has no fields `enforce` can read, so markers there raise `ValueError` when the function is decorated.
 The same goes for a parameter holding a class with declared fields, so declare a parameter's arrays as parameters of their own.
 
-## Accept or return an optional array
+## Optional arguments and Unions
 
-Add what else the value may be to the hint:
+Add what else a value may be to the hint as a union, on a parameter, a return value or a field of a returned class.
+Markers are checked only when the value is a `DataArray`.
+With `A` standing for `Annotated[xr.DataArray, Unit("K")]`:
 
-```python
-@xra.enforce
-def weighted_mean(
-    x: Annotated[xr.DataArray, Dims("time"), Unit("K")],
-    weights: Annotated[xr.DataArray, Dims("time")] | None = None,
-) -> Annotated[xr.DataArray, Unit("K")]:
-    if weights is None:
-        return x.mean("time", keep_attrs=True)
-    return x.weighted(weights).mean("time", keep_attrs=True)
-```
+| Hint | `DataArray` | `None` | Anything else |
+|---|---|---|---|
+| `A` | checked | `TypeError` | `TypeError` |
+| `A | None` | checked | passes | `TypeError` |
+| `A | float` | checked | `TypeError` | passes |
+| `A | float | None` | checked | passes | passes |
 
-The checks apply when the value is a `DataArray`, and `None` passes.
-Without `| None`, passing `None` raises `TypeError`.
-
-Only the `DataArray` member is checked.
-Any other member, as in `Annotated[xr.DataArray, Unit("K")] | float`, allows every value except `None`, including a string, just as `n: int` on a parameter is not looked at, so leave those to a type checker.
-Markers cannot sit on the other members, or on a union containing them: `Annotated[xr.DataArray | float, Unit("K")]` and `Annotated[xr.DataArray, Unit("K")] | list[Annotated[xr.DataArray, Unit("K")]]` raise `ValueError` when the function is decorated.
-
-A `TypedDict` or dataclass return may also be optional, written `Wind | None`.
-
-## How checks behave
-
-| Behaviour | Detail |
-|---|---|
-| Declarations are checked at decoration | A malformed declaration, such as a misspelled unit, raises `ValueError` when the module is imported |
-| Arrays are checked on each call | Inputs before the body, and outputs after it |
-| Each array stops at its first failure | Units are checked first, then structure, then frequency |
-| Every failed check raises | `UnitError`, `SchemaError` or `FreqError`, each a [`ContractError`][xarray_annotated.ContractError] and not a `ValueError`. There are no warnings and no lenient mode |
-| Only a `DataArray` passes | Anything else raises `TypeError`, including `None`, unless the hint allows it |
-| Only metadata is read | Names, dtypes, unit labels and indexes, never values, so a lazily opened array stays unread. A check therefore [cannot tell whether a label is true](units.md#what-a-label-cannot-catch) |
-| Checks change nothing | The body receives the arrays the caller passed, and the caller receives what the body returned, with no conversion or relabelling |
-| Only markers declare anything | [Anything else in the hint is ignored](troubleshooting.md#a-declaration-is-silently-ignored), so `Annotated[xr.DataArray, "Pa"]` checks nothing |
+- **A default is not enough:** defaults are checked too, so `x: A = None` raises `TypeError` when `x` is left out; write `x: A | None = None`.
+- **Other types are not checked:** `A | float` accepts a string, just as `n: int` does, so leave those to a type checker.
+- **The union goes outside the `Annotated`:** `Annotated[xr.DataArray | None, Unit("K")]` and `Annotated[xr.DataArray | float, Unit("K")]` raise `ValueError` when the function is decorated.
+- **Only one member can be declared:** `A | list[A]` and a union of two declared arrays raise `ValueError` when the function is decorated.
+- **A returned class can only be optional:** `Wind | None` is fine, and any other union holding it raises `ValueError` when the function is decorated.
 
 ## Switching the package off { #enabled }
 
