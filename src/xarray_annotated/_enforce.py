@@ -44,6 +44,7 @@ from ._contract import (
     _refuse_other_value,
     assert_valid_declaration,
 )
+from ._errors import ContractError
 from ._reader import Declared, declaration_from_hint, declarations_from_signature
 from .schema import Coords, Dims, Dtype
 from .schema._check import _check_valid_schema
@@ -207,10 +208,10 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
             called).
         NameError: If a hint names something not defined at run time (at decoration).
         TypeError: If `func` has no readable type hints, such as a `functools.partial`
-            (at decoration).  Also if a declared value is not a `DataArray` and its hint
-            does not allow it, a `TypedDict` or dataclass return is not of the declared
-            class, or a `TypedDict` return lacks a required declared field (when
-            called).
+            (at decoration).
+        ContractError: If a declared value is not a `DataArray` and its hint does not
+            allow it, a `TypedDict` or dataclass return is not of the declared class, or
+            a `TypedDict` return lacks a required declared field (when called).
         UnitError: If a unit does not match its declaration (when called).
         SchemaError: If the structure does not match (when called).
         FreqError: If the frequency does not match (when called).
@@ -277,14 +278,14 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
     def _check_record(result: Any, cls: Any, fields: dict[str, Declared]) -> None:
         is_dict = is_typeddict(cls)
         if not isinstance(result, dict if is_dict else cls):
-            raise TypeError(
+            raise ContractError(
                 f"[{qualname}] output: declared {cls.__name__}, got "
                 f"{type(result).__name__}."
             )
         for name, decl in fields.items():
             if is_dict and name not in result:
                 if name in cls.__required_keys__:
-                    raise TypeError(
+                    raise ContractError(
                         f"[{qualname}] output {name!r}: a required field of "
                         f"{cls.__name__} is missing."
                     )

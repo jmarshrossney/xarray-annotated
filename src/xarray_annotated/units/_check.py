@@ -52,10 +52,10 @@ class UnitError(ContractError):
     which raises ``ValueError`` from ``assert_valid_unit``.  Keeping them on separate
     hierarchies means catching one never silently swallows the other.
 
-    Nor is it a ``pint.DimensionalityError``, which is a ``TypeError``, as a value that
-    is not a ``DataArray`` is.  Where units cannot convert, the pint error is the
-    ``__cause__``.  A pickle drops that, as when crossing a dask process boundary, so
-    the message carries the units and their dimensionalities.
+    Nor is it a ``pint.DimensionalityError``, which is a ``TypeError``.  Where units
+    cannot convert, the pint error is the ``__cause__``.  A pickle drops that, as when
+    crossing a dask process boundary, so the message carries the units and their
+    dimensionalities.
     """
 
 
@@ -171,6 +171,10 @@ def units_compatible(a: str | Unit, b: str | Unit) -> bool:
     Returns:
         `True` if the units are dimensionally compatible.
 
+    Raises:
+        pint.UndefinedUnitError: If a unit is not defined in the active registry.
+        ValueError: If a unit string is malformed.
+
     Examples:
         >>> from xarray_annotated.units import Unit, units_compatible
         >>> units_compatible("hPa", "Pa")
@@ -196,7 +200,8 @@ def units_equal(a: str | Unit, b: str | Unit) -> bool:
     equivalent spellings imply no value change.
 
     Accepts either a bare unit string or a `Unit` marker on each side (its
-    `.unit` string is used), matching `units_compatible`.
+    `.unit` string is used), matching `units_compatible`.  Both are assumed already
+    validated by `assert_valid_unit`, as this runs on every unit check.
 
     Args:
         a: A unit string or `Unit` marker.
@@ -204,6 +209,10 @@ def units_equal(a: str | Unit, b: str | Unit) -> bool:
 
     Returns:
         `True` if the units are the same (no conversion needed).
+
+    Raises:
+        pint.UndefinedUnitError: If a unit is not defined in the active registry.
+        ValueError: If a unit string is malformed.
 
     Examples:
         >>> from xarray_annotated.units import Unit, units_equal

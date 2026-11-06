@@ -59,9 +59,9 @@ class TestAgreesWithEnforce:
             (_array().astype(int), SchemaError),
             (_array().rename(time="t"), SchemaError),
             (_array(freq="D"), FreqError),
-            (None, TypeError),
-            (1.0, TypeError),
-            (xr.Dataset(), TypeError),
+            (None, xra.ContractError),
+            (1.0, xra.ContractError),
+            (xr.Dataset(), xra.ContractError),
         ],
         ids=[
             "match",
@@ -100,9 +100,9 @@ class TestAgreesWithEnforce:
         [(_optional, 1.0, "got float"), (_or_float, None, "got None")],
     )
     def test_on_a_value_the_hint_refuses(self, func, value, got):
-        with pytest.raises(TypeError, match=got):
+        with pytest.raises(xra.ContractError, match=got):
             xra.check_declared(value, _input_declaration(func), "p")
-        with pytest.raises(TypeError, match=got):
+        with pytest.raises(xra.ContractError, match=got):
             func(value)
 
     def test_units_are_checked_first(self):
@@ -123,11 +123,11 @@ class TestCheckDeclared:
         assert xra.check_declared(value, Declared(), "p") is value
 
     def test_names_the_function_when_given_one(self):
-        with pytest.raises(TypeError, match=r"\[f\] input 'p'"):
+        with pytest.raises(xra.ContractError, match=r"\[f\] input 'p'"):
             xra.check_declared(None, Declared(unit=Unit("Pa")), "p", "f")
 
     def test_names_only_the_input_otherwise(self):
-        with pytest.raises(TypeError, match=r"^input 'p'"):
+        with pytest.raises(xra.ContractError, match=r"^input 'p'"):
             xra.check_declared(None, Declared(unit=Unit("Pa")), "p")
 
 
@@ -276,8 +276,8 @@ class TestDeclarationViolations:
             (_array(unit="K"), UnitError),
             (_array().rename(time="x"), SchemaError),
             (_array(freq="D"), FreqError),
-            (None, TypeError),
-            (1.0, TypeError),
+            (None, xra.ContractError),
+            (1.0, xra.ContractError),
         ],
         ids=["ok", "scale", "dimension", "dims", "freq", "none", "float"],
     )

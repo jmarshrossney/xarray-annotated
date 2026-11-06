@@ -5,8 +5,9 @@ class ContractError(Exception):
     """Raised when data fails its declaration.
 
     The domains subclass this as `UnitError`, `SchemaError` and `FreqError`, so a tool
-    can catch every failed check on an array with `except ContractError`.  A value that
-    is not a `DataArray` is a `TypeError` instead.
+    can catch every failed check with `except ContractError`.  It is raised directly for
+    a value that is not a `DataArray` and for a returned record that is the wrong class
+    or lacks a required field.
 
     Deliberately **not** a `ValueError`: failing data is a distinct event from a
     malformed *declaration*, which raises `ValueError`.  Keeping them on separate

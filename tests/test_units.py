@@ -353,6 +353,11 @@ class TestUnitsCompatible:
     def test_incompatible(self, a, b):
         assert not units.units_compatible(a, b)
 
+    @pytest.mark.parametrize("compare", [units.units_compatible, units.units_equal])
+    def test_an_undefined_unit_raises_pints_own_error(self, compare):
+        with pytest.raises(pint.UndefinedUnitError):
+            compare("not_a_unit", "Pa")
+
 
 class TestUnitsEqual:
     @pytest.mark.parametrize(("a", "b"), [("Pa", "pascal"), ("1", "dimensionless")])

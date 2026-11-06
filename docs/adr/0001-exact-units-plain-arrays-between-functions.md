@@ -10,7 +10,7 @@ Results below were measured on xarray 2026.9, pint 0.26 and pint-xarray 0.6.
 
 ## Context
 
-`Unit("hPa")` requires exactly that unit, so `Pa` raises `ValueError`.
+`Unit("hPa")` requires exactly that unit, so `Pa` raises `UnitError`.
 A body that computes on quantified arrays gives the right answer for any compatible unit, so a declaration can refuse a call that would have run correctly without it.
 
 That raises two questions:

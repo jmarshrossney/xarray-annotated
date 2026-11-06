@@ -43,8 +43,9 @@ These look like gaps but are decisions, so don't fill them unasked.
   - `.pint.dequantify()` and `.pint.to` keep `.encoding`, and a stale `scale_factor` overflows on write and silently corrupts the file.
     Clear it with `encoding = {}`, on the array only, since `drop_encoding()` also clears coords.
   - `quantify()` raises when a leftover attrs label disagrees with the `Quantity`, so a quantified array's unit is never read from attrs.
-- **Mismatch errors are never `ValueError`.**
+- **Mismatch errors are never `ValueError` or `TypeError`.**
   `UnitError`, `SchemaError` and `FreqError` extend `ContractError`, which extends `Exception`, while a malformed declaration raises `ValueError`, so catching a mismatch never swallows a declaration error.
+  A value that is not a `DataArray`, or a returned record of the wrong class or missing a required field, raises `ContractError` itself, so `except ContractError` catches every failed check.
   `quantify` and `convert` are operations rather than checks, and keep raising `ValueError` and `pint.DimensionalityError`.
 - **`Freq.freq` stores the raw string, so never normalise or compare `freqstr`.**
   `to_offset("W").freqstr` becomes `"W-SUN"`, which loses whether the phase was pinned.

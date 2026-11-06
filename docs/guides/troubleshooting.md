@@ -15,13 +15,13 @@
 | `UnitError: output ... differs from declared`, or an output with no `units` | The body returned another unit, left a stale label, or returned no label | [Assign the unit on output](units.md#outputs) |
 | `SchemaError`, or `FreqError: ... frequency mismatch` | The array does not match its `Dims`, `Coords`, `Dtype` or `Freq`, or its time axis is irregular | Fix the data, or correct the declaration. An axis with holes may want [`gaps_ok=True`](temporal.md#axes-with-gaps), and one on no month boundary [`Freq("month")`](temporal.md#calendar-steps-on-any-day) |
 | `FreqError: ... got no step that short` | `gaps_ok=True` was declared, and no two timestamps are as close as the declared step, so the data may be coarser than declared | Declare the coarser frequency, or fix the data |
-| `TypeError: ... declared a DataArray, got ...`, when called | The value is `None`, an ndarray, a `Dataset` or something else, as after `.values` in a body | Pass or return a `DataArray`, or add what the value may be to the hint, such as `| None` |
+| `ContractError: ... declared a DataArray, got ...`, when called | The value is `None`, an ndarray, a `Dataset` or something else, as after `.values` in a body | Pass or return a `DataArray`, or add what the value may be to the hint, such as `| None` |
 | `UnitError: ... cannot convert to declared` | The units cannot be converted | Fix the data or the declaration |
 | `DimensionalityError`, from `xra.units.convert` or in a body | The units cannot be converted, or the arithmetic makes no sense | Fix the data or the arithmetic |
 | `FreqError: ... no indexed datetime coordinate`, when called | The message names a datetime coordinate and its fix where it can tell. Otherwise there is no time coordinate, as after `.mean("time")`, or it is unindexed `cftime` or undecoded | Remove the `Freq` marker, [index it][xarray_annotated.Freq], or decode it |
 | Checks stopped everywhere | The package is switched off | Check `XARRAY_ANNOTATED_ENABLED`, and look for an [`xra.enabled(False)`](first_principles.md#enabled) block |
 
-`UnitError`, `SchemaError` and `FreqError` are all a `ContractError`, and not a `ValueError`, so catching a mismatch never swallows a malformed declaration.
+Every failed check is a `ContractError`, and not a `ValueError`, so catching a mismatch never swallows a malformed declaration.
 
 ## A declaration is silently ignored { #a-declaration-is-silently-ignored }
 

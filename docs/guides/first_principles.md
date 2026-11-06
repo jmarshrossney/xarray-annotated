@@ -35,9 +35,9 @@ Declare as much or as little as you like: a marker you leave off is not checked,
 - **Declarations are checked at decoration:** a malformed declaration, such as a misspelled unit, raises `ValueError` when the module is imported.
 - **Arrays are checked on each call:** inputs before the body, and outputs after it.
 - **Each array stops at its first failure:** units are checked first, then structure, then frequency.
-- **Every failed check raises:** `UnitError`, `SchemaError` or `FreqError`, each a [`ContractError`][xarray_annotated.ContractError] and not a `ValueError`.
+- **Every failed check raises:** a [`ContractError`][xarray_annotated.ContractError] and not a `ValueError`, as `UnitError`, `SchemaError` and `FreqError` are.
   There are no warnings and no lenient mode.
-- **Only a `DataArray` passes:** anything else raises `TypeError`, including `None`, [unless the hint allows it](#optional-arguments-and-unions).
+- **Only a `DataArray` passes:** anything else raises `ContractError`, including `None`, [unless the hint allows it](#optional-arguments-and-unions).
 - **Only metadata is read:** names, dtypes, unit labels and indexes, never values, so a lazily opened array stays unread.
   A check therefore [cannot tell whether a label is true](units.md#what-a-label-cannot-catch).
 - **Checks change nothing:** the body receives the arrays the caller passed, and the caller receives what the body returned, with no conversion or relabelling.
@@ -96,7 +96,7 @@ Return a `TypedDict` or dataclass, and declare its fields:
         return Wind(speed=speed, direction=direction)
     ```
 
-- **Missing fields:** leaving out a required field raises `TypeError`, whereas a `NotRequired` field may be absent, and a dataclass field declared `| None` may be `None`.
+- **Missing fields:** leaving out a required field raises `ContractError`, whereas a `NotRequired` field may be absent, and a dataclass field declared `| None` may be `None`.
 - **Undeclared fields:** a field with no markers is not checked.
 - **The container itself:** the caller receives a shallow copy of the dict or dataclass, which shares its arrays, and `__post_init__` does not run again.
 
@@ -111,12 +111,12 @@ With `A` standing for `Annotated[xr.DataArray, Unit("K")]`:
 
 | Hint | `DataArray` | `None` | Anything else |
 |---|---|---|---|
-| `A` | checked | `TypeError` | `TypeError` |
-| `A | None` | checked | passes | `TypeError` |
-| `A | float` | checked | `TypeError` | passes |
+| `A` | checked | `ContractError` | `ContractError` |
+| `A | None` | checked | passes | `ContractError` |
+| `A | float` | checked | `ContractError` | passes |
 | `A | float | None` | checked | passes | passes |
 
-- **A default is not enough:** defaults are checked too, so `x: A = None` raises `TypeError` when `x` is left out; write `x: A | None = None`.
+- **A default is not enough:** defaults are checked too, so `x: A = None` raises `ContractError` when `x` is left out; write `x: A | None = None`.
 - **Other types are not checked:** `A | float` accepts a string, just as `n: int` does, so leave those to a type checker.
 - **The union goes outside the `Annotated`:** `Annotated[xr.DataArray | None, Unit("K")]` and `Annotated[xr.DataArray | float, Unit("K")]` raise `ValueError` when the function is decorated.
 - **Only one member can be declared:** `A | list[A]` and a union of two declared arrays raise `ValueError` when the function is decorated.

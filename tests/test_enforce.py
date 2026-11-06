@@ -873,14 +873,14 @@ class TestOtherValues:
         @xra.enforce
         def f(p: Annotated[xr.DataArray, Dims("x")]): ...
 
-        with pytest.raises(TypeError, match="input 'p': declared a DataArray"):
+        with pytest.raises(xra.ContractError, match="input 'p': declared a DataArray"):
             f(value)
 
     def test_none_raises_at_a_default_the_hint_does_not_allow(self):
         @xra.enforce
         def f(p: Annotated[xr.DataArray, Dims("x")] = None): ...  # type: ignore[assignment]
 
-        with pytest.raises(TypeError, match=r"got None.*\| None"):
+        with pytest.raises(xra.ContractError, match=r"got None.*\| None"):
             f()
 
     @pytest.mark.parametrize(
@@ -895,7 +895,7 @@ class TestOtherValues:
         def f(p: hint): ...  # pyright: ignore[reportInvalidTypeForm]
 
         f(None)
-        with pytest.raises(TypeError, match="got float"):
+        with pytest.raises(xra.ContractError, match="got float"):
             f(1.0)
 
     @pytest.mark.parametrize("value", [1.0, "not a float"])
@@ -904,7 +904,7 @@ class TestOtherValues:
         def f(p: Annotated[xr.DataArray, Dims("x")] | float): ...
 
         f(value)  # pyright: ignore[reportArgumentType]
-        with pytest.raises(TypeError, match="got None"):
+        with pytest.raises(xra.ContractError, match="got None"):
             f(None)  # pyright: ignore[reportArgumentType]
 
     def test_a_dataarray_under_a_union_is_still_checked(self):

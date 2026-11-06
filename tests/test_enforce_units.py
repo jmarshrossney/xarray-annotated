@@ -371,7 +371,9 @@ class TestOutputs:
         def f() -> Annotated[xr.DataArray, Unit("Pa")]:
             return value
 
-        with pytest.raises(TypeError, match="output 'return': declared a DataArray"):
+        with pytest.raises(
+            xra.ContractError, match="output 'return': declared a DataArray"
+        ):
             f()
 
     def test_optional_return_of_none_passes(self):
@@ -400,7 +402,7 @@ class TestOutputs:
         def f() -> Out:
             return Out(p=None)  # type: ignore[arg-type]
 
-        with pytest.raises(TypeError, match="output 'p'"):
+        with pytest.raises(xra.ContractError, match="output 'p'"):
             f()
 
     def test_optional_dataclass_field_of_none_passes(self):
@@ -424,7 +426,7 @@ class TestOutputs:
         def f() -> Out:
             return value  # type: ignore[return-value]
 
-        with pytest.raises(TypeError, match=r"declared .*Out"):
+        with pytest.raises(xra.ContractError, match=r"declared .*Out"):
             f()
 
     @pytest.mark.parametrize("value", [None, 1.0], ids=repr)
@@ -436,7 +438,7 @@ class TestOutputs:
         def f() -> Out:
             return value  # type: ignore[return-value]
 
-        with pytest.raises(TypeError, match="declared Out"):
+        with pytest.raises(xra.ContractError, match="declared Out"):
             f()
 
     def test_optional_record_of_none_passes(self):
@@ -468,7 +470,7 @@ class TestOutputs:
         def f() -> Out:
             return {}  # type: ignore[typeddict-item]
 
-        with pytest.raises(TypeError, match="'p': a required field of Out"):
+        with pytest.raises(xra.ContractError, match="'p': a required field of Out"):
             f()
 
     def test_missing_notrequired_field_passes(self):
@@ -489,7 +491,7 @@ class TestOutputs:
         def f() -> Out:
             return {"p": None}  # type: ignore[typeddict-item]
 
-        with pytest.raises(TypeError, match="output 'p'"):
+        with pytest.raises(xra.ContractError, match="output 'p'"):
             f()
 
     # -- plumbing ---------------------------------------------------------

@@ -235,5 +235,10 @@ def declarations_from_signature(
         * `output` — a `dict[str, Declared]` (per-field) for a `TypedDict` or
             dataclass return, a single `Declared` for one declared DataArray
             return, or `None` when the return carries no declaration.
+
+    Raises:
+        ValueError: If a hint is one `declaration_from_hint` refuses.
+        NameError: If a hint names something not defined at run time.
+        TypeError: If `func` has no readable type hints, such as a `functools.partial`.
     """
     return _walk_signature(func, declaration_from_hint)

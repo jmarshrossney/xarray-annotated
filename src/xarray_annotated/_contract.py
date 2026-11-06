@@ -75,16 +75,16 @@ def _refuse_other_value(value: Any, decl: Declared, where: str) -> None:
     """Raise unless the hint allows this value, which is not a `DataArray`.
 
     Raises:
-        TypeError: If the hint names nothing that could be this value.
+        ContractError: If the hint names nothing that could be this value.
     """
     if value is None:
         if types.NoneType not in decl.others:
-            raise TypeError(
+            raise ContractError(
                 f"{where}: declared a DataArray, got None. If that is allowed, declare "
                 f"it with `| None`."
             )
     elif all(other is types.NoneType for other in decl.others):
-        raise TypeError(
+        raise ContractError(
             f"{where}: declared a DataArray, got {type(value).__name__}. Checks apply "
             f"only to a DataArray, so this value could not be checked."
         )
@@ -144,7 +144,7 @@ def check_declared(
         `value`, unchanged.
 
     Raises:
-        TypeError: If `value` is not a `DataArray` and `declared` does not allow it.
+        ContractError: If `value` is not a `DataArray` and `declared` does not allow it.
         ValueError: If the declaration is malformed, or `XARRAY_ANNOTATED_ENABLED` holds
             an unrecognised value.
         UnitError: If the unit differs, or is missing or unparseable.
@@ -210,7 +210,7 @@ def declaration_violations(
     if not isinstance(value, xr.DataArray):
         try:
             _refuse_other_value(value, declared, _input_label(name, qualname))
-        except TypeError as exc:
+        except ContractError as exc:
             return [str(exc)]
         return []
     violations = []

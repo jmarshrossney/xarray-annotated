@@ -68,7 +68,7 @@ It leaves a lazily opened array unread, with or without dask:
 | `Dims`, `Coords`, `Dtype` | The array's names and dtype |
 | `Freq` | The time axis's index, which xarray holds in memory |
 
-It stops at the first failure for an array, and raises `TypeError`, or a [`ContractError`][xarray_annotated.ContractError]: `UnitError`, `SchemaError` or `FreqError`.
+It stops at the first failure for an array, and raises a [`ContractError`][xarray_annotated.ContractError]: `UnitError`, `SchemaError` or `FreqError`, or `ContractError` itself for a value that is not a `DataArray`.
 A malformed declaration raises `ValueError` instead, and [`assert_valid_declaration`][xarray_annotated.assert_valid_declaration] asks only that, with no array in hand.
 
 To report everything wrong with an array at once, [`declaration_violations`][xarray_annotated.declaration_violations] applies the same checks and returns one message per failure:
