@@ -18,6 +18,10 @@ These look like gaps but are decisions, so don't fill them unasked.
 - **`Unit` stays exact, and docs recommend plain arrays between functions.**
   Don't add a dimension-only marker or show quantified arrays crossing a function boundary as the default: a plain body handed a quantified array can silently change its answer.
   See `docs/adr/0001-exact-units-plain-arrays-between-functions.md`.
+- **Non-`DataArray` union members are not checked.**
+  `A | float` given a string passes, as `n: int` given a string does, because checking those types is a type checker's job and not this package's.
+  Don't add `isinstance` checks: what stops a user being misled is that every marker is either enforced or refused at decoration, so `A | list[A]` and `Annotated[DataArray | float, ...]` raise.
+  `| None` is the exception, because `None` is the common mistake on an array parameter: without it, `None` raises.
 - **`Freq(..., gaps_ok=True)` and `Freq("month")` are declarations, not softened checks.**
   The smallest step must equal the declared one, accepting a loud false alarm over letting every midnight-stamped axis pass.
   See `docs/adr/0002-sampling-period-and-calendar-steps.md`.

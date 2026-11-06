@@ -163,7 +163,16 @@ def _read_hint(hint: Any, path: frozenset[Any] = frozenset()) -> Declared | None
         coords=_single_marker(metadata, Coords),
         freq=_single_marker(metadata, Freq),
     )
-    return None if declared == Declared() else declared
+    if declared == Declared():
+        return None
+    unchecked = [arg for arg in others if arg is not types.NoneType]
+    if unchecked:
+        names = " | ".join(getattr(arg, "__name__", repr(arg)) for arg in unchecked)
+        raise ValueError(
+            f"{hint!r} reads as declaring its markers for {names} too, but they apply "
+            f"only to a DataArray. Write Annotated[DataArray, ...] | {names}."
+        )
+    return declared
 
 
 def declaration_from_hint(hint: Any) -> Declared | None:
@@ -188,7 +197,9 @@ def declaration_from_hint(hint: Any) -> Declared | None:
     Raises:
         ValueError: If the hint carries two markers of the same type, or is a union
             of two declared members, since a value could not say which one applies,
-            or is a `type` alias that refers to itself.
+            or puts markers on a union with a member other than `None`, as in
+            `Annotated[DataArray | float, ...]`, or is a `type` alias that refers to
+            itself.
 
     Examples:
         >>> from typing import Annotated

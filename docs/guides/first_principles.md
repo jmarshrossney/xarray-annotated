@@ -103,7 +103,9 @@ def weighted_mean(
 The checks apply when the value is a `DataArray`, and `None` passes.
 Without `| None`, passing `None` raises `TypeError`.
 
-Any other member of the union allows anything else, unchecked, so `Annotated[xr.DataArray, Unit("K")] | float` accepts a `float` or even a string.
+Only the `DataArray` member is checked.
+Any other member, as in `Annotated[xr.DataArray, Unit("K")] | float`, allows every value except `None`, including a string, just as `n: int` on a parameter is not looked at, so leave those to a type checker.
+Markers cannot sit on the other members, or on a union containing them: `Annotated[xr.DataArray | float, Unit("K")]` and `Annotated[xr.DataArray, Unit("K")] | list[Annotated[xr.DataArray, Unit("K")]]` raise `ValueError` when the function is decorated.
 
 A `TypedDict` or dataclass return may also be optional, written `Wind | None`.
 

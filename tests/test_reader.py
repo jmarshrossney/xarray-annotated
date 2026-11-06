@@ -110,7 +110,7 @@ class TestSingleHint:
             (Annotated[xr.DataArray, Unit("Pa")], ()),
             (Annotated[xr.DataArray | None, Unit("Pa")], (type(None),)),
             (Annotated[xr.DataArray, Unit("Pa")] | None, (type(None),)),  # pyright: ignore[reportOperatorIssue]
-            (Annotated[xr.DataArray | float, Unit("Pa")], (float,)),
+            (Annotated[xr.DataArray, Unit("Pa")] | float, (float,)),
             (Annotated[xr.DataArray | None, Unit("Pa")] | int, (type(None), int)),
         ],
     )

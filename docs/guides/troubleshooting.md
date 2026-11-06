@@ -7,7 +7,8 @@
 | `NameError` at decoration | Annotations are evaluated at decoration, so a `TYPE_CHECKING`-only import fails, as does a function-local alias under `from __future__ import annotations` | Import names used in annotations at run time, on every Python version |
 | `ValueError: ... is not a recognised unit`, at import | A typo, or a CF string on the default registry | Fix the typo, or [activate the CF registry](units.md#cf-convention-units) before importing the module |
 | `UnitError: ... has no 'units' attribute` | The array has no label to check | Attach the unit where the data enters, or use [`xra.enabled(False)`](first_principles.md#enabled) while prototyping; no setting lets it through, because an unchecked unit looks like a checked one downstream |
-| `ValueError: ... which enforce cannot apply`, at import | A marker somewhere it cannot be checked: inside a `tuple`, `list`, `dict` or `Callable`, on a base type other than `DataArray`, or in a generic alias such as `type Generic[T] = Annotated[T, Unit("Pa")]` | Move it onto an `Annotated[xr.DataArray, ...]`, and return several arrays as a `TypedDict` or dataclass |
+| `ValueError: ... which enforce cannot apply`, at import | A marker somewhere it cannot be checked: inside a `tuple`, `list`, `dict` or `Callable`, on a base type other than `DataArray`, on a union member other than the `DataArray`, or in a generic alias such as `type Generic[T] = Annotated[T, Unit("Pa")]` | Move it onto an `Annotated[xr.DataArray, ...]`, and return several arrays as a `TypedDict` or dataclass |
+| `ValueError: ... reads as declaring its markers for ... too`, at import | Markers sit on a union with another type, as in `Annotated[xr.DataArray \| float, Unit("Pa")]` | Put them on the `DataArray` alone: `Annotated[xr.DataArray, Unit("Pa")] \| float` |
 | `ValueError: ... holds fields carrying ...`, at import | A parameter, a return such as a `NamedTuple`, `list[R]` or `R1 \| R2`, or a field of a return, holds a class whose fields carry markers, which `enforce` cannot check | Return one `TypedDict` or dataclass, optionally `\| None`, with its arrays as direct fields, and declare a parameter's arrays as parameters of their own |
 | `ValueError: type alias ... refers to itself`, at import | A `type` alias contains itself outside a container, such as `type R = R \| None` | Remove the self-reference |
 | `UnitError: input ... differs from declared` | The unit is compatible with the declared one but not equal to it | [Convert it](units.md#converting-an-input) where you call the function |
@@ -29,8 +30,6 @@ This looks like a declaration but declares nothing, with no error or warning:
 ```python
 Annotated[xr.DataArray, "Pa"]  # a string is a description; use Unit("Pa")
 ```
-
-In a union such as `Annotated[xr.DataArray, Unit("Pa")] | Annotated[int, Unit("kg")]`, only the `DataArray` member applies.
 
 `declarations_from_signature(f)` shows what a function actually declares.
 

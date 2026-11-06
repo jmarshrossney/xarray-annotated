@@ -412,6 +412,7 @@ type _DA = xr.DataArray
 type _OptionalDA = xr.DataArray | None
 type _Extended = Annotated[_Alias, Dims("x")]
 type _FloatAlias = Annotated[float, Unit("Pa")]
+type _FloatOrDA = xr.DataArray | float
 
 
 class _Fields(TypedDict):
@@ -459,12 +460,37 @@ class TestStrayMarkers:
             Annotated[_FloatAlias, Dims("x")],
             Annotated[_StrayGeneric[xr.DataArray], Dims("x")],
             Annotated[_OptionalAlias, Dims("x")],
+            _PA | list[_PA],
+            _PA | dict[str, _PA],
+            _PA | tuple[_PA, _PA],
+            _PA | Annotated[int, Unit("kg")],
+            _PA | _FloatAlias,
+            _PA | int | list[_PA] | None,
+            _DeclaredRecursive,
         ],
     )
     @pytest.mark.parametrize("side", ["param", "ret"])
     def test_raises_at_decoration(self, hint, side):
         with pytest.raises(ValueError, match="enforce cannot apply"):
             xra.enforce(_annotated(**{side: hint}))
+
+    @pytest.mark.parametrize(
+        "hint",
+        [
+            Annotated[xr.DataArray | float, Dims("x")],
+            Annotated[xr.DataArray | xr.Dataset, Unit("Pa")],
+            Annotated[xr.DataArray | float | None, Dims("x")],
+            Annotated[_FloatOrDA, Dims("x")],
+            NotRequired[Annotated[xr.DataArray | float, Dims("x")]],
+            Annotated[xr.DataArray | float, Dims("x")] | None,  # pyright: ignore[reportOperatorIssue]
+        ],
+    )
+    def test_markers_on_a_union_with_another_type_raise(self, hint):
+        message = r"Write Annotated\[DataArray, \.\.\.\] \|"
+        with pytest.raises(ValueError, match=message):
+            xra.declaration_from_hint(hint)
+        with pytest.raises(ValueError, match=message):
+            xra.enforce(_annotated(param=hint))
 
     def test_raises_on_a_typeddict_field(self):
         with pytest.raises(ValueError, match="enforce cannot apply") as info:
@@ -489,7 +515,14 @@ class TestStrayMarkers:
             _Generic[int],
             _Recursive,
             _RecursiveGeneric[int],
-            _DeclaredRecursive,
+            _PA | None,
+            _PA | float,
+            _PA | int | None,
+            _PA | xr.Dataset,
+            _PA | list[xr.DataArray],
+            _PA | Annotated[int, "a description"],
+            Annotated[xr.DataArray | None, Unit("Pa")],
+            Annotated[xr.DataArray | float, "a description"],
         ],
     )
     @pytest.mark.parametrize("side", ["param", "ret"])
@@ -770,7 +803,7 @@ class TestRecordReturnsAreNotTouched:
     def test_undeclared_value_comes_back_as_itself(self):
         @dataclass
         class Plain:
-            n: Annotated[xr.DataArray | int, Unit("Pa")]
+            n: Annotated[xr.DataArray, Unit("Pa")] | int
 
         r = Plain(1)
         assert self._identity(Plain)(r) is r
@@ -857,20 +890,14 @@ class TestOtherValues:
         with pytest.raises(TypeError, match="got float"):
             f(1.0)
 
-    @pytest.mark.parametrize(
-        "hint",
-        [
-            Annotated[xr.DataArray | float, Dims("x")],
-            Annotated[xr.DataArray, Dims("x")] | float,
-        ],
-    )
-    def test_another_type_passes_but_does_not_allow_none(self, hint):
+    @pytest.mark.parametrize("value", [1.0, "not a float"])
+    def test_another_type_allows_every_other_value_but_not_none(self, value):
         @xra.enforce
-        def f(p: hint): ...  # pyright: ignore[reportInvalidTypeForm]
+        def f(p: Annotated[xr.DataArray, Dims("x")] | float): ...
 
-        f(1.0)
+        f(value)  # pyright: ignore[reportArgumentType]
         with pytest.raises(TypeError, match="got None"):
-            f(None)
+            f(None)  # pyright: ignore[reportArgumentType]
 
     def test_a_dataarray_under_a_union_is_still_checked(self):
         @xra.enforce

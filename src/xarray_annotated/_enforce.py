@@ -122,9 +122,12 @@ def _refuse_stray_markers(hint: Any) -> None:
 
     Raises:
         ValueError: If `hint` holds a marker but `declaration_from_hint` reads no
-            declaration from it.
+            declaration from it, or holds one on a union member other than the
+            declared `DataArray`.
     """
-    if declaration_from_hint(hint) is None and (stray := _markers_in(hint)):
+    declared = declaration_from_hint(hint)
+    unread = [hint] if declared is None else declared.others
+    if stray := [marker for part in unread for marker in _markers_in(part)]:
         raise ValueError(
             f"{hint!r} carries {stray!r}, which enforce cannot apply: only an "
             f"Annotated[DataArray, ...] parameter, return, or TypedDict or dataclass "
@@ -173,8 +176,9 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
        validates structure and frequency on the value returned to the caller.
 
     A value that is not a `DataArray` raises, unless its hint allows it, as `| None`
-    allows `None` and `| float` allows anything else.  When xarray-annotated is switched
-    off (`xra.enabled(False)` or
+    allows `None`.  Any other union member, as in `| float`, allows every other value,
+    since only a `DataArray` is checked.  When xarray-annotated is switched off
+    (`xra.enabled(False)` or
     `XARRAY_ANNOTATED_ENABLED=false`) the wrapper is a total no-op.  Every declaration
     is validated **at decoration time**, so a malformed unit, marker or offset string
     fails at import even when switched off.
@@ -196,8 +200,9 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
         ValueError: If a declaration is malformed, a `*args` or `**kwargs` parameter
             carries a declaration, a hint carries two markers of one kind, or a hint
             carries a marker that cannot apply, such as in a tuple, on a `Dataset`, on a
-            field of a `NamedTuple` return or of a class nested in a field, or on a
-            field of a parameter (at decoration).
+            union member other than the `DataArray`, on a field of a `NamedTuple` return
+            or of a class nested in a field, or on a field of a parameter (at
+            decoration).
         TypeError: If a declared value is not a `DataArray` and its hint does not allow
             it, or a `TypedDict` return lacks a required declared field (when called).
         UnitError: If a unit does not match its declaration (when called).
