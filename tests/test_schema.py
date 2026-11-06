@@ -208,6 +208,14 @@ class TestDtypeCompatible:
         assert not schema.dtype_compatible(Dtype("float"), Dtype("int32"))
         assert not schema.dtype_compatible(Dtype("int"), Dtype("uint"))
 
+    @pytest.mark.parametrize(
+        ("a", "b"),
+        [(Dtype("nope"), Dtype("int")), (Dtype("int"), Dtype("nope"))],
+    )
+    def test_an_invalid_dtype_on_either_side_is_a_value_error(self, a, b):
+        with pytest.raises(ValueError, match="invalid dtype 'nope'"):
+            schema.dtype_compatible(a, b)
+
 
 # ---------------------------------------------------------------------------
 # check_schema router behaviour

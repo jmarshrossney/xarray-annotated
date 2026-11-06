@@ -47,12 +47,16 @@ def set_registry(ureg: pint.UnitRegistry | pint.registry.ApplicationRegistry) ->
 
     Args:
         ureg: The `UnitRegistry` to install as the process-global registry.
+
+    Raises:
+        AttributeError: If `ureg` is not a registry, leaving the active one in place.
+        TypeError: If `ureg` is not a registry, leaving the active one in place.
     """
     global _UREG, _using_cf
-    _UREG = ureg
-    _using_cf = False
     pint_xarray.setup_registry(ureg)
     pint.set_application_registry(ureg)
+    _UREG = ureg
+    _using_cf = False
 
 
 def use_cf_units() -> None:

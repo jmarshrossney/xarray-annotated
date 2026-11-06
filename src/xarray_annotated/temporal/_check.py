@@ -471,7 +471,8 @@ def check_freq(
     Raises:
         FreqError: On a mismatch.
         ValueError: If the declaration is malformed, including `gaps_ok` on a frequency
-            with no step to compare.
+            with no step to compare, or `XARRAY_ANNOTATED_ENABLED` holds an unrecognised
+            value.
 
     Examples:
         >>> import pandas as pd

@@ -203,8 +203,14 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
             union member other than the `DataArray`, on a union as a whole, as in
             `Annotated[DataArray | None, ...]`, on a field of a `NamedTuple` return or
             of a class nested in a field, or on a field of a parameter (at decoration).
-        TypeError: If a declared value is not a `DataArray` and its hint does not allow
-            it, or a `TypedDict` return lacks a required declared field (when called).
+            Also if `XARRAY_ANNOTATED_ENABLED` holds an unrecognised value (when
+            called).
+        NameError: If a hint names something not defined at run time (at decoration).
+        TypeError: If `func` has no readable type hints, such as a `functools.partial`
+            (at decoration).  Also if a declared value is not a `DataArray` and its hint
+            does not allow it, a `TypedDict` or dataclass return is not of the declared
+            class, or a `TypedDict` return lacks a required declared field (when
+            called).
         UnitError: If a unit does not match its declaration (when called).
         SchemaError: If the structure does not match (when called).
         FreqError: If the frequency does not match (when called).

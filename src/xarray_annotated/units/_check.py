@@ -370,7 +370,8 @@ def check_units(
     Raises:
         UnitError: When the array's unit is missing, over-long or unparseable, or is not
             equal to `declared`.
-        ValueError: When `declared` is not a recognised unit.
+        ValueError: When `declared` is not a recognised unit, or
+            `XARRAY_ANNOTATED_ENABLED` holds an unrecognised value.
 
     Examples:
         >>> import xarray as xr
@@ -584,7 +585,8 @@ def check_output_units(
     Raises:
         UnitError: When the array's unit is missing, over-long or unparseable, or is not
             equal to `declared`.
-        ValueError: When `declared` is not a recognised unit.
+        ValueError: When `declared` is not a recognised unit, or
+            `XARRAY_ANNOTATED_ENABLED` holds an unrecognised value.
 
     Examples:
         >>> import xarray as xr

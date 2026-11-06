@@ -5,6 +5,7 @@ CF/UDUNITS-only cases live in ``test_cf.py``.
 
 import pickle
 import warnings
+from types import SimpleNamespace
 from typing import Annotated
 
 import numpy as np
@@ -17,7 +18,7 @@ from xarray.core import indexing
 
 import xarray_annotated as xra
 from xarray_annotated import Unit, units
-from xarray_annotated.units import UnitError, _check
+from xarray_annotated.units import UnitError, _check, _registry
 
 
 def _da(values, unit=None):
@@ -758,6 +759,25 @@ class TestDequantify:
         pytest.importorskip("cf_xarray.units")
         q = xr.DataArray([1.0], attrs={"units": "m**2"}).pint.quantify()
         assert units.dequantify(q).attrs["units"] == "meter ** 2"
+
+
+class TestSetRegistry:
+    @pytest.mark.parametrize(
+        ("bad", "error"),
+        [
+            ("nope", AttributeError),
+            (SimpleNamespace(force_ndarray=True), TypeError),
+        ],
+    )
+    def test_a_refused_registry_changes_nothing(self, bad, error):
+        active = pint.UnitRegistry()
+        units.set_registry(active)
+        _registry._using_cf = True
+        with pytest.raises(error):
+            units.set_registry(bad)
+        assert units.get_registry() is active
+        assert pint.get_application_registry().get() is active
+        assert _registry._using_cf
 
 
 class TestUnitError:

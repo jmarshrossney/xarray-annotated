@@ -145,7 +145,8 @@ def check_declared(
 
     Raises:
         TypeError: If `value` is not a `DataArray` and `declared` does not allow it.
-        ValueError: If the declaration is malformed.
+        ValueError: If the declaration is malformed, or `XARRAY_ANNOTATED_ENABLED` holds
+            an unrecognised value.
         UnitError: If the unit differs, or is missing or unparseable.
         SchemaError: If the structure does not match.
         FreqError: If the frequency does not match.
@@ -190,7 +191,8 @@ def declaration_violations(
         or xarray-annotated is switched off.
 
     Raises:
-        ValueError: If the declaration is malformed.
+        ValueError: If the declaration is malformed, or `XARRAY_ANNOTATED_ENABLED` holds
+            an unrecognised value.
 
     Examples:
         >>> import xarray as xr

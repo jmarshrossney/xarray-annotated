@@ -172,6 +172,9 @@ def dtype_compatible(a: Dtype, b: Dtype) -> bool:
     Returns:
         `True` unless the two are provably inconsistent.
 
+    Raises:
+        ValueError: If either dtype is invalid.
+
     Examples:
         >>> from xarray_annotated.schema import Dtype, dtype_compatible
         >>> dtype_compatible(Dtype("float"), Dtype("float32"))
@@ -181,6 +184,8 @@ def dtype_compatible(a: Dtype, b: Dtype) -> bool:
         >>> dtype_compatible(Dtype("float"), Dtype("int"))
         False
     """
+    assert_valid_schema(a, "dtype_compatible")
+    assert_valid_schema(b, "dtype_compatible")
     if _kind(a) != _kind(b):
         return False
     if not (_is_exact(a) and _is_exact(b)):
@@ -240,7 +245,8 @@ def check_schema(
 
     Raises:
         SchemaError: On a mismatch.
-        ValueError: If a marker is malformed.
+        ValueError: If a marker is malformed, or `XARRAY_ANNOTATED_ENABLED` holds an
+            unrecognised value.
     """
     if not resolve_enabled():
         return da
