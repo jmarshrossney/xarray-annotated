@@ -25,18 +25,21 @@ nav = [
     { "Units declarations" = "guides/units.md" },
     { "Temporal declarations" = "guides/temporal.md" },
     { "Keeping signatures readable" = "guides/readable_signatures.md" },
-    { "Troubleshooting" = "guides/troubleshooting.md" },
     { "Advanced usage" = [
-      { "Accessing declarations" = "advanced/accessing_declarations.md" },
+      { "Working with declarations" = "advanced/working_with_declarations.md" },
       { "Pre-flight checks" = "advanced/preflight.md" },
     ]},
-    { "Integrations" = [
-      { "Pint" = "integrations/pint.md" },
-      { "Jaxtyping" = "integrations/jaxtyping.md" },
+    { "Alongside other tools" = [
+      { "Pint" = "tools/pint.md" },
+      { "Jaxtyping" = "tools/jaxtyping.md" },
+      { "Dask" = "tools/dask.md" },
     ]},
   ]},
   { "Worked example" = "example.md" },
-  { "FAQ" = "faq.md" },
+  { "Help" = [
+    { "Troubleshooting" = "guides/troubleshooting.md" },
+    { "FAQ" = "faq.md" },
+  ]},
   { "API reference" = [
     { "xarray_annotated" = "api/package.md" },
     { "xarray_annotated.units" = "api/units.md" },
@@ -79,7 +82,7 @@ features = [
     "navigation.tracking",
     "search.highlight",
     # "toc.follow",
-    "toc.integrate",
+    # "toc.integrate",
 ]
 
 [project.theme.icon]

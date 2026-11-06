@@ -161,7 +161,7 @@ class TestDecorators:
 
 
 class TestFullStack:
-    """The stack documented in ``docs/integrations/jaxtyping.md``, pinned end to end.
+    """The stack documented in ``docs/tools/jaxtyping.md``, pinned end to end.
 
     ``jaxtyped`` must be **outermost** so it sees the original call, before
     ``enforce`` has touched anything; the size-symbol binding it provides is

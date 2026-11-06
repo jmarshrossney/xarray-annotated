@@ -74,10 +74,10 @@ See [Pre-flight checks](advanced/preflight.md) for more details.
 
 - [Getting started](getting_started.md): install the package and add declarations to a function.
 - [User guide](guides/first_principles.md): writing declarations and how checks behave, then [schema](guides/schema.md), [units](guides/units.md) and [temporal](guides/temporal.md) declarations in detail.
-- Advanced usage: [accessing declarations](advanced/accessing_declarations.md) and [pre-flight checks](advanced/preflight.md).
-- Integrations: [pint](integrations/pint.md) and [jaxtyping](integrations/jaxtyping.md).
+- Advanced usage: [working with declarations](advanced/working_with_declarations.md) and [pre-flight checks](advanced/preflight.md).
+- Alongside other tools: [pint](tools/pint.md), [jaxtyping](tools/jaxtyping.md) and [dask](tools/dask.md).
 - [Worked example](example.md): an end-to-end pipeline you can run.
-- [FAQ](faq.md): why the package raises, and what it leaves out.
+- Help: [troubleshooting](guides/troubleshooting.md) when something fails, and the [FAQ](faq.md) on why the package raises and what it leaves out.
 - [API reference](api/package.md): exactly what each marker and function accepts.
 - [CONTRIBUTING.md](https://github.com/jmarshrossney/xarray-annotated/blob/main/CONTRIBUTING.md): the package's scope and how to set up a development environment.
 

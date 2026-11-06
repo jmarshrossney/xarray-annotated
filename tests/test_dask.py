@@ -138,13 +138,121 @@ class TestSwitchInWorkers:
         assert task.compute(scheduler=scheduler) is True
 
 
+class TestWhatTheDaskPageSays:
+    """Behaviour `docs/tools/dask.md` describes, much of it upstream's.
+
+    If a test here fails because upstream changed, update the page, then this.
+    """
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            lambda da: da * 2,
+            np.sqrt,
+            lambda da: da.resample(time="2D").mean(),
+            lambda da: da.rolling(time=2).mean(),
+            lambda da: da.where(da > 0),
+        ],
+        ids=["arithmetic", "numpy", "resample", "rolling", "where"],
+    )
+    def test_these_stay_lazy(self, lazy, computes, operation):
+        operation(lazy())
+        assert computes == []
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            lambda da: da.values,
+            lambda da: da.compute(),
+            lambda da: float(da.max()),
+            np.asarray,
+            lambda da: bool((da > 0).any()),
+            lambda da: da.dropna("time"),
+        ],
+        ids=[
+            "values",
+            "compute",
+            "float",
+            "asarray",
+            "branch",
+            "dropna",
+        ],
+    )
+    def test_these_read_the_data(self, lazy, computes, operation):
+        operation(lazy())
+        assert computes
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            lambda da, mask: da.where(mask, drop=True),
+            lambda da, mask: da.isel(time=mask),
+        ],
+        ids=["where_drop", "isel"],
+    )
+    def test_a_lazy_mask_reads_then_raises(self, lazy, computes, operation):
+        da = lazy()
+        with pytest.raises(KeyError, match="boolean dask array"):
+            operation(da, da > 0)
+        assert computes
+        computes.clear()
+        out = operation(da, (da > 0).compute())
+        assert isinstance(out.data, dask_array.Array)
+        assert computes == [1]
+
+    def test_apply_ufunc_needs_telling_about_dask(self, lazy):
+        with pytest.raises(ValueError, match="dask"):
+            xr.apply_ufunc(np.sqrt, lazy())
+
+    def test_an_output_check_reads_what_dask_expects(self, lazy):
+        @xra.enforce
+        def f(
+            x: Annotated[xr.DataArray, Unit("hPa")],
+        ) -> Annotated[xr.DataArray, Unit("hPa"), Dtype("float64")]:
+            return xr.apply_ufunc(
+                lambda values: values.astype("float32"),
+                x,
+                dask="parallelized",
+                output_dtypes=[np.float64],
+                keep_attrs=True,
+            )
+
+        out = f(lazy())
+        assert out.dtype == np.float64
+        assert out.compute().dtype == np.float32
+
+    def test_delayed_defers_the_check_to_compute(self, lazy):
+        @xra.enforce
+        def f(x: Annotated[xr.DataArray, Unit("Pa")]) -> xr.DataArray:
+            return x
+
+        task = dask.delayed(f)(lazy())
+        with pytest.raises(units.UnitError):
+            task.compute(scheduler="synchronous")
+
+    def test_map_blocks_calls_on_a_stand_in_then_on_each_block(self, lazy):
+        sizes = []
+
+        @xra.enforce
+        def f(
+            x: Annotated[xr.DataArray, Unit("hPa"), Freq("D")],
+        ) -> Annotated[xr.DataArray, Unit("hPa")]:
+            sizes.append(x.sizes["time"])
+            return x
+
+        built = xr.map_blocks(f, lazy().chunk(time=1))
+        assert sizes == [0]
+        built.compute(scheduler="synchronous")
+        assert sorted(sizes) == [0, 1, 1, 1]
+
+
 def _ffill(da: xr.DataArray) -> xr.DataArray:
     pytest.importorskip("bottleneck")
     return da.ffill("time")
 
 
 class TestOperationsThatLoseTheUnit:
-    """Upstream behaviour that `docs/integrations/pint.md` warns about.
+    """Upstream behaviour that `docs/tools/pint.md` warns about.
 
     If a test here fails because upstream now keeps the unit, update the guide's "What
     pint cannot catch" table and its section on declared functions, then delete it.

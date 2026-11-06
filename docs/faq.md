@@ -44,7 +44,7 @@ If only plain arrays cross function boundaries, each body knows what it will rec
 
 Laziness does not affect the choice, as dask-backed arrays stay lazy either way, so open files with `chunks={}`.
 Quantified arrays still pass every check, and they are worth keeping where the code between your functions does arithmetic of its own.
-See [Plain arrays between functions](integrations/pint.md#between-functions).
+See [Plain arrays between functions](tools/pint.md#between-functions).
 
 ## Why can't I declare constraints on values, such as a range?
 

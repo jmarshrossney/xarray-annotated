@@ -79,6 +79,10 @@ def test_snippets_run(page: Path):
     if "from jaxtyping import" in text:
         pytest.importorskip("jaxtyping")
         pytest.importorskip("beartype")
+    if page.name in ("dask.md", "preflight.md"):
+        pytest.importorskip("dask")
+    if page.name == "preflight.md":
+        pytest.importorskip("netCDF4")
     namespace: dict = {}
     exec(PREAMBLE, namespace)
     for match in _FENCE.finditer(text):

@@ -38,4 +38,4 @@ A string can describe a property that is not checked, as in `Annotated[xr.DataAr
 ## A wrong result passes every check
 
 A body's output label is taken on trust; see [What a label cannot catch](units.md#what-a-label-cannot-catch).
-A quantified result can still be the wrong calculation; see [What pint cannot catch](../integrations/pint.md#what-pint-cannot-catch).
+A quantified result can still be the wrong calculation; see [What pint cannot catch](../tools/pint.md#what-pint-cannot-catch).

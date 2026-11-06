@@ -29,7 +29,7 @@ def column_mean(
 xarray operations do not depend on dim order until you drop to numpy, so pin it with `ordered=True` for a body that uses `.values`, `.stack` or `apply_ufunc`.
 
 `Dims` checks names and not sizes.
-For sizes, and their consistency across arguments, see [jaxtyping](../integrations/jaxtyping.md).
+For sizes, and their consistency across arguments, see [jaxtyping](../tools/jaxtyping.md).
 
 ## Coords
 
