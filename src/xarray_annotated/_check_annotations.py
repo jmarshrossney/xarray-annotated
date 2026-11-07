@@ -55,6 +55,10 @@ from .units._check import _check_output_unit
 
 __all__ = ["check_annotations"]
 
+#: Set on every function `check_annotations` wraps, so `stamp_output_units` placed
+#: above it, where it would run after the checks, is refused.
+_CHECKED = "_xarray_annotated_checked"
+
 
 def _nested_hints(hint: Any, seen: set[Any]) -> list[Any]:
     """Return what sits directly inside a hint.
@@ -166,8 +170,8 @@ def check_annotations(func: Callable[..., Any]) -> Callable[..., Any]:
     hint, with at most one of each kind, so write `Coords("time", "lat")`.
 
     A `TypedDict` or dataclass return may also be written `R | None`, `R[int]` or
-    `Annotated[R, "description"]`, or through a `type` alias.  The caller receives a
-    shallow copy of it, which shares its arrays, and `__post_init__` does not run again.
+    `Annotated[R, "description"]`, or through a `type` alias.  The caller receives the
+    record the body returned, and `__post_init__` does not run again.
 
     On each call the wrapper:
 
@@ -188,6 +192,11 @@ def check_annotations(func: Callable[..., Any]) -> Callable[..., Any]:
     There are no options: every failed check raises, and nothing is changed: the body
     receives the objects the caller passed, quantified or not, and the caller receives
     the object the body returned.  Applied bare, as `@xra.check_annotations`.
+
+    An output unit is stated by the body, so the check shows that the body and the
+    signature agree, not that the values are right.  Where the body builds its outputs
+    from bare numbers, `stamp_output_units` below this decorator states the declared
+    units for it.
 
     On an `async def`, the checks run when the coroutine is awaited, and outputs
     are applied to the awaited result.
@@ -332,4 +341,5 @@ def check_annotations(func: Callable[..., Any]) -> Callable[..., Any]:
 
     chosen = async_wrapper if inspect.iscoroutinefunction(func) else wrapper
     chosen.__annotations__ = dict(func.__annotations__)
+    setattr(chosen, _CHECKED, True)
     return chosen
