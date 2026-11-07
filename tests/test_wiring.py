@@ -1,7 +1,7 @@
 """`wiring_conflicts`, which compares declarations along a pipeline's graph."""
 
 from dataclasses import dataclass
-from typing import Annotated, NotRequired, TypedDict
+from typing import Annotated, Any, NotRequired, TypedDict
 
 import pytest
 import xarray as xr
@@ -173,7 +173,7 @@ class TestRecords:
     def test_whole_record_to_a_declared_array(self):
         graph = {"s": (_stats, {"x": "p"}), "a": (_wants_pa, {"x": "s"})}
         assert xra.wiring_conflicts(graph, inputs=["p"]) == [
-            "s -> a(x): s returns a record, and a(x) declares a DataArray"
+            "s -> a(x): s is Stats, and a(x) declares a DataArray"
         ]
 
     def test_whole_record_to_a_union_that_allows_it(self):
@@ -231,3 +231,96 @@ class TestMalformedGraph:
         graph = {"a": (bad, {}), "b": (_wants_pa, {"x": "a"})}
         with pytest.raises(ValueError, match="not_a_unit"):
             xra.wiring_conflicts(graph)
+
+
+class Counts(TypedDict):
+    n: int
+
+
+def _counts(x: HPa) -> Counts: ...
+
+
+class TestNonArrayValues:
+    @pytest.mark.parametrize(
+        ("returned", "shown"),
+        [(float, "float"), (xr.Dataset, "Dataset"), (None, "None"), (Stats, "Stats")],
+    )
+    def test_reported(self, returned, shown):
+        def produce(): ...
+
+        produce.__annotations__ = {"return": returned}
+
+        graph = {"n": (produce, {}), "a": (_wants_pa, {"x": "n"})}
+        assert xra.wiring_conflicts(graph) == [
+            f"n -> a(x): n is {shown}, and a(x) declares a DataArray"
+        ]
+
+    def test_record_field(self):
+        graph = {"s": (_counts, {"x": "p"}), "a": (_wants_pa, {"x": ("s", "n")})}
+        assert xra.wiring_conflicts(graph, inputs=["p"]) == [
+            "s['n'] -> a(x): s['n'] is int, and a(x) declares a DataArray"
+        ]
+
+    def test_union_member_is_named(self):
+        def produce() -> float | None: ...
+
+        graph = {"n": (produce, {}), "a": (_wants_pa, {"x": "n"})}
+        assert xra.wiring_conflicts(graph) == [
+            "n -> a(x): n is float | None, and a(x) declares a DataArray"
+        ]
+
+    @pytest.mark.parametrize(
+        ("returned", "consumer"),
+        [
+            (float, Pa | float),
+            (None, Pa | None),
+            (float | None, Pa | None),
+            (float, xr.DataArray),
+            (float, int),
+        ],
+    )
+    def test_allowed_by_the_consumer(self, returned, consumer):
+        def produce(): ...
+
+        produce.__annotations__ = {"return": returned}
+
+        def consume(x): ...
+
+        consume.__annotations__ = {"x": consumer}
+
+        graph = {"n": (produce, {}), "a": (consume, {"x": "n"})}
+        assert xra.wiring_conflicts(graph) == []
+
+    @pytest.mark.parametrize("returned", [Any, object, Pa | float, xr.DataArray])
+    def test_hint_allows_an_array(self, returned):
+        def produce(): ...
+
+        produce.__annotations__ = {"return": returned}
+
+        graph = {"n": (produce, {}), "a": (_wants_pa, {"x": "n"})}
+        assert xra.wiring_conflicts(graph) == []
+
+    def test_no_return_hint(self):
+        def produce(): ...
+
+        graph = {"n": (produce, {}), "a": (_wants_pa, {"x": "n"})}
+        assert xra.wiring_conflicts(graph) == []
+
+
+class TestRequiredParameters:
+    def test_declared_and_unwired_raises(self):
+        def two(x: Pa, y: Pa) -> None: ...
+
+        with pytest.raises(ValueError, match="parameter 'y' is declared and has no"):
+            xra.wiring_conflicts({"a": (two, {"x": "p"})}, inputs=["p"])
+
+    def test_declared_with_a_default(self):
+        def mask_optional(x: Pa, mask: Pa | None = None) -> None: ...
+
+        graph = {"a": (mask_optional, {"x": "p"})}
+        assert xra.wiring_conflicts(graph, inputs=["p"]) == []
+
+    def test_undeclared_and_unwired(self):
+        def windowed(x: Pa, window: int, raw: xr.DataArray) -> None: ...
+
+        assert xra.wiring_conflicts({"a": (windowed, {"x": "p"})}, inputs=["p"]) == []

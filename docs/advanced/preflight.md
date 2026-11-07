@@ -136,8 +136,9 @@ It applies the [rules for comparing declarations](working_with_declarations.md#c
 - **Several outputs:** a source `("stats", "mean")` is the `mean` field of the `TypedDict` or dataclass that node `stats` returns, and each field is its own producer.
 - **Several consumers:** the declarations for one value are compared in all pairs, so two stages reading one input are compared with each other.
 - **Nodes that declare nothing:** they break the chain, as carrying a declaration across one is a decision about what its body does.
-- **Parameters left out of the wiring:** such as one taking a constant, these are not compared.
-- **Names that do not match the functions:** a source that is neither a node nor an input, a parameter its function does not take, or a field its record does not have raises `ValueError`, rather than leaving an edge unchecked.
+- **Values that cannot be arrays:** a node returning `float`, a record or `None`, or a record field hinted `int`, is reported where it feeds a declared parameter that `enforce` would refuse it for. A missing or `Any` hint says nothing, and checking what reaches an undeclared parameter is a type checker's job, so neither is reported.
+- **Parameters left out of the wiring:** a declared parameter with no default must be wired, even to a name in `inputs` for a fixed array such as a mask, so no declared edge goes unchecked. Any other parameter may be left out, as for one taking a constant.
+- **Names that do not match the functions:** a source that is neither a node nor an input, a parameter its function does not take, or a field its record does not have, raises `ValueError` rather than leaving an edge unchecked, as does an unwired declared parameter.
 
 Like `declaration_conflicts`, it reports a fact about declarations, so it ignores [the switch](#respecting-the-switch).
 

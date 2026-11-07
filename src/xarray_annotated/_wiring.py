@@ -12,34 +12,95 @@ import inspect
 import itertools
 import types
 from collections.abc import Callable, Collection, Mapping
-from typing import Any, get_type_hints, is_typeddict
+from typing import (
+    Annotated,
+    Any,
+    TypeAliasType,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+    is_typeddict,
+)
 
-from ._annotations import _record_return
+import xarray as xr
+
+from ._annotations import _is_dataarray_type, _record_return
 from ._contract import declaration_conflicts
-from ._reader import Declared, declarations_from_signature
+from ._reader import _QUALIFIERS, Declared, declarations_from_signature
 
 __all__ = ["wiring_conflicts"]
 
 type Upstream = str | tuple[str, str]
 type Node = tuple[Callable[..., Any], Mapping[str, Upstream]]
 
+_UNKNOWN = object()
 
-def _record_fields(func: Callable[..., Any]) -> set[str] | None:
-    """Return the fields of the record `func` returns, or `None` if it returns none."""
-    record, _ = _record_return(get_type_hints(func, include_extras=True).get("return"))
+_NAMED = (
+    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    inspect.Parameter.KEYWORD_ONLY,
+)
+
+
+def _record_fields(return_hint: Any) -> dict[str, Any] | None:
+    """Map each field of a return hint's record to its hint, or `None` if none."""
+    record, _ = _record_return(return_hint)
     if record is None:
         return None
+    hints = get_type_hints(record, include_extras=True)
     if is_typeddict(record):
-        return set(get_type_hints(record))
-    return {f.name for f in dataclasses.fields(record)}
+        return hints
+    return {f.name: hints.get(f.name, _UNKNOWN) for f in dataclasses.fields(record)}
 
 
-def _param_names(func: Callable[..., Any]) -> set[str] | None:
-    """Return the names `func` accepts as keywords, or `None` if it takes `**kwargs`."""
-    params = inspect.signature(func).parameters.values()
-    if any(p.kind is p.VAR_KEYWORD for p in params):
-        return None
-    return {p.name for p in params if p.kind is not p.POSITIONAL_ONLY}
+def _members(hint: Any, path: frozenset[Any] = frozenset()) -> tuple[Any, ...]:
+    """Flatten a hint into the types a value of it can have.
+
+    Reads through `type` aliases, `Annotated`, `TypedDict` qualifiers and unions.  An
+    alias that refers to itself flattens to `_UNKNOWN`.
+    """
+    if isinstance(hint, TypeAliasType):
+        return (
+            _members(hint.__value__, path | {hint}) if hint not in path else (_UNKNOWN,)
+        )
+    origin = get_origin(hint)
+    if origin is Annotated or origin in _QUALIFIERS:
+        return _members(get_args(hint)[0], path)
+    if origin in (Union, types.UnionType):
+        return tuple(m for arg in get_args(hint) for m in _members(arg, path))
+    return (hint,)
+
+
+def _non_array_types(hint: Any) -> tuple[Any, ...] | None:
+    """The types a hint allows, or `None` if it could be a `DataArray` or is unknown."""
+    members = _members(hint)
+    for member in members:
+        if (
+            member is _UNKNOWN
+            or member is Any
+            or member is object
+            or isinstance(member, TypeVar)
+            or _is_dataarray_type(member)
+            or (isinstance(member, type) and issubclass(member, xr.DataArray))
+        ):
+            return None
+    return members
+
+
+def _refuses(declared: Declared, kinds: tuple[Any, ...]) -> bool:
+    """Whether `enforce` would refuse a value of every one of these types."""
+    return all(
+        types.NoneType not in declared.others
+        if kind is types.NoneType
+        else not _accepts_other(declared)
+        for kind in kinds
+    )
+
+
+def _type_name(kind: Any) -> str:
+    """Name a type in a message."""
+    return "None" if kind is types.NoneType else getattr(kind, "__name__", repr(kind))
 
 
 def _show(upstream: Upstream) -> str:
@@ -77,12 +138,18 @@ def wiring_conflicts(
     already conflicts with the producer, as that message would add nothing.
 
     A node that declares nothing breaks the chain, as whether it preserves a unit or a
-    structure is a decision about its body.  A whole record wired to a declared
-    `DataArray` parameter is reported, unless that parameter's union allows some other
-    type.
+    structure is a decision about its body.
+
+    A value whose hint rules out a `DataArray`, such as a node returning `float` or a
+    record, or a record field hinted `int`, is reported where it is wired to a
+    declared parameter that `enforce` would refuse it for.  A missing or `Any` hint
+    says nothing, so is not reported, and nor is a value wired to an undeclared
+    parameter, as checking those types is a type checker's job.
 
     The graph is checked against the functions as it is read, so a renamed parameter,
-    field or node raises rather than leaving an edge unchecked.
+    field or node raises rather than leaving an edge unchecked, as does a declared
+    parameter with no default that is not wired.  Other parameters may be left out of
+    the wiring, as for one taking a constant.
 
     Like `declaration_conflicts`, this reports a fact about declarations, so it ignores
     `enabled`.
@@ -90,8 +157,7 @@ def wiring_conflicts(
     Args:
         graph: Maps each node's name to `(func, wiring)`, where `wiring` maps a
             parameter of `func` to its source: a node's or an input's name, or a
-            `(node, field)` pair for one field of a node's record.  Parameters not
-            wired, such as those taking a constant, are not compared.
+            `(node, field)` pair for one field of a node's record.
         inputs: The names of the values that enter the pipeline from outside it.
 
     Returns:
@@ -101,8 +167,9 @@ def wiring_conflicts(
     Raises:
         ValueError: If a source names neither a node nor an input, a field the node's
             record does not have, or a field of a node that returns no record, if a
-            parameter is not one its function accepts, if a name is both a node and
-            an input, or if a declaration is malformed.
+            parameter is not one its function accepts, if a declared parameter with no
+            default is not wired, if a name is both a node and an input, or if a
+            declaration is malformed.
         TypeError: If a function has no readable type hints.
 
     Examples:
@@ -120,7 +187,11 @@ def wiring_conflicts(
     inputs = set(inputs)
     if both := sorted(inputs & graph.keys()):
         raise ValueError(f"{both} name both a node and an input")
-    fields = {name: _record_fields(func) for name, (func, _) in graph.items()}
+    returns = {
+        name: get_type_hints(func, include_extras=True).get("return", _UNKNOWN)
+        for name, (func, _) in graph.items()
+    }
+    fields = {name: _record_fields(hint) for name, hint in returns.items()}
     read = {
         name: declarations_from_signature(func) for name, (func, _) in graph.items()
     }
@@ -128,10 +199,12 @@ def wiring_conflicts(
     uses: dict[Upstream, list[tuple[str, Declared]]] = {}
     for name, (func, wiring) in graph.items():
         consumed, _ = read[name]
-        accepted = _param_names(func)
+        params = inspect.signature(func).parameters
+        takes_any = any(p.kind is p.VAR_KEYWORD for p in params.values())
         for param, upstream in wiring.items():
             where = f"node {name!r}, parameter {param!r}"
-            if accepted is not None and param not in accepted:
+            p = params.get(param)
+            if not takes_any and (p is None or p.kind not in _NAMED):
                 raise ValueError(
                     f"{where}: {func.__qualname__} has no parameter {param!r}"
                 )
@@ -155,25 +228,36 @@ def wiring_conflicts(
             if param in consumed:
                 label = f"{name}({param})"
                 uses.setdefault(upstream, []).append((label, consumed[param]))
+        for param in sorted(consumed.keys() - wiring.keys()):
+            p = params.get(param)
+            if p is not None and p.default is p.empty and p.kind in _NAMED:
+                raise ValueError(
+                    f"node {name!r}: parameter {param!r} is declared and has no "
+                    f"default, but is not wired. Wire it to a node or an input."
+                )
 
     conflicts = []
     for upstream, consumers in uses.items():
         source = _show(upstream)
         if isinstance(upstream, tuple):
-            record = read[upstream[0]][1]
-            produced = record.get(upstream[1]) if isinstance(record, dict) else None
+            node, field = upstream
+            record = read[node][1]
+            produced = record.get(field) if isinstance(record, dict) else None
+            hint = (fields[node] or {}).get(field, _UNKNOWN)
         else:
             produced = read[upstream][1] if upstream in read else None
-        if isinstance(produced, dict):
+            hint = returns.get(upstream, _UNKNOWN)
+        if (kinds := _non_array_types(hint)) is not None:
+            shown = " | ".join(map(_type_name, kinds))
             conflicts += [
-                f"{source} -> {label}: {source} returns a record, and {label} "
-                f"declares a DataArray"
+                f"{source} -> {label}: {source} is {shown}, and {label} declares a "
+                f"DataArray"
                 for label, declared in consumers
-                if not _accepts_other(declared)
+                if _refuses(declared, kinds)
             ]
             continue
         reported: dict[str, set[str]] = {}
-        if produced is not None:
+        if isinstance(produced, Declared):
             for label, declared in consumers:
                 found = declaration_conflicts(produced, declared)
                 reported[label] = {_facet(c) for c in found}
