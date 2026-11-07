@@ -39,6 +39,15 @@ class TestSingleReturn:
 
         assert f().attrs["units"] == "mm"
 
+    def test_fills_an_empty_label(self):
+        # As a body copying attrs from a netCDF template with units="" does.
+        @xra.check_annotations
+        @xra.stamp_output_units
+        def f() -> MM:
+            return _labelled("")
+
+        assert f().attrs["units"] == "mm"
+
     def test_stamps_a_copy_sharing_the_data(self):
         raw = _bare()
 

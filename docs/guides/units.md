@@ -66,7 +66,7 @@ How to state it depends on what the body does:
 | Changes the unit of the same quantity | Call [`xra.units.convert`][xarray_annotated.units.convert] |
 | Computes with pint | Neither, as the unit comes from the arithmetic; see [Using with pint](../tools/pint.md) |
 
-`stamp_output_units` fills a missing label from the declaration, and leaves a present one for `xra.check_annotations` to compare.
+`stamp_output_units` fills a missing or empty label from the declaration, and leaves a present one for `xra.check_annotations` to compare.
 It runs even under [`xra.enabled(False)`](first_principles.md#enabled), so later code reading the label sees the same thing whether or not checks run.
 
 Here a library works on bare numbers, so the declaration is the only statement of the unit there can be:

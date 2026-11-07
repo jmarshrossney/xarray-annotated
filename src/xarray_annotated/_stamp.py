@@ -35,7 +35,7 @@ def _stamp_one(value: Any, unit: str, overwrite: bool, where: str) -> Any:
     if not isinstance(value, xr.DataArray) or _quantified_units(value) is not None:
         return value
     have = value.attrs.get("units")
-    if have is None:
+    if have is None or have == "":
         return _stamped(value, unit)
     if overwrite and have != unit:
         _log.debug("overwriting the unit of %s: %r -> %r", where, have, unit)
@@ -199,7 +199,8 @@ def stamp_output_units(
     On each call, for the return or each field of a returned `TypedDict` or
     dataclass that declares a `Unit`:
 
-    * a plain array with no `units` attribute is labelled with the declared unit;
+    * a plain array with no `units` attribute, or an empty one, is labelled with the
+      declared unit;
     * a plain array with one keeps it, unless `overwrite` covers it, so a stale or
       copied label still reaches `check_annotations`;
     * a quantified array is left alone, as its unit comes from pint's arithmetic;
