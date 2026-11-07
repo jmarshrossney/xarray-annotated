@@ -25,11 +25,21 @@ The decorator is also renamed, which is recorded here because the name follows f
 
 ## Decision
 
-1. **Input and output unit declarations mean different things.** An input declaration is checked against the label the caller's data carries. An output declaration is stated by the developer: the package cannot see what the body did, so it can only check that the body and the signature agree.
-2. **`xra.stamp_output_units` fills each missing output label from the declaration.** A label that is present is left alone, and a mismatch raises in the checking decorator as before. A quantified output is never touched, as its unit comes from pint's arithmetic.
-3. **`overwrite` replaces a present label, on named outputs only.** `overwrite=("field", ...)` names fields of a returned record, and `overwrite=True` covers every output. A bare string, or a name that is not a field, raises `ValueError` at decoration. Each replacement logs at `DEBUG`, with both units.
-4. **`stamp_output_units` is a separate decorator, below the checking one, and always runs.** It is an operation like `xra.units.convert`, so `xra.enabled(False)` does not affect it. Placed above the checking decorator, it raises `ValueError` at decoration.
-5. **`enforce` is renamed `check_annotations`, and is written `xra.check_annotations` throughout the docs.** It only checks, and nothing is converted, labelled or respelled.
+1. **Input and output unit declarations mean different things.**
+   An input declaration is checked against the label the caller's data carries.
+   An output declaration is stated by the developer: the package cannot see what the body did, so it can only check that the body and the signature agree.
+2. **`xra.stamp_output_units` fills each missing output label from the declaration.**
+   A label that is present is left alone, and a mismatch raises in the checking decorator as before.
+   A quantified output is never touched, as its unit comes from pint's arithmetic.
+3. **`overwrite` replaces a present label, on named outputs only.**
+   `overwrite=("field", ...)` names fields of a returned record, and `overwrite=True` covers every output.
+   A bare string, or a name that is not a field, raises `ValueError` at decoration.
+   Each replacement logs at `DEBUG`, with both units.
+4. **`stamp_output_units` is a separate decorator, below the checking one, and always runs.**
+   It is an operation like `xra.units.convert`, so `xra.enabled(False)` does not affect it.
+   Placed above the checking decorator, it raises `ValueError` at decoration.
+5. **`enforce` is renamed `check_annotations`, and is written `xra.check_annotations` throughout the docs.**
+   It only checks, and nothing is converted, labelled or respelled.
 
 <!-- docs-test: skip -->
 ```python
@@ -97,10 +107,14 @@ Written `xra.check_annotations`, the name also says which annotations: `n: int` 
 
 ## Consequences
 
-- **Output labels are claims, and the docs say so.** A user guide page lists the ways an output label can be wrong. ADR 0003's consequence that output labels are written by hand in the default path no longer holds.
+- **Output labels are claims, and the docs say so.**
+  A user guide page lists the ways an output label can be wrong.
+  ADR 0003's consequence that output labels are written by hand in the default path no longer holds.
 - **Two decorators in a fixed order** where a body works on bare numbers, with the wrong order refused at decoration.
-- **A breaking rename:** `enforce` is removed with no alias. The only users are catena, satterc and xharvest, which migrate in the same change.
-- **Wrappers around libraries working on bare numbers still need tests against the library.** A stamp, like a hand label, proves nothing about the values, and satterc's `tests/test_pyrealm_units.py` is the pattern.
+- **A breaking rename:** `enforce` is removed with no alias.
+  The only users are catena, satterc and xharvest, which migrate in the same change.
+- **Wrappers around libraries working on bare numbers still need tests against the library.**
+  A stamp, like a hand label, proves nothing about the values, and satterc's `tests/test_pyrealm_units.py` is the pattern.
 
 ## When to revisit
 
