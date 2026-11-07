@@ -216,8 +216,9 @@ def stamp_output_units(
     Raises:
         ValueError: At decoration, if the return declares no `Unit`, a declared unit
             is malformed, the function is already wrapped by `check_annotations`, or
-            `overwrite` is a bare string or names a field that is not one of the
-            returned record's or declares no `Unit`.
+            `overwrite` is a bare string, names fields on a single-array return, or
+            names a field that is not one of the returned record's or declares no
+            `Unit`.
 
     Example:
         >>> from typing import Annotated

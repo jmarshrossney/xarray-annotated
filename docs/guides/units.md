@@ -85,7 +85,7 @@ runoff(3).attrs["units"]  # 'mm'
 ```
 
 Arithmetic with a plain number keeps the array's label, so this result is in metres and still labelled `Pa`.
-Naming it in `overwrite` replaces that label:
+`overwrite=True` replaces that label:
 
 ```python
 @xra.check_annotations
@@ -131,7 +131,7 @@ to_pascals(p)
 
 The package cannot tell a stale label from a forgotten conversion, where the label is true and the values are in the wrong unit.
 Both raise, because a false alarm is loud and a mislabelled result is silent.
-`stamp_output_units` leaves a present label in place, so this still raises under it, unless `overwrite` names the output.
+`stamp_output_units` leaves a present label in place, so this still raises under it, unless it is given `overwrite=True`.
 Here, return `xra.units.convert(p, "Pa")`, which changes the values and the label together.
 
 The opposite can also happen: inputs with conflicting labels leave no label, as do `pascal` and `Pa`, and so does `xr.set_options(keep_attrs=False)`, so a body that relies on an inherited label will then raise.
