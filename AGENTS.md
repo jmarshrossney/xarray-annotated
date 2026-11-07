@@ -78,3 +78,14 @@ Units are checked first on both sides, as that fixed order is the reason there i
   On the line before a fence, mark a fragment with `<!-- docs-test: skip -->` and a deliberate failure with `<!-- docs-test: raises SomeError -->`.
 - ADRs in `docs/adr/` are excluded from the site, so user-facing pages must not link to them.
 - `just docs` reporting a failed notebook cell is expected: `examples/notebook.py` demonstrates a `UnitError` by raising one.
+
+## Releasing
+
+Every PR merges to `main`; a release is a tag on it, made by the maintainer only.
+
+1. `uv version --bump rc` (giving e.g. `0.9.0rc1`), or `--bump stable` for a full release, and commit.
+2. `just tag`, then `just release`.
+3. After a full release, `uv version --bump minor --bump dev` and commit, so a git install of `main` does not report the released version.
+
+A pre-release lets downstream projects (conduit, satterc) test unreleased work from PyPI by asking for it explicitly (`>=0.9.0rc1`), while everyone else keeps the last stable release.
+The docs site deploys only on a stable release, so it documents what PyPI serves.
