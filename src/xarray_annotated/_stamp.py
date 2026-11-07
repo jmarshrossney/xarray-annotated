@@ -113,13 +113,13 @@ def _stamp_record(
     return record
 
 
-def _declared_units(output: Any) -> dict[str, str] | str | None:
-    """The declared output unit, or one per record field that declares one."""
+def _declared_units(output: Any) -> dict[str, str]:
+    """Each declared output unit, by record field, or under `"return"` for one array."""
     if isinstance(output, Declared):
-        return None if output.unit is None else output.unit.unit
+        return {} if output.unit is None else {"return": output.unit.unit}
     if isinstance(output, dict):
         return {n: d.unit.unit for n, d in output.items() if d.unit is not None}
-    return None
+    return {}
 
 
 def _decorate(
@@ -148,17 +148,22 @@ def _decorate(
             f"{where}: the return declares no Unit, so there is nothing to stamp."
         )
     record, record_optional = _record_return(hints.get("return"))
-    named = units if isinstance(units, dict) else {"return": units}
-    for name, unit in named.items():
+    for name, unit in units.items():
         assert_valid_unit(unit, f"[{qualname}] output {name!r}")
-    fields = _overwritten_fields(overwrite, named, record, where)
+    fields = _overwritten_fields(overwrite, units, record, where)
 
-    def _stamp(result: Any) -> Any:
-        if isinstance(units, str):
-            return _stamp_one(result, units, bool(fields), f"[{qualname}] output")
-        if result is None and record_optional:
-            return result
-        return _stamp_record(result, record, units, fields, f"[{qualname}]")
+    if record is None:
+        unit, replace = units["return"], bool(fields)
+
+        def _stamp(result: Any) -> Any:
+            return _stamp_one(result, unit, replace, f"[{qualname}] output")
+
+    else:
+
+        def _stamp(result: Any) -> Any:
+            if result is None and record_optional:
+                return result
+            return _stamp_record(result, record, units, fields, f"[{qualname}]")
 
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
