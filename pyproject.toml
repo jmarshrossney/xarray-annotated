@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "xarray-annotated"
-version = "0.9.0.dev0"
+version = "0.9.0rc1"
 description = "Run-time validation of xarray DataArray structure, units and frequency, declared via typing.Annotated"
 authors = [
     { name = "jmarshrossney", email = "17361029+jmarshrossney@users.noreply.github.com" }

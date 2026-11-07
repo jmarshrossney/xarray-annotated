@@ -2015,7 +2015,7 @@ wheels = [
 
 [[package]]
 name = "xarray-annotated"
-version = "0.9.0.dev0"
+version = "0.9.0rc1"
 source = { editable = "." }
 dependencies = [
     { name = "pandas" },
