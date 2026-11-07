@@ -7,14 +7,20 @@ Commands are in the `justfile`.
 These look like gaps but are decisions, so don't fill them unasked.
 
 - **Every failed check raises, and nothing softens it.**
-  There are no severity settings, warnings, `enforce` options or global behaviour settings, because a softened marker reads the same as a checked one to everything downstream.
+  There are no severity settings, warnings, `check_annotations` options or global behaviour settings, because a softened marker reads the same as a checked one to everything downstream.
   `xra.enabled` is the only behavioural global, and it is how to prototype.
 - **Checks change nothing.**
-  `enforce` passes on the objects it was given, with no converting, stamping, dequantifying or encoding changes, so a body behaves identically under `enabled(False)`.
-- **Declarations never convert, and outputs must already match.**
+  `check_annotations` passes on the objects it was given, with no converting, stamping, dequantifying or encoding changes, so a body computes identically under `enabled(False)`.
+  "Nothing" means values, shapes and types: stating a label is allowed, but only `stamp_output_units` does it, and it runs whatever `enabled` says.
+- **Declarations never convert, and outputs must match once stated.**
   A compatible-but-different unit raises, because whether a conversion is correct depends on the quantity: `g m-2 yr-1` and `g m-2 d-1` are compatible, and treating one as the other is wrong.
   On outputs, the package cannot tell a stale label (`p * 100` keeps `hPa`) from a forgotten conversion, and converting a stale label would apply the arithmetic twice.
   `units.convert`, at the call site, is the only thing that converts or respells a label.
+- **`stamp_output_units` only fills missing labels, and is never part of `check_annotations`.**
+  Input unit declarations are checked; output ones are stated by the developer, as the package cannot see the body.
+  Don't make it raise or warn on a mismatch, which `check_annotations` reports, or let `overwrite` act without naming fields or `True`.
+  It stays a separate decorator so that a pint body, which has none, keeps the missing-label error.
+  See `docs/adr/0004-output-units-are-stated-and-stamping.md`.
 - **`Unit` stays exact, and docs recommend plain arrays between functions.**
   Don't add a dimension-only marker or show quantified arrays crossing a function boundary as the default: a plain body handed a quantified array can silently change its answer.
   See `docs/adr/0001-exact-units-plain-arrays-between-functions.md`.
@@ -61,7 +67,7 @@ A new `Declared` slot fails `tests/test_facet_wiring.py` until it joins that fil
 | `_writer.py` | `annotate` |
 | `_reader.py` | a `Declared` slot and `declaration_from_hint` |
 | `_contract.py` | `assert_valid_declaration`, `_facet_checks`, `declaration_conflicts` |
-| `_enforce.py` | `_check_output`, and the hard-coded marker list in `_markers_in` |
+| `_check_annotations.py` | `_check_output`, and the hard-coded marker list in `_markers_in` |
 | `__init__.py` | re-export the marker from the root |
 
 Units are checked first on both sides, as that fixed order is the reason there is one decorator, so add the new check after them.

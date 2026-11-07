@@ -5,8 +5,8 @@ shared *writer* (`declaration → Annotated`).  A tool that builds functions
 dynamically (codegen, graph nodes) needs to stamp a declared contract onto a
 generated signature;
 `annotate` returns a real `Annotated` object it can assign to
-`fn.__annotations__["return"]`, so the ordinary `enforce` decorator then reads it
-straight back.
+`fn.__annotations__["return"]`, so the ordinary `check_annotations` decorator then
+reads it straight back.
 
 It is deliberately cross-domain — it assembles the units `Unit` marker, the schema
 `Dims` / `Dtype` / `Coords` markers, and the temporal `Freq` marker — so it lives at
@@ -40,7 +40,7 @@ def annotate(
     The inverse of `declaration_from_hint`: given facet values it returns a
     real `Annotated` object carrying the corresponding markers, in a fixed order
     (unit, dims, dtype, coords, freq).  Assign it to a function's return/parameter
-    annotation and the `enforce` decorator reads it back exactly as it would a
+    annotation and the `check_annotations` decorator reads it back exactly as it would a
     hand-written one.
 
     Each facet accepts either a raw value or an already-built marker, so a caller

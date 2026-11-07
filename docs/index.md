@@ -19,7 +19,7 @@ If a mistake can be caught by an automated check, it should be.
 
 ## How?
 
-Add markers to the [`Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated) hint of each `DataArray` parameter or return value, and decorate the function with `enforce`:
+Add markers to the [`Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated) hint of each `DataArray` parameter or return value, and decorate the function with `xra.check_annotations`:
 
 === "Plain xarray"
 
@@ -55,7 +55,7 @@ Add markers to the [`Annotated`](https://docs.python.org/3/library/typing.html#t
     R = 287.05  # specific gas constant of dry air, J / kg / K
 
 
-    @xra.enforce
+    @xra.check_annotations
     def daily_air_density(
         p: Annotated[xr.DataArray, Dims("time", "site"), Unit("hPa"), Freq("h")],
         t: Annotated[xr.DataArray, Dims("time", "site"), Unit("K"), Freq("h")],

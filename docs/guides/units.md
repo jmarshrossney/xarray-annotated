@@ -50,33 +50,59 @@ The unit is read from `attrs["units"]`, or from the data if the array is [pint-q
 | Incompatible (`kg` for `Pa`) | `UnitError` | `UnitError` |
 | Missing, unparseable or over-long | `UnitError` | `UnitError` |
 
-## Assigning units on output { #outputs }
+## Stating units on output { #outputs }
 
-An output must already match its declaration when the function returns, and nothing is converted or labelled on the author's behalf.
-How to get there depends on what the body does:
+Input and output declarations mean different things.
+An input declaration is checked against the label the caller's data carries.
+An output declaration is stated by you: the package cannot see what the body did, so checking the output shows that the body and the signature agree, not that the values are right.
+
+How to state it depends on what the body does:
 
 | The body | Do this |
 |---|---|
 | Keeps the unit, as with a mean over time | Nothing, as xarray keeps `attrs` |
-| Computes a new quantity | State its unit with `.assign_attrs(units=...)` |
+| Builds its result from bare numbers, as from a library working on NumPy arrays | Add [`@xra.stamp_output_units`][xarray_annotated.stamp_output_units] below `@xra.check_annotations` |
+| Computes a new quantity, and the result kept an input's label | `@xra.stamp_output_units(overwrite=True)`, or `.assign_attrs(units=...)` |
 | Changes the unit of the same quantity | Call [`xra.units.convert`][xarray_annotated.units.convert] |
-| Gets bare numbers from elsewhere | Build a `DataArray` and state the unit they are in |
+| Computes with pint | Neither, as the unit comes from the arithmetic; see [Using with pint](../tools/pint.md) |
 
-Here the arithmetic produces a new quantity, so the body states its unit:
+`stamp_output_units` fills a missing or empty label from the declaration, and leaves a present one for `xra.check_annotations` to compare.
+It runs even under [`xra.enabled(False)`](first_principles.md#enabled), so later code reading the label sees the same thing whether or not checks run.
+
+Here a library works on bare numbers, so the declaration is the only statement of the unit there can be:
 
 ```python
-@xra.enforce
+import numpy as np
+
+
+@xra.check_annotations
+@xra.stamp_output_units
+def runoff(n_days: int) -> Annotated[xr.DataArray, Unit("mm")]:
+    return xr.DataArray(np.zeros(n_days), dims="time")
+
+
+runoff(3).attrs["units"]  # 'mm'
+```
+
+Arithmetic with a plain number keeps the array's label, so this result is in metres and still labelled `Pa`.
+`overwrite=True` replaces that label:
+
+```python
+@xra.check_annotations
+@xra.stamp_output_units(overwrite=True)
 def altitude(
     p: Annotated[xr.DataArray, Unit("Pa")],
 ) -> Annotated[xr.DataArray, Unit("m")]:
-    alt = 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
-    return alt.assign_attrs(units="m")
+    return 44330.0 * (1.0 - (p / 101325.0) ** 0.1903)
 ```
 
-And here a library works on bare numbers, whose unit the body states and then converts:
+For a returned `TypedDict` or dataclass, `overwrite` takes the fields to replace, as in `overwrite=("altitude",)`, so a stale label on any other field still raises.
+[Output unit pitfalls](output_units.md) covers the ways a stated label can be wrong.
+
+And here a library documents a unit other than the one declared, so the body states the documented one and converts:
 
 ```python
-@xra.enforce
+@xra.check_annotations
 def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g / m**2 / day")]:
     raw = some_library.gpp(ppfd.values)  # documented as ug m-2 s-1
     out = xr.DataArray(raw, dims=ppfd.dims, coords=ppfd.coords)
@@ -88,7 +114,7 @@ def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g / m**2 / day")]:
 xarray keeps `attrs` through arithmetic, so this result is in `Pa` and still labelled `hPa`:
 
 ```python
-@xra.enforce
+@xra.check_annotations
 def to_pascals(
     p: Annotated[xr.DataArray, Unit("hPa")],
 ) -> Annotated[xr.DataArray, Unit("Pa")]:
@@ -105,6 +131,7 @@ to_pascals(p)
 
 The package cannot tell a stale label from a forgotten conversion, where the label is true and the values are in the wrong unit.
 Both raise, because a false alarm is loud and a mislabelled result is silent.
+`stamp_output_units` leaves a present label in place, so this still raises under it, unless it is given `overwrite=True`.
 Here, return `xra.units.convert(p, "Pa")`, which changes the values and the label together.
 
 The opposite can also happen: inputs with conflicting labels leave no label, as do `pascal` and `Pa`, and so does `xr.set_options(keep_attrs=False)`, so a body that relies on an inherited label will then raise.
@@ -112,10 +139,10 @@ The opposite can also happen: inputs with conflicting labels leave no label, as 
 ### What a label cannot catch { #what-a-label-cannot-catch }
 
 An output check shows that a body and its signature agree, not that the values are right.
-Values are never inspected, so `assign_attrs` is a claim rather than a check, and it can silence a wrong body as easily as a right one:
+Values are never inspected, so a label stated with `assign_attrs` or `stamp_output_units` is a claim rather than a check, and it can silence a wrong body as easily as a right one:
 
 ```python
-@xra.enforce
+@xra.check_annotations
 def daily_carbon(
     flux: Annotated[xr.DataArray, Unit("mol / m**2 / s")],
 ) -> Annotated[xr.DataArray, Unit("g / m**2 / day")]:

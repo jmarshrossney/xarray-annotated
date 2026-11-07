@@ -39,7 +39,7 @@ def _round_trip(da: xr.DataArray, path) -> np.ndarray:
         return back.values
 
 
-@xra.enforce
+@xra.check_annotations
 def _pascals(
     p: Annotated[xr.DataArray, Unit("Pa")],
 ) -> Annotated[xr.DataArray, Unit("Pa")]:
@@ -73,7 +73,7 @@ class TestConvertedArraysSurviveWriting:
         np.testing.assert_allclose(_round_trip(out, tmp_path / "a.nc"), self.EXPECTED)
 
     def test_pints_own_dequantify_corrupts_a_stale_packing(self, tmp_path):
-        # Why `units.dequantify` exists: pint keeps the packing, and enforce only checks.
+        # Why `units.dequantify` exists: pint keeps the packing, and check_annotations only checks.
         out = _pascals(_packed().pint.quantify().pint.to("Pa")).pint.dequantify()
         back = _round_trip(out, tmp_path / "a.nc")
         assert not np.allclose(back, self.EXPECTED)
@@ -83,7 +83,7 @@ class TestConvertedArraysSurviveWriting:
         np.testing.assert_allclose(_round_trip(out, tmp_path / "a.nc"), self.EXPECTED)
 
     def test_same_unit_keeps_its_packing(self, tmp_path):
-        @xra.enforce
+        @xra.check_annotations
         def f(p: Annotated[xr.DataArray, Unit("hPa")]):
             return p
 
@@ -98,7 +98,7 @@ class TestOpenedFiles:
     def test_every_check_leaves_the_array_on_disk(self, tmp_path):
         _hpa().to_netcdf(tmp_path / "a.nc")
 
-        @xra.enforce
+        @xra.check_annotations
         def f(
             p: Annotated[
                 xr.DataArray,
@@ -119,7 +119,7 @@ class TestOpenedFiles:
     def test_dtype_matches_whatever_the_file_format(self, tmp_path, file_format):
         _hpa().to_netcdf(tmp_path / "a.nc", format=file_format)
 
-        @xra.enforce
+        @xra.check_annotations
         def f(p: Annotated[xr.DataArray, Dtype("float64")]): ...
 
         with xr.open_dataarray(tmp_path / "a.nc") as opened:

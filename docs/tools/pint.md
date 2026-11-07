@@ -27,7 +27,7 @@ mass + accel
 ## How checks treat a quantified array
 
 `Unit` reads the unit a quantified array holds, without loading it, and requires the declared unit exactly, as it does on a plain array.
-`enforce` only checks, so a body receives whichever kind of array the caller passed.
+`xra.check_annotations` only checks, so a body receives whichever kind of array the caller passed.
 
 What an output check proves depends on where the unit came from:
 
@@ -52,13 +52,14 @@ A label is written as `hPa` under [the CF registry](../guides/units.md#cf-conven
 
 ## In a declared function { #in-a-declared-function }
 
-Call `xra.units.quantify` on each input you compute with, and return `xra.units.dequantify(xra.units.convert(result, unit))`:
+Call `xra.units.quantify` on each input you compute with, and return `xra.units.dequantify(xra.units.convert(result, unit))`.
+Leave [`xra.stamp_output_units`][xarray_annotated.stamp_output_units] off such a body, so that a unit pint loses raises rather than being filled from the declaration:
 
 ```python
 MOLAR_MASS_C = Q(12.011, "g / mol")  # (1)!
 
 
-@xra.enforce
+@xra.check_annotations
 def to_mass_flux(
     flux: Annotated[xr.DataArray, Unit("umol / m**2 / s")],
 ) -> Annotated[xr.DataArray, Unit("g / m**2 / day")]:
@@ -148,4 +149,4 @@ Each of these runs without a unit error, except where noted:
 | `mb` in a file | Parses as millibarn, and only a later conversion to `hPa` raises. The millibar is `mbar` |
 | The wrong species | `g` and `mol` do not track carbon or CO₂, so the wrong molar mass passes |
 | `differentiate` or `integrate` on a datetime axis | Values are scaled by `datetime_unit`, but the unit stays `m` rather than `m / s` |
-| `rolling` or `ffill` on a dask-backed array | `.rolling(...).mean()`, `.sum()`, `.std()` and `.ffill(...)` drop the unit with no warning, as of xarray 2026.9 and pint-xarray 0.6. A declared output then raises on the missing label, unless `.assign_attrs` hides the loss. To keep the unit, compute on the plain array: `xra.units.quantify(xra.units.dequantify(x).rolling(time=3).mean())` |
+| `rolling` or `ffill` on a dask-backed array | `.rolling(...).mean()`, `.sum()`, `.std()` and `.ffill(...)` drop the unit with no warning, as of xarray 2026.9 and pint-xarray 0.6. A declared output then raises on the missing label, unless `.assign_attrs` or `xra.stamp_output_units` hides the loss. To keep the unit, compute on the plain array: `xra.units.quantify(xra.units.dequantify(x).rolling(time=3).mean())` |

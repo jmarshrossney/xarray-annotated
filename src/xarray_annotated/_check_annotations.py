@@ -1,4 +1,4 @@
-"""`enforce`: apply every facet declared on a signature, in one decorator.
+"""`check_annotations`: apply every facet declared on a signature, in one decorator.
 
 The single cross-domain decorator.  It reads a function's
 `Annotated[DataArray, ...]` hints once, at decoration time, and on every call
@@ -37,7 +37,7 @@ from typing import (
 
 import xarray as xr
 
-from ._annotations import _record_return, _walk_signature
+from ._annotations import _record_return, _record_values, _walk_signature
 from ._config import resolve_enabled
 from ._contract import (
     _check_valid_declared,
@@ -53,7 +53,11 @@ from .temporal._check import _check_valid_freq
 from .units import Unit
 from .units._check import _check_output_unit
 
-__all__ = ["enforce"]
+__all__ = ["check_annotations"]
+
+#: Set on every function `check_annotations` wraps, so `stamp_output_units` placed
+#: above it, where it would run after the checks, is refused.
+_CHECKED = "_xarray_annotated_checked"
 
 
 def _nested_hints(hint: Any, seen: set[Any]) -> list[Any]:
@@ -130,10 +134,10 @@ def _refuse_stray_markers(hint: Any) -> None:
     unread = [hint] if declared is None else declared.others
     if stray := [marker for part in unread for marker in _markers_in(part)]:
         raise ValueError(
-            f"{hint!r} carries {stray!r}, which enforce cannot apply: only an "
-            f"Annotated[DataArray, ...] parameter, return, or TypedDict or dataclass "
-            f"field declares anything. For several outputs, return a TypedDict or "
-            f"dataclass."
+            f"{hint!r} carries {stray!r}, which check_annotations cannot apply: "
+            f"only an Annotated[DataArray, ...] parameter, return, or TypedDict or "
+            f"dataclass field declares anything. For several outputs, return a "
+            f"TypedDict or dataclass."
         )
 
 
@@ -148,14 +152,15 @@ def _refuse_unread_fields(hint: Any) -> None:
     stray = [m for field in _record_fields_in(hint) for m in _markers_in(field)]
     if stray:
         raise ValueError(
-            f"{hint!r} holds fields carrying {stray!r}, which enforce cannot apply: "
+            f"{hint!r} holds fields carrying {stray!r}, which check_annotations "
+            f"cannot apply: "
             f"only one TypedDict or dataclass return, optionally `| None`, is read "
             f"field by field, and not any class nested in its fields or any parameter. "
             f"Declare a parameter's arrays as parameters of their own."
         )
 
 
-def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
+def check_annotations(func: Callable[..., Any]) -> Callable[..., Any]:
     """Apply every facet declared on a function's signature at runtime.
 
     Reads the decorated function's type hints once: parameters annotated
@@ -165,8 +170,8 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
     hint, with at most one of each kind, so write `Coords("time", "lat")`.
 
     A `TypedDict` or dataclass return may also be written `R | None`, `R[int]` or
-    `Annotated[R, "description"]`, or through a `type` alias.  The caller receives a
-    shallow copy of it, which shares its arrays, and `__post_init__` does not run again.
+    `Annotated[R, "description"]`, or through a `type` alias.  The caller receives the
+    record the body returned, and `__post_init__` does not run again.
 
     On each call the wrapper:
 
@@ -186,7 +191,12 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
 
     There are no options: every failed check raises, and nothing is changed: the body
     receives the objects the caller passed, quantified or not, and the caller receives
-    the object the body returned.  Applied bare, as `@xra.enforce`.
+    the object the body returned.  Applied bare, as `@xra.check_annotations`.
+
+    An output unit is stated by the body, so the check shows that the body and the
+    signature agree, not that the values are right.  Where the body builds its outputs
+    from bare numbers, `stamp_output_units` below this decorator states the declared
+    units for it.
 
     On an `async def`, the checks run when the coroutine is awaited, and outputs
     are applied to the awaited result.
@@ -221,7 +231,7 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
         >>> import xarray as xr
         >>> import xarray_annotated as xra
         >>> from xarray_annotated import Dims, Unit
-        >>> @xra.enforce
+        >>> @xra.check_annotations
         ... def double(
         ...     p: Annotated[xr.DataArray, Unit("Pa"), Dims("x")],
         ... ) -> Annotated[xr.DataArray, Unit("Pa")]:
@@ -251,9 +261,9 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
             inspect.Parameter.VAR_KEYWORD,
         ):
             raise ValueError(
-                f"{qualname} input {name!r}: enforce cannot check a declaration "
-                f"on a variadic parameter, since it binds a tuple or dict rather "
-                f"than a DataArray. Use named parameters, or call the checkers "
+                f"{qualname} input {name!r}: check_annotations cannot check a "
+                f"declaration on a variadic parameter, since it binds a tuple or dict "
+                f"rather than a DataArray. Use named parameters, or call the checkers "
                 f"on each element in the function body."
             )
     if isinstance(output, Declared):
@@ -269,29 +279,28 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
             _refuse_other_value(value, decl, f"[{qualname}] output {name!r}")
             return
         if decl.unit is not None:
-            _check_output_unit(value, decl.unit, name, qualname)
+            _check_output_unit(value, decl.unit, name, qualname, decorated=True)
         if markers := decl.schema:
             _check_valid_schema(value, markers, name, qualname)
         if decl.freq is not None:
             _check_valid_freq(value, decl.freq, name, qualname)
 
     def _check_record(result: Any, cls: Any, fields: dict[str, Declared]) -> None:
-        is_dict = is_typeddict(cls)
-        if not isinstance(result, dict if is_dict else cls):
+        values = _record_values(result, cls, fields)
+        if values is None:
             raise ContractError(
                 f"[{qualname}] output: declared {cls.__name__}, got "
                 f"{type(result).__name__}."
             )
+        required = getattr(cls, "__required_keys__", frozenset())
         for name, decl in fields.items():
-            if is_dict and name not in result:
-                if name in cls.__required_keys__:
-                    raise ContractError(
-                        f"[{qualname}] output {name!r}: a required field of "
-                        f"{cls.__name__} is missing."
-                    )
-                continue
-            value = result[name] if is_dict else getattr(result, name, None)
-            _check_output(value, decl, name)
+            if name in values:
+                _check_output(values[name], decl, name)
+            elif name in required:
+                raise ContractError(
+                    f"[{qualname}] output {name!r}: a required field of "
+                    f"{cls.__name__} is missing."
+                )
 
     def _check_outputs(result: Any) -> None:
         if isinstance(output, Declared):
@@ -331,4 +340,5 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
 
     chosen = async_wrapper if inspect.iscoroutinefunction(func) else wrapper
     chosen.__annotations__ = dict(func.__annotations__)
+    setattr(chosen, _CHECKED, True)
     return chosen

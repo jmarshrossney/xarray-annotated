@@ -38,6 +38,7 @@ nav = [
   { "Worked example" = "example.md" },
   { "Help" = [
     { "Troubleshooting" = "guides/troubleshooting.md" },
+    { "Output unit pitfalls" = "guides/output_units.md" },
     { "FAQ" = "faq.md" },
   ]},
   { "API reference" = [

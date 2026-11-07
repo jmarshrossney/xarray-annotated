@@ -42,7 +42,7 @@ def daily_air_density(p: xr.DataArray, t: xr.DataArray) -> xr.DataArray:
 
 ## Move the expectations into the signature
 
-Each expectation becomes a marker in an `Annotated` hint, and `enforce` checks them on every call:
+Each expectation becomes a marker in an `Annotated` hint, and `xra.check_annotations` checks them on every call:
 
 ```python
 from typing import Annotated
@@ -52,7 +52,7 @@ import xarray_annotated as xra
 from xarray_annotated import Dims, Freq, Unit
 
 
-@xra.enforce
+@xra.check_annotations
 def daily_air_density(
     p: Annotated[xr.DataArray, Dims("time", "site"), Unit("hPa"), Freq("h")],
     t: Annotated[xr.DataArray, Dims("time", "site"), Unit("K"), Freq("h")],
@@ -62,7 +62,7 @@ def daily_air_density(
     return rho.resample(time="D").mean().assign_attrs(units="kg/m^3")  # (1)!
 ```
 
-1.  The one change to the body. The return value is checked too, and xarray cannot work out its unit, so the function has to state it. See [Assigning units on output](guides/units.md#outputs).
+1.  The one change to the body. The return value is checked too, and xarray cannot work out its unit, so the function has to state it. See [Stating units on output](guides/units.md#outputs).
 
 Your arrays need a `units` attribute, and the return value must end up in the declared unit.
 Nothing else about calling the function changes, as a check never alters the arrays passing through it.

@@ -38,7 +38,7 @@ pip install xarray-annotated
 
 ## Usage
 
-Add markers to the [`Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated) hint of each `DataArray` parameter or return value, and decorate the function with `enforce`:
+Add markers to the [`Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated) hint of each `DataArray` parameter or return value, and decorate the function with `xra.check_annotations`:
 
 ```python
 from typing import Annotated
@@ -50,7 +50,7 @@ from xarray_annotated import Dims, Freq, Unit
 R = 287.05  # specific gas constant of dry air, J / kg / K
 
 
-@xra.enforce
+@xra.check_annotations
 def daily_air_density(
     p: Annotated[xr.DataArray, Dims("time", "site"), Unit("hPa"), Freq("h")],
     t: Annotated[xr.DataArray, Dims("time", "site"), Unit("K"), Freq("h")],

@@ -1,4 +1,4 @@
-"""Whole-declaration checks, which tools rely on to agree with `enforce`."""
+"""Whole-declaration checks, which tools rely on to agree with `check_annotations`."""
 
 from typing import Annotated
 
@@ -26,17 +26,17 @@ type Full = Annotated[
 ]
 
 
-@xra.enforce
+@xra.check_annotations
 def _full(p: Full) -> None:
     pass
 
 
-@xra.enforce
+@xra.check_annotations
 def _optional(p: Annotated[xr.DataArray, Unit("Pa")] | None) -> None:
     pass
 
 
-@xra.enforce
+@xra.check_annotations
 def _or_float(p: Annotated[xr.DataArray, Unit("Pa")] | float) -> None:
     pass
 
@@ -142,12 +142,12 @@ class TestDeclarationConflicts:
             ("degC", "K"),
         ],
     )
-    def test_units_conflict_exactly_when_enforce_would_refuse(self, a, b):
+    def test_units_conflict_exactly_when_check_annotations_would_refuse(self, a, b):
         conflicts = xra.declaration_conflicts(
             Declared(unit=Unit(a)), Declared(unit=Unit(b))
         )
 
-        @xra.enforce
+        @xra.check_annotations
         def consumer(p: Annotated[xr.DataArray, Unit(b)]) -> None:
             pass
 

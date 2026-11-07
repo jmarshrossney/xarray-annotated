@@ -21,14 +21,14 @@ import numpy as np
 import pandas as pd
 
 
-@xra.enforce
+@xra.check_annotations
 def to_pascals(
     p: Annotated[xr.DataArray, Unit("hPa")],
 ) -> Annotated[xr.DataArray, Unit("Pa")]:
     return xra.units.convert(p, "Pa")
 
 
-@xra.enforce
+@xra.check_annotations
 def air_density(
     p: Annotated[xr.DataArray, Unit("Pa")],
     t: Annotated[xr.DataArray, Unit("K")],
@@ -36,7 +36,7 @@ def air_density(
     return (p / (287.05 * t)).assign_attrs(units="kg/m^3")
 
 
-@xra.enforce
+@xra.check_annotations
 def daily_mean(
     x: Annotated[xr.DataArray, Unit("kg/m^3"), Freq("h")],
 ) -> Annotated[xr.DataArray, Unit("kg/m^3"), Freq("D")]:
@@ -82,7 +82,7 @@ xra.declaration_violations(ds["t"], consumed["t"], "t", "air_density")
 ```
 
 [`declaration_violations`][xarray_annotated.declaration_violations] returns one message per failure, which suits a report of everything that is wrong.
-[`check_declared`][xarray_annotated.check_declared] applies the same checks, but raises at the first failure, as `enforce` would when calling the function:
+[`check_declared`][xarray_annotated.check_declared] applies the same checks, but raises at the first failure, as `xra.check_annotations` would when calling the function:
 
 <!-- docs-test: raises UnitError -->
 ```python
@@ -136,7 +136,7 @@ It applies the [rules for comparing declarations](working_with_declarations.md#c
 - **Several outputs:** a source `("stats", "mean")` is the `mean` field of the `TypedDict` or dataclass that node `stats` returns, and each field is its own producer.
 - **Several consumers:** the declarations for one value are compared in all pairs, so two stages reading one input are compared with each other.
 - **Nodes that declare nothing:** they break the chain, as carrying a declaration across one is a decision about what its body does.
-- **Values that cannot be arrays:** a node returning `float`, a record or `None`, or a record field hinted `int`, is reported where it feeds a declared parameter that `enforce` would refuse it for. A missing or `Any` hint says nothing, and checking what reaches an undeclared parameter is a type checker's job, so neither is reported.
+- **Values that cannot be arrays:** a node returning `float`, a record or `None`, or a record field hinted `int`, is reported where it feeds a declared parameter that `xra.check_annotations` would refuse it for. A missing or `Any` hint says nothing, and checking what reaches an undeclared parameter is a type checker's job, so neither is reported.
 - **Parameters left out of the wiring:** a declared parameter with no default must be wired, even to a name in `inputs` for a fixed array such as a mask, so no declared edge goes unchecked. Any other parameter may be left out, as for one taking a constant.
 - **Names that do not match the functions:** a source that is neither a node nor an input, a parameter its function does not take, or a field its record does not have, raises `ValueError` rather than leaving an edge unchecked, as does an unwired declared parameter.
 
@@ -187,7 +187,7 @@ Only calling the function shows that, and whether you can afford to before the r
 
 ### A pipeline that is mostly lazy { #mostly-lazy }
 
-If the inputs are dask-backed, which `chunks={}` asks for when opening a file, each function builds a dask graph rather than computing, and `enforce` checks its inputs and output as it would in a real run:
+If the inputs are dask-backed, which `chunks={}` asks for when opening a file, each function builds a dask graph rather than computing, and `xra.check_annotations` checks its inputs and output as it would in a real run:
 
 ```python
 ds = xr.open_dataset(path, chunks={})
@@ -210,7 +210,7 @@ This adds two things to walking the graph:
 
 <!-- docs-test: raises UnitError -->
 ```python
-@xra.enforce
+@xra.check_annotations
 def stale_label(
     p: Annotated[xr.DataArray, Unit("hPa")],
 ) -> Annotated[xr.DataArray, Unit("Pa")]:
@@ -229,7 +229,7 @@ It has limits of its own:
 ### A pipeline that cannot be lazy { #not-lazy }
 
 If bodies need the values early on, such as a solver written in numpy or a loop over a time axis, then calling the pipeline is the run.
-Walking the graph is unaffected, since it runs nothing, so it is the pre-flight for these pipelines, and what each body returns is left to `enforce` during the run.
+Walking the graph is unaffected, since it runs nothing, so it is the pre-flight for these pipelines, and what each body returns is left to `xra.check_annotations` during the run.
 
 Two things make that go further:
 
@@ -242,7 +242,7 @@ Reading metadata is what makes these checks cheap, and it is also their limit:
 
 - **Values go unread:** a check cannot tell that a label is false, so 1000 labelled `Pa` that is really `hPa` passes. See [What a label cannot catch](../guides/units.md#what-a-label-cannot-catch).
 - **Meaning goes unchecked:** two quantities in one unit look the same, such as specific humidity and mixing ratio in `kg/kg`.
-- **Only a real run is final:** keep `enforce` on for it, as a pre-flight describes only the files and code it saw.
+- **Only a real run is final:** keep `xra.check_annotations` on for it, as a pre-flight describes only the files and code it saw.
 
 ## Respecting the switch
 

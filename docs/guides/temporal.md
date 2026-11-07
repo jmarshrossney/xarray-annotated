@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 
-@xra.enforce
+@xra.check_annotations
 def daily_total(x: Annotated[xr.DataArray, Freq("D")]) -> None: ...
 
 

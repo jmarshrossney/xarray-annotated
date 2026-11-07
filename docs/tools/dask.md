@@ -16,7 +16,7 @@ p = xr.DataArray(
 ).chunk(time=24)
 
 
-@xra.enforce
+@xra.check_annotations
 def to_pascals(
     p: Annotated[xr.DataArray, Unit("hPa"), Freq("h")],
 ) -> Annotated[xr.DataArray, Unit("Pa")]:
@@ -40,7 +40,7 @@ Prefer the first, as it fails while building the graph rather than part way thro
 `dask.delayed` defers the check along with the call, so this raises nothing until it is computed:
 
 ```python
-@xra.enforce
+@xra.check_annotations
 def needs_pascals(x: Annotated[xr.DataArray, Unit("Pa")]) -> xr.DataArray:
     return x
 
@@ -62,7 +62,7 @@ On a lazy output, a check reads what dask expects the result to be, which comes 
 Usually that is right, but `xr.apply_ufunc` and similar calls take your word for it, and the check can only read what you told them:
 
 ```python
-@xra.enforce
+@xra.check_annotations
 def to_single_precision(
     x: Annotated[xr.DataArray, Unit("Pa")],
 ) -> Annotated[xr.DataArray, Unit("Pa"), Dtype("float64")]:

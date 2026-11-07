@@ -1,7 +1,7 @@
 """Tests for the `xarray_annotated.temporal` frequency-validation domain.
 
 Covers the `Freq` marker and its reader, the spacing/phase model behind
-`freq_compatible`, the runtime `check_freq`, the policy, and `enforce` over `Freq`
+`freq_compatible`, the runtime `check_freq`, the policy, and `check_annotations` over `Freq`
 markers.  Frequency validation never mutates: the checks assert/raise/warn but
 return arrays unchanged.
 """
@@ -281,13 +281,13 @@ class TestCheckFreq:
 
 
 # ---------------------------------------------------------------------------
-# enforce over Freq markers
+# check_annotations over Freq markers
 # ---------------------------------------------------------------------------
 
 
 class TestDeclareFreq:
     def test_validates_input_and_passes_through(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
             return x
 
@@ -297,7 +297,7 @@ class TestDeclareFreq:
             f(_da(pd.date_range("2020-01-01", periods=5, freq="7D")))
 
     def test_keyword_and_non_dataarray_args(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(flag: bool, x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
             return x
 
@@ -305,7 +305,7 @@ class TestDeclareFreq:
         assert f(True, x=da) is da
 
     def test_optional_none_input_skipped(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Freq("D")] | None = None,
         ) -> xr.DataArray | None:
@@ -314,7 +314,7 @@ class TestDeclareFreq:
         assert f(None) is None
 
     def test_declared_default_is_validated(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Freq("D")] = _da(
                 pd.date_range("2020-01-01", periods=5, freq="7D")
@@ -326,7 +326,7 @@ class TestDeclareFreq:
             f()  # x left at its non-conforming default
 
     def test_varargs_and_kwargs_survive_apply_defaults(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Freq("D")], *rest: int, **kw: int
         ) -> xr.DataArray:
@@ -338,7 +338,7 @@ class TestDeclareFreq:
         assert f(da, 1, 2, z=3) is da
 
     def test_output_single_validated(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(n: int) -> Annotated[xr.DataArray, Freq("W-SUN")]:
             # a Wednesday-anchored weekly axis: right spacing, wrong phase
             return _da(pd.date_range("2020-01-01", periods=5, freq="7D"))
@@ -350,7 +350,7 @@ class TestDeclareFreq:
         class Out(TypedDict):
             weekly: Annotated[xr.DataArray, Freq("W-SUN")]
 
-        @xra.enforce
+        @xra.check_annotations
         def f() -> Out:
             return {"weekly": _da(pd.date_range("2020-01-01", periods=5, freq="D"))}
 
@@ -362,7 +362,7 @@ class TestDeclareFreq:
         class Out:
             weekly: Annotated[xr.DataArray, Freq("W-SUN")]
 
-        @xra.enforce
+        @xra.check_annotations
         def f() -> Out:
             return Out(weekly=_da(pd.date_range("2020-01-01", periods=5, freq="D")))
 
@@ -370,7 +370,7 @@ class TestDeclareFreq:
             f()
 
     def test_wraps_metadata_preserved(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(x: Annotated[xr.DataArray, Freq("D")]) -> xr.DataArray:
             """Docstring."""
             return x
@@ -379,7 +379,7 @@ class TestDeclareFreq:
         assert f.__doc__ == "Docstring."
 
     def test_disabled_is_total_noop(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(x: Annotated[xr.DataArray, Freq("ME")]) -> xr.DataArray:
             return x
 
@@ -390,14 +390,14 @@ class TestDeclareFreq:
     def test_fail_fast_bad_input_declaration(self):
         with pytest.raises(ValueError, match="invalid frequency"):
 
-            @xra.enforce
+            @xra.check_annotations
             def f(x: Annotated[xr.DataArray, Freq("M")]) -> xr.DataArray:
                 return x
 
     def test_fail_fast_bad_output_declaration(self):
         with pytest.raises(ValueError, match="invalid frequency"):
 
-            @xra.enforce
+            @xra.check_annotations
             def f(n: int) -> Annotated[xr.DataArray, Freq("nonsense")]:
                 return _da(pd.date_range("2020-01-01", periods=5, freq="D"))
 
@@ -412,7 +412,7 @@ class TestAnnotationsSurviveWraps:
         fn = ns["f"]
         fn.__annotations__["return"] = Annotated[xr.DataArray, Freq("D")]
 
-        wrapped = xra.enforce(fn)
+        wrapped = xra.check_annotations(fn)
         hints = typing.get_type_hints(wrapped, include_extras=True)
         assert "return" in hints
 
@@ -947,8 +947,8 @@ class TestGapsOk:
         with xra.enabled(False):
             assert temporal.check_freq(da, Freq("D", gaps_ok=True), "x") is da
 
-    def test_the_reported_function_through_enforce(self):
-        @xra.enforce
+    def test_the_reported_function_through_check_annotations(self):
+        @xra.check_annotations
         def mask_snow_days(vwc: _GappyDaily, snow: _GappyDaily) -> _GappyDaily:
             return vwc.where(snow != 1)
 
@@ -959,7 +959,7 @@ class TestGapsOk:
             mask_snow_days(half_hourly, xr.zeros_like(half_hourly))
 
     def test_output_is_checked(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(da: xr.DataArray) -> Annotated[xr.DataArray, Freq("D", gaps_ok=True)]:
             return da
 
@@ -970,7 +970,7 @@ class TestGapsOk:
     def test_decoration_refuses_a_step_it_could_not_compare(self):
         with pytest.raises(ValueError, match="gaps_ok needs a positive step"):
 
-            @xra.enforce
+            @xra.check_annotations
             def f(x: Annotated[xr.DataArray, Freq("B", gaps_ok=True)]) -> None: ...
 
 
@@ -1070,8 +1070,8 @@ class TestAnyDay:
         with pytest.raises(temporal.FreqError, match="no step that short"):
             temporal.check_freq(_da(index), Freq("month", gaps_ok=True), "x")
 
-    def test_through_enforce(self):
-        @xra.enforce
+    def test_through_check_annotations(self):
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Freq("month")],
         ) -> Annotated[xr.DataArray, Freq("month")]:
@@ -1085,7 +1085,7 @@ class TestAnyDay:
     def test_decoration_refuses_a_zero_multiple(self):
         with pytest.raises(ValueError, match="invalid frequency '0month'"):
 
-            @xra.enforce
+            @xra.check_annotations
             def f(x: Annotated[xr.DataArray, Freq("0month")]) -> None: ...
 
     def test_legacy_alias_still_names_its_replacement(self):

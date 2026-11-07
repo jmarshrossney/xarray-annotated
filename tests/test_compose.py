@@ -1,4 +1,4 @@
-"""Tests for composing multiple facets under one ``@enforce``.
+"""Tests for composing multiple facets under one ``@check_annotations``.
 
 1. Several structural markers on one hint.
 2. Units alongside structure — units converts the input first, schema validates
@@ -66,7 +66,7 @@ class TestComposeSchemaMarkers:
     """Multiple structural markers on one hint."""
 
     def test_dims_and_coords_pass(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Dims("time", "x"), Coords("time")],
         ) -> xr.DataArray:
@@ -76,7 +76,7 @@ class TestComposeSchemaMarkers:
         assert f(da) is da  # never mutates
 
     def test_dims_ok_but_coord_missing_fails(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Dims("time", "x"), Coords("time")],
         ) -> xr.DataArray:
@@ -86,7 +86,7 @@ class TestComposeSchemaMarkers:
             f(_da(("time", "x")))  # dims satisfied, coordinate label absent
 
     def test_dims_coords_dtype_each_violation_fails(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[
                 xr.DataArray, Dims("time", "x"), Coords("time"), Dtype("float64")
@@ -108,7 +108,7 @@ class TestComposeDecorators:
     """Units and structure declared together."""
 
     def test_same_unit_respelling_passes(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")],
         ) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
@@ -122,7 +122,7 @@ class TestComposeDecorators:
             f(_da(("time", "x"), unit="hPa", fill=10.0))
 
     def test_dims_mismatch_raises_with_valid_units(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")],
         ) -> xr.DataArray:
@@ -133,7 +133,7 @@ class TestComposeDecorators:
             f(_da(("time",), unit="Pa", fill=1.0))
 
     def test_units_dimensional_mismatch_raises_with_valid_dims(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")],
         ) -> xr.DataArray:
@@ -144,7 +144,7 @@ class TestComposeDecorators:
             f(_da(("time", "x"), unit="kg", fill=1.0))
 
     def test_full_composition_dims_coords_dtype_units(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[
                 xr.DataArray,
@@ -161,7 +161,7 @@ class TestComposeDecorators:
         np.testing.assert_allclose(out.values, np.full(out.shape, 10.0))
 
     def test_output_checked_and_validated(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(n: int) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
             return _da(("time", "x"), unit="pascal", fill=5.0)
 
@@ -170,7 +170,7 @@ class TestComposeDecorators:
         np.testing.assert_allclose(out.values, np.full(out.shape, 5.0))  # not converted
 
     def test_output_dims_mismatch_raises(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(n: int) -> Annotated[xr.DataArray, Dims("time", "x"), Unit("Pa")]:
             return _da(("time",), unit="Pa", fill=5.0)
 
@@ -182,7 +182,7 @@ class TestComposeAllThreeDomains:
     """One hint, three declarations: ``Unit`` + ``Dims`` + ``Freq``."""
 
     def test_every_domain_honours_its_own_marker(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(x: Weekly) -> Weekly:
             return x
 
@@ -194,7 +194,7 @@ class TestComposeAllThreeDomains:
             f(_timeseries(freq="D", unit="degC"))
 
     def test_anchored_freq_rejects_wrong_phase_alongside_units(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(x: WeeklySun) -> xr.DataArray:
             return x
 
@@ -210,7 +210,7 @@ class TestComposeAllThreeDomains:
 
     def test_bare_string_beside_freq_is_a_description(self):
         # A bare string is a description: never a unit, never a frequency.
-        @xra.enforce
+        @xra.check_annotations
         def f(x: Annotated[xr.DataArray, "hPa", Freq("7D")]) -> xr.DataArray:
             return x
 
@@ -218,7 +218,7 @@ class TestComposeAllThreeDomains:
         assert out.attrs["units"] == "kg"
 
     def test_units_checked_alongside_freq_check(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Unit("Pa"), Freq("7D")],
         ) -> Annotated[xr.DataArray, Unit("Pa"), Freq("7D")]:
