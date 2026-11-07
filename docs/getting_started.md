@@ -62,7 +62,7 @@ def daily_air_density(
     return rho.resample(time="D").mean().assign_attrs(units="kg/m^3")  # (1)!
 ```
 
-1.  The one change to the body. The return value is checked too, and xarray cannot work out its unit, so the function has to state it. See [Assigning units on output](guides/units.md#outputs).
+1.  The one change to the body. The return value is checked too, and xarray cannot work out its unit, so the function has to state it. See [Stating units on output](guides/units.md#outputs).
 
 Your arrays need a `units` attribute, and the return value must end up in the declared unit.
 Nothing else about calling the function changes, as a check never alters the arrays passing through it.

@@ -39,9 +39,10 @@ _ATTACH_UNIT = (
 )
 
 _STATE_UNIT = (
-    "Work out which unit the values are in and state it with "
-    "`.assign_attrs(units=...)`. A label is a claim about the values and does not "
-    "correct them."
+    "Work out which unit the values are in. If the body builds them from bare numbers "
+    "in the declared unit, add @xra.stamp_output_units below @xra.check_annotations; "
+    "otherwise state it with `.assign_attrs(units=...)`. A label is a claim about the "
+    "values and does not correct them."
 )
 
 

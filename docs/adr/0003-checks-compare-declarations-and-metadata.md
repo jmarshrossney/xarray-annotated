@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted |
+| **Status** | Accepted, amended by [ADR 0004](0004-output-units-are-stated-and-stamping.md) |
 | **Date** | 2026-11-06 |
 | **Follows** | [ADR 0001](0001-exact-units-plain-arrays-between-functions.md) |
 
