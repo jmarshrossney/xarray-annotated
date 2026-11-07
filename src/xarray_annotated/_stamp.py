@@ -20,7 +20,7 @@ from typing import Any, get_type_hints, is_typeddict, overload
 import numpy as np
 import xarray as xr
 
-from ._annotations import _record_return
+from ._annotations import _record_return, _record_values
 from ._check_annotations import _CHECKED, _markers_in, _record_fields_in
 from ._reader import Declared, declarations_from_signature
 from .units._check import _quantified_units, _stamped, assert_valid_unit
@@ -92,20 +92,19 @@ def _stamp_record(
     result: Any, cls: Any, units: dict[str, str], overwrite: frozenset[str], where: str
 ) -> Any:
     """Stamp the declared fields of a returned record, on a shallow copy if any."""
-    is_dict = is_typeddict(cls)
-    if not isinstance(result, dict if is_dict else cls):
+    values = _record_values(result, cls, units)
+    if values is None:
         return result
     stamped = {}
-    for name, unit in units.items():
-        if is_dict and name not in result:
-            continue
-        value = result[name] if is_dict else getattr(result, name, None)
-        new = _stamp_one(value, unit, name in overwrite, f"{where} output {name!r}")
+    for name, value in values.items():
+        new = _stamp_one(
+            value, units[name], name in overwrite, f"{where} output {name!r}"
+        )
         if new is not value:
             stamped[name] = new
     if not stamped:
         return result
-    if is_dict:
+    if is_typeddict(cls):
         return {**result, **stamped}
     # A copy skips `__init__` and `__post_init__`, and works on a frozen class.
     record = copy.copy(result)

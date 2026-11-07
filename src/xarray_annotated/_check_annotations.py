@@ -37,7 +37,7 @@ from typing import (
 
 import xarray as xr
 
-from ._annotations import _record_return, _walk_signature
+from ._annotations import _record_return, _record_values, _walk_signature
 from ._config import resolve_enabled
 from ._contract import (
     _check_valid_declared,
@@ -286,22 +286,21 @@ def check_annotations(func: Callable[..., Any]) -> Callable[..., Any]:
             _check_valid_freq(value, decl.freq, name, qualname)
 
     def _check_record(result: Any, cls: Any, fields: dict[str, Declared]) -> None:
-        is_dict = is_typeddict(cls)
-        if not isinstance(result, dict if is_dict else cls):
+        values = _record_values(result, cls, fields)
+        if values is None:
             raise ContractError(
                 f"[{qualname}] output: declared {cls.__name__}, got "
                 f"{type(result).__name__}."
             )
+        required = getattr(cls, "__required_keys__", frozenset())
         for name, decl in fields.items():
-            if is_dict and name not in result:
-                if name in cls.__required_keys__:
-                    raise ContractError(
-                        f"[{qualname}] output {name!r}: a required field of "
-                        f"{cls.__name__} is missing."
-                    )
-                continue
-            value = result[name] if is_dict else getattr(result, name, None)
-            _check_output(value, decl, name)
+            if name in values:
+                _check_output(values[name], decl, name)
+            elif name in required:
+                raise ContractError(
+                    f"[{qualname}] output {name!r}: a required field of "
+                    f"{cls.__name__} is missing."
+                )
 
     def _check_outputs(result: Any) -> None:
         if isinstance(output, Declared):

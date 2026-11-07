@@ -115,6 +115,26 @@ def _record_return(hint: Any) -> tuple[Any, bool]:
     return (record if isinstance(record, type) and is_record else None), optional
 
 
+def _record_values(
+    result: Any, cls: Any, names: Iterable[str]
+) -> dict[str, Any] | None:
+    """Read the named fields of a returned `TypedDict` or dataclass.
+
+    A key absent from a `TypedDict` is left out, so the caller decides whether it
+    was required, and a dataclass field missing from `result` reads as `None`.
+
+    Returns:
+        Each present field's value by name, or `None` if `result` is not a `cls`.
+    """
+    if is_typeddict(cls):
+        if not isinstance(result, dict):
+            return None
+        return {name: result[name] for name in names if name in result}
+    if not isinstance(result, cls):
+        return None
+    return {name: getattr(result, name, None) for name in names}
+
+
 def _walk_signature[T](
     func: object,
     extract: Callable[[Any], T | None],
