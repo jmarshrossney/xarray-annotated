@@ -279,7 +279,7 @@ def check_annotations(func: Callable[..., Any]) -> Callable[..., Any]:
             _refuse_other_value(value, decl, f"[{qualname}] output {name!r}")
             return
         if decl.unit is not None:
-            _check_output_unit(value, decl.unit, name, qualname)
+            _check_output_unit(value, decl.unit, name, qualname, decorated=True)
         if markers := decl.schema:
             _check_valid_schema(value, markers, name, qualname)
         if decl.freq is not None:

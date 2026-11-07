@@ -266,6 +266,17 @@ class TestOutputs:
         with pytest.raises(UnitError, match=r"no 'units' attribute.*assign_attrs"):
             self._returning(None)()
 
+    def test_missing_label_suggests_stamping(self):
+        with pytest.raises(UnitError, match="stamp_output_units"):
+            self._returning(None)()
+
+    @pytest.mark.parametrize("label", ["not_a_unit", "m" * 10_000])
+    def test_unreadable_label_does_not_suggest_stamping(self, label):
+        # Stamping only fills a missing label, so it cannot fix one that is present.
+        with pytest.raises(UnitError) as info:
+            self._returning(label)()
+        assert "stamp_output_units" not in str(info.value)
+
     def test_unparseable_label_raises(self):
         with pytest.raises(UnitError, match="unparseable 'units' attribute"):
             self._returning("not_a_unit")()
@@ -536,6 +547,11 @@ class TestCheckOutputUnitsPrimitive:
     def test_has_no_setting(self):
         with pytest.raises(TypeError):
             units.check_output_units(_da([[1.0]]), "Pa", "r", on_output="stamp")  # type: ignore[call-arg]
+
+    def test_missing_label_does_not_suggest_a_decorator(self):
+        with pytest.raises(UnitError, match="assign_attrs") as info:
+            units.check_output_units(_da([[1.0]]), "Pa", "return")
+        assert "stamp_output_units" not in str(info.value)
 
     def test_qualname_omitted_when_none(self):
         with pytest.raises(UnitError, match="output 'return'") as excinfo:
