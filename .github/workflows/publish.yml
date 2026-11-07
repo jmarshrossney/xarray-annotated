@@ -3,20 +3,22 @@ name: Publish to PyPI
 # Publishing workflow with three trigger modes:
 #
 # 1. Publish to TestPyPI (verify before a full release):
-#      git tag v<version>
-#      git push --tags
+#      just tag
+#    which tags the version in pyproject.toml and pushes the tag.
 #
-# 2. Publish to PyPI (full release):
-#    Create a GitHub Release via the GitHub UI or CLI, e.g.:
-#      gh release create v<version> --generate-notes
-#    Note: the release tag must match an existing tag, or GitHub will create it.
+# 2. Publish to PyPI:
+#      just release
+#    or create a GitHub Release for that tag on github.com. A version such as
+#    0.2.0rc1 is a pre-release: PyPI serves it only to those who ask for it,
+#    and the docs workflow does not deploy it. `just release` marks it as one
+#    on GitHub; on github.com, tick "Set as a pre-release".
 #
 # 3. Manual publish (Actions tab -> "Publish to PyPI" -> "Run workflow"):
 #    Choose 'testpypi' or 'pypi' from the dropdown. Defaults to testpypi.
 
 on:
   release:
-    types: [created]
+    types: [published]
   push:
     tags:
       - 'v*'

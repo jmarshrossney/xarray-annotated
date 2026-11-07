@@ -25,4 +25,4 @@ An alias is checked exactly like the hint it stands for, but keep these in mind:
   A marker cannot be replaced, so a second `Unit` raises `ValueError`.
   Name the parts that repeat, such as dims and frequency, and add the rest where they are used.
 - **Import aliases at run time.**
-  `enforce` reads them at decoration, so an alias imported only under `TYPE_CHECKING` raises `NameError`.
+  `xra.check_annotations` reads them at decoration, so an alias imported only under `TYPE_CHECKING` raises `NameError`.

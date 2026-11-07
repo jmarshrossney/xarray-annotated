@@ -43,7 +43,7 @@ hint = annotate(unit="Pa", dims=("time", "x"), dtype="float64", freq="7D")
 # Annotated[xr.DataArray, Unit("Pa"), Dims("time", "x"), Dtype("float64"), Freq("7D")]
 ```
 
-Assign the result to a function's `__annotations__` and `@xra.enforce` reads it as if it were hand-written.
+Assign the result to a function's `__annotations__` and `@xra.check_annotations` reads it as if it were hand-written.
 The first positional argument is the base type, so a jaxtyping array type can be passed there.
 
 ## Comparing declarations { #comparing }
@@ -52,14 +52,14 @@ Each declaration can look fine on its own and still disagree with the next stage
 [`declaration_conflicts`][xarray_annotated.declaration_conflicts] compares two of them, as read above:
 
 ```python
-@xra.enforce
+@xra.check_annotations
 def to_pascals(
     p: Annotated[xr.DataArray, Unit("hPa")],
 ) -> Annotated[xr.DataArray, Unit("Pa")]:
     return xra.units.convert(p, "Pa")
 
 
-@xra.enforce
+@xra.check_annotations
 def altitude(
     p: Annotated[xr.DataArray, Unit("hPa")],
 ) -> Annotated[xr.DataArray, Unit("m")]:
@@ -75,11 +75,11 @@ xra.declaration_conflicts(produced, consumed["p"])
 ```
 
 - **Partly annotated pipelines:** a facet declared on only one side cannot conflict, so you can adopt this one function at a time.
-- **Units:** they conflict unless equal, matching `enforce`. `units_compatible` alone would pass this example, which `enforce` would then refuse.
+- **Units:** they conflict unless equal, matching `xra.check_annotations`. `units_compatible` alone would pass this example, which `xra.check_annotations` would then refuse.
 - **`Coords`:** they never conflict, since each declaration only requires names to be present.
 - **Several consumers:** compare all pairs of the declarations for one array, not each against the first. A loose `Dims` or `Dtype` is compatible with stricter ones that conflict with each other.
 - **No conflict is not proof:** `Freq("D", gaps_ok=True)` is compatible with `Freq("D")`, which still raises on an axis with holes when the data arrives.
 - **Malformed declarations:** these raise `ValueError` rather than conflict, and [`assert_valid_declaration`][xarray_annotated.assert_valid_declaration] asks only that.
 - **The switch:** a conflict is a fact about declarations, so this ignores [`xra.enabled`](../guides/first_principles.md#enabled). A tool that should stay quiet can ask [`resolve_enabled`][xarray_annotated.resolve_enabled] first.
 
-To run these comparisons across a pipeline, and against its input files, see [Pre-flight checks](preflight.md).
+To run these comparisons along every edge of a pipeline with [`wiring_conflicts`][xarray_annotated.wiring_conflicts], and against its input files, see [Pre-flight checks](preflight.md#whole-graph).

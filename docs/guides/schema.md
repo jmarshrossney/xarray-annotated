@@ -6,7 +6,7 @@ A mismatch raises [`SchemaError`][xarray_annotated.schema.SchemaError], and a ma
 Use them together, with at most one of each in a hint:
 
 ```python
-@xra.enforce
+@xra.check_annotations
 def column_mean(
     x: Annotated[xr.DataArray, Dims("time", "level"), Coords("level"), Dtype("float")],
 ) -> Annotated[xr.DataArray, Dims("time"), Dtype("float")]:
@@ -37,7 +37,7 @@ For sizes, and their consistency across arguments, see [jaxtyping](../tools/jaxt
 A dimension can exist with no coordinate values, so this is a separate question from `Dims`:
 
 ```python
-@xra.enforce
+@xra.check_annotations
 def at_site(x: Annotated[xr.DataArray, Dims("site"), Coords("site")]) -> None: ...
 
 

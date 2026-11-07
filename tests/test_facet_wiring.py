@@ -97,7 +97,7 @@ def test_output_is_checked(slot):
             return _array()
 
         func.__annotations__["return"] = xra.annotate(**{slot: marker})
-        return xra.enforce(func)
+        return xra.check_annotations(func)
 
     returning(facet.fits)()
     with pytest.raises(facet.error):
@@ -112,7 +112,7 @@ def test_stray_marker_is_refused(slot):
     hint = xra.annotate(**{slot: FACETS[slot].fits})
     func.__annotations__["p"] = tuple[hint, int]
     with pytest.raises(ValueError, match="cannot apply"):
-        xra.enforce(func)
+        xra.check_annotations(func)
 
 
 @parametrize_facets

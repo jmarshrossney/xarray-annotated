@@ -7,14 +7,14 @@ coordinates (``Coords``), and dtype (``Dtype``).  The structural counterpart to
 never converts or mutates).
 
 Declare several at once inside ``Annotated`` and apply them with
-``xarray_annotated.enforce``:
+``xarray_annotated.check_annotations``:
 
     from typing import Annotated
     import xarray as xr
     import xarray_annotated as xra
     from xarray_annotated import Dims, Dtype
 
-    @xra.enforce
+    @xra.check_annotations
     def f(
         x: Annotated[xr.DataArray, Dims("time", "x"), Dtype("float64")],
     ) -> xr.DataArray: ...

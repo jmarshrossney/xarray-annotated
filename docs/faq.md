@@ -76,13 +76,20 @@ A process-wide setting could loosen a check with nothing at the definition to sh
 The one exception is the on/off switch, which decides whether checks run at all rather than how they behave.
 The unit registry is also process-wide, but it decides only [which units parse](guides/units.md#choosing-a-unit-registry).
 
-## Why doesn't `enforce` fix or label an output's unit?
+## Why doesn't `xra.check_annotations` fix an output's unit?
 
 A label that differs from the declaration could be a forgotten conversion, where the label is true and the values are in the wrong unit, or a stale label left behind by arithmetic.
 The package cannot tell them apart, and fixing the wrong one would produce a mislabelled result without any error.
 So both raise, as a false alarm is loud and a mislabelled result is silent.
 
-See [Assigning units on output](guides/units.md#outputs).
+A missing label is different: the declaration is the only statement of the unit there can be, so [`xra.stamp_output_units`][xarray_annotated.stamp_output_units] can state it.
+See [Stating units on output](guides/units.md#outputs).
+
+## Why is `stamp_output_units` a separate decorator?
+
+It suits a body that builds its outputs from bare numbers, and not one that computes with pint, where a missing label means pint lost the unit.
+As its own decorator it marks which kind of body a function is, and a pint body without it keeps that error.
+It also runs when checks are switched off, which a part of `xra.check_annotations` could not do without the switch meaning two things.
 
 ## Why not use a static type checker?
 

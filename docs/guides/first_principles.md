@@ -3,7 +3,7 @@
 ## Writing a declaration
 
 A declaration is one or more markers in an [`Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated) hint on a parameter or return value.
-Decorate the function with [`enforce`][xarray_annotated.enforce] and the markers are checked on every call:
+Decorate the function with [`xra.check_annotations`][xarray_annotated.check_annotations] and the markers are checked on every call:
 
 ```python
 from typing import Annotated
@@ -13,7 +13,7 @@ import xarray_annotated as xra
 from xarray_annotated import Dims, Unit
 
 
-@xra.enforce
+@xra.check_annotations
 def mean_over_time(
     x: Annotated[xr.DataArray, Dims("time", "site"), Unit("K")],
 ) -> Annotated[xr.DataArray, Dims("site"), Unit("K")]:
@@ -61,7 +61,7 @@ Return a `TypedDict` or dataclass, and declare its fields:
         gust: NotRequired[Annotated[xr.DataArray, Dims("time"), Unit("m/s")]]
 
 
-    @xra.enforce
+    @xra.check_annotations
     def wind(
         u: Annotated[xr.DataArray, Dims("time"), Unit("m/s")],
         v: Annotated[xr.DataArray, Dims("time"), Unit("m/s")],
@@ -86,7 +86,7 @@ Return a `TypedDict` or dataclass, and declare its fields:
         gust: Annotated[xr.DataArray, Dims("time"), Unit("m/s")] | None = None
 
 
-    @xra.enforce
+    @xra.check_annotations
     def wind(
         u: Annotated[xr.DataArray, Dims("time"), Unit("m/s")],
         v: Annotated[xr.DataArray, Dims("time"), Unit("m/s")],
@@ -100,7 +100,7 @@ Return a `TypedDict` or dataclass, and declare its fields:
 - **Undeclared fields:** a field with no markers is not checked.
 - **The container itself:** the caller receives a shallow copy of the dict or dataclass, which shares its arrays, and `__post_init__` does not run again.
 
-A `tuple` or `NamedTuple` return has no fields `enforce` can read, so markers there raise `ValueError` when the function is decorated.
+A `tuple` or `NamedTuple` return has no fields `xra.check_annotations` can read, so markers there raise `ValueError` when the function is decorated.
 The same goes for a parameter holding a class with declared fields, so declare a parameter's arrays as parameters of their own.
 
 ## Optional arguments and Unions

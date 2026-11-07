@@ -31,7 +31,7 @@ Q = xra.units.get_registry().Quantity
 R = Q(287.05, "J / kg / K")
 
 
-@xra.enforce
+@xra.check_annotations
 def air_density(
     p: Annotated[xr.DataArray, Unit("Pa")],
     t: Annotated[xr.DataArray, Unit("K")],

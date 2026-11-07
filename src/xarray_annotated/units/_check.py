@@ -39,9 +39,16 @@ _ATTACH_UNIT = (
 )
 
 _STATE_UNIT = (
-    "Work out which unit the values are in and state it with "
+    "Work out which unit the values are in, and state it with "
     "`.assign_attrs(units=...)`. A label is a claim about the values and does not "
     "correct them."
+)
+
+_STAMP_UNIT = (
+    "Work out which unit the values are in. If the body builds them from bare numbers "
+    "in the declared unit, add @xra.stamp_output_units below @xra.check_annotations; "
+    "otherwise state it with `.assign_attrs(units=...)`. A label is a claim about the "
+    "values and does not correct them."
 )
 
 
@@ -255,6 +262,7 @@ def _own_unit(
     where: str,
     remedy: str,
     error: type[Exception],
+    missing: str | None = None,
 ) -> tuple[str, bool]:
     """Read the unit an array says it is in, refusing one that cannot be checked.
 
@@ -270,6 +278,7 @@ def _own_unit(
         where: Names the array in error messages.
         remedy: What to do about a missing or unreadable unit.
         error: What to raise, as a check and an operation raise different things.
+        missing: What to do about a missing unit, if not `remedy`.
 
     Returns:
         The unit as a string, and whether the array is quantified.
@@ -284,7 +293,7 @@ def _own_unit(
     expected = "" if declared is None else f"declared {declared!r}"
     if have is None:
         about = f" ({expected})" if expected else ""
-        raise error(f"{where} has no 'units' attribute{about}. {remedy}")
+        raise error(f"{where} has no 'units' attribute{about}. {missing or remedy}")
     if isinstance(have, str) and len(have) > _MAX_UNIT_LEN:
         # An over-long units attribute can hang pint's parser (DoS); refuse it
         # *before* parsing. Never echo `have` in the message -- it may be huge.
@@ -477,7 +486,7 @@ def convert(da: xr.DataArray, unit: str | Unit) -> xr.DataArray:
     """Convert a `DataArray` to `unit`, where you know that is correct for the data.
 
     Pint knows whether two units are compatible, but not whether converting is right
-    for this quantity, so `enforce` never does this for you.
+    for this quantity, so `check_annotations` never does this for you.
 
     The result is the same kind of array as `da`.  Only the data is converted, so
     coordinates and their labels are left alone.  Every conversion is logged at DEBUG on
@@ -541,14 +550,23 @@ def convert(da: xr.DataArray, unit: str | Unit) -> xr.DataArray:
 
 
 def _check_output_unit(
-    da: xr.DataArray, declared: str | Unit, name: str, qualname: str | None
+    da: xr.DataArray,
+    declared: str | Unit,
+    name: str,
+    qualname: str | None,
+    decorated: bool = False,
 ) -> None:
-    """`check_output_units` on a validated declaration, whatever `enabled` says."""
+    """`check_output_units` on a validated declaration, whatever `enabled` says.
+
+    `decorated` says `da` is a decorated function's return, so a missing label can be
+    stated with `stamp_output_units`.
+    """
     declared = str(declared)
     prefix = f"[{qualname}] " if qualname else ""
     where = f"{prefix}output {name!r}"
 
-    have, quantified = _own_unit(da, declared, where, _STATE_UNIT, UnitError)
+    missing = _STAMP_UNIT if decorated else None
+    have, quantified = _own_unit(da, declared, where, _STATE_UNIT, UnitError, missing)
     if units_equal(have, declared):
         return
     hint = (

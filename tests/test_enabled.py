@@ -16,7 +16,7 @@ def _resolve() -> bool:
     return _config.resolve_enabled()
 
 
-@xra.enforce
+@xra.check_annotations
 def _to_pa(
     p: Annotated[xr.DataArray, Unit("Pa")],
 ) -> Annotated[xr.DataArray, Unit("Pa")]:
@@ -118,5 +118,5 @@ class TestOffIsTotal:
             pytest.raises(ValueError, match="not a recognised unit"),
         ):
 
-            @xra.enforce
+            @xra.check_annotations
             def bad(p: Annotated[xr.DataArray, Unit("not_a_unit")]) -> None: ...

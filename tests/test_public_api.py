@@ -171,7 +171,7 @@ def test_version_matches_pyproject():
 
 
 def test_annotations_are_never_stringized():
-    """`from __future__ import annotations` makes `enforce` re-evaluate hints.
+    """`from __future__ import annotations` makes `check_annotations` re-evaluate hints.
 
     A function-local alias or a `TYPE_CHECKING`-only name then raises `NameError` at
     decoration, so neither the package nor code exercising it may use the import.
@@ -217,8 +217,8 @@ class TestEveryFailedCheckRaises:
     def test_no_severity_parameter(self, item):
         assert not set(inspect.signature(item).parameters) & set(self.SEVERITIES)
 
-    def test_enforce_takes_only_the_function(self):
-        assert list(inspect.signature(xra.enforce).parameters) == ["func"]
+    def test_check_annotations_takes_only_the_function(self):
+        assert list(inspect.signature(xra.check_annotations).parameters) == ["func"]
 
     def test_no_warnings_are_emitted(self):
         src = pathlib.Path(xra.__file__).parent
