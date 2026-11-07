@@ -17,6 +17,7 @@ import logging
 from collections.abc import Callable, Iterable
 from typing import Any, get_type_hints, is_typeddict, overload
 
+import numpy as np
 import xarray as xr
 
 from ._annotations import _record_return
@@ -43,7 +44,7 @@ def _stamp_one(value: Any, unit: str, overwrite: bool, where: str) -> Any:
 
 
 def _overwritten_fields(
-    overwrite: bool | Iterable[str],
+    overwrite: bool | np.bool_ | Iterable[str],
     units: dict[str, str],
     record: Any,
     where: str,
@@ -51,15 +52,21 @@ def _overwritten_fields(
     """Resolve `overwrite` to the fields it names, refusing what it cannot apply to.
 
     Raises:
-        ValueError: If `overwrite` is a bare string, names a field that is not one
-            of the record's, or names one that declares no unit.
+        ValueError: If `overwrite` is neither a bool nor an iterable of names, is a
+            bare string, names a field that is not one of the record's, or names one
+            that declares no unit.
     """
-    if isinstance(overwrite, bool):
+    if isinstance(overwrite, bool | np.bool_):
         return frozenset(units) if overwrite else frozenset()
     if isinstance(overwrite, str):
         raise ValueError(
             f"{where}: overwrite={overwrite!r} is a bare string. Pass a tuple of field "
             f"names, as overwrite=({overwrite!r},), or True for every output."
+        )
+    if not isinstance(overwrite, Iterable):
+        raise ValueError(
+            f"{where}: overwrite={overwrite!r} is neither a bool nor field names. "
+            f"Pass True for every output, or a tuple of field names."
         )
     names = frozenset(overwrite)
     if names and record is None:
@@ -116,7 +123,9 @@ def _declared_units(output: Any) -> dict[str, str] | str | None:
     return None
 
 
-def _decorate(func: Callable[..., Any], overwrite: bool | Iterable[str]) -> Any:
+def _decorate(
+    func: Callable[..., Any], overwrite: bool | np.bool_ | Iterable[str]
+) -> Any:
     qualname = getattr(func, "__qualname__", repr(func))
     where = f"stamp_output_units on {qualname}"
     if getattr(func, _CHECKED, False):
@@ -163,7 +172,7 @@ def stamp_output_units(func: Callable[..., Any], /) -> Callable[..., Any]: ...
 
 @overload
 def stamp_output_units(
-    *, overwrite: bool | Iterable[str] = False
+    *, overwrite: bool | np.bool_ | Iterable[str] = False
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
 
 
@@ -171,7 +180,7 @@ def stamp_output_units(
     func: Callable[..., Any] | None = None,
     /,
     *,
-    overwrite: bool | Iterable[str] = False,
+    overwrite: bool | np.bool_ | Iterable[str] = False,
 ) -> Any:
     """State each declared output unit on the array a function returns.
 

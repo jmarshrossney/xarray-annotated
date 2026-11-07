@@ -80,6 +80,14 @@ class TestSingleReturn:
         assert f().attrs["units"] == "mm"
         assert "'1' -> 'mm'" in caplog.text
 
+    @pytest.mark.parametrize(("flag", "unit"), [(np.True_, "mm"), (np.False_, "1")])
+    def test_overwrite_takes_a_numpy_bool(self, flag, unit):
+        @xra.stamp_output_units(overwrite=flag)
+        def f() -> MM:
+            return _labelled("1")
+
+        assert f().attrs["units"] == unit
+
     def test_no_log_when_overwrite_finds_the_declared_spelling(self, caplog):
         caplog.set_level(logging.DEBUG, logger="xarray_annotated.units")
 
@@ -317,6 +325,14 @@ class TestRefusedAtDecoration:
             @xra.stamp_output_units(overwrite=("mask",))
             def f() -> Mixed:
                 return {"depth": _bare(), "mask": _bare()}
+
+    @pytest.mark.parametrize("value", [1, 1.0, None])
+    def test_overwrite_neither_bool_nor_names(self, value):
+        with pytest.raises(ValueError, match="neither a bool nor field names"):
+
+            @xra.stamp_output_units(overwrite=value)  # type: ignore[arg-type]
+            def f() -> MM:
+                return _bare()
 
     def test_field_names_on_a_single_return(self):
         with pytest.raises(ValueError, match="overwrite=True"):
