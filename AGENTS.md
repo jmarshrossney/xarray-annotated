@@ -67,7 +67,7 @@ A new `Declared` slot fails `tests/test_facet_wiring.py` until it joins that fil
 | `_writer.py` | `annotate` |
 | `_reader.py` | a `Declared` slot and `declaration_from_hint` |
 | `_contract.py` | `assert_valid_declaration`, `_facet_checks`, `declaration_conflicts` |
-| `_enforce.py` | `_check_output`, and the hard-coded marker list in `_markers_in` |
+| `_check_annotations.py` | `_check_output`, and the hard-coded marker list in `_markers_in` |
 | `__init__.py` | re-export the marker from the root |
 
 Units are checked first on both sides, as that fixed order is the reason there is one decorator, so add the new check after them.

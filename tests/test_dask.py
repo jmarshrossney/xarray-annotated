@@ -54,8 +54,8 @@ class TestNothingIsComputed:
         assert isinstance(out.data, dask_array.Array)
         assert computes == []
 
-    def test_enforce_with_every_marker(self, lazy, computes):
-        @xra.enforce
+    def test_check_annotations_with_every_marker(self, lazy, computes):
+        @xra.check_annotations
         def f(
             p: Annotated[
                 xr.DataArray,
@@ -101,7 +101,7 @@ class TestQuantified:
         )
 
     def test_output_stays_quantified_and_uncomputed(self, lazy, computes):
-        @xra.enforce
+        @xra.check_annotations
         def f() -> Annotated[xr.DataArray, Unit("Pa")]:
             return lazy().pint.quantify().pint.to("Pa")
 
@@ -115,7 +115,7 @@ class TestSwitchInWorkers:
 
     @staticmethod
     def _checked() -> bool:
-        @xra.enforce
+        @xra.check_annotations
         def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
 
         try:
@@ -205,7 +205,7 @@ class TestWhatTheDaskPageSays:
             xr.apply_ufunc(np.sqrt, lazy())
 
     def test_an_output_check_reads_what_dask_expects(self, lazy):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Unit("hPa")],
         ) -> Annotated[xr.DataArray, Unit("hPa"), Dtype("float64")]:
@@ -222,7 +222,7 @@ class TestWhatTheDaskPageSays:
         assert out.compute().dtype == np.float32
 
     def test_delayed_defers_the_check_to_compute(self, lazy):
-        @xra.enforce
+        @xra.check_annotations
         def f(x: Annotated[xr.DataArray, Unit("Pa")]) -> xr.DataArray:
             return x
 
@@ -233,7 +233,7 @@ class TestWhatTheDaskPageSays:
     def test_map_blocks_calls_on_a_stand_in_then_on_each_block(self, lazy):
         sizes = []
 
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Unit("hPa"), Freq("D")],
         ) -> Annotated[xr.DataArray, Unit("hPa")]:
@@ -278,7 +278,7 @@ class TestOperationsThatLoseTheUnit:
 
     @LOSSY
     def test_a_declared_output_raises_on_the_loss(self, lazy, operation):
-        @xra.enforce
+        @xra.check_annotations
         def body(
             da: Annotated[xr.DataArray, Unit("hPa")],
         ) -> Annotated[xr.DataArray, Unit("hPa")]:

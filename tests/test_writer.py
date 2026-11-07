@@ -3,7 +3,7 @@
 ``annotate`` is the inverse of ``declarations_from_signature``: what it writes
 onto a function's annotations must read back identically.  The round-trip tests
 below assert exactly that, which is the writer's whole contract (it lets a codegen
-path stamp a contract onto a generated function and have ``enforce`` pick it
+path stamp a contract onto a generated function and have ``check_annotations`` pick it
 up unchanged).
 """
 

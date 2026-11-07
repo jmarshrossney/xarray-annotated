@@ -76,7 +76,7 @@ A process-wide setting could loosen a check with nothing at the definition to sh
 The one exception is the on/off switch, which decides whether checks run at all rather than how they behave.
 The unit registry is also process-wide, but it decides only [which units parse](guides/units.md#choosing-a-unit-registry).
 
-## Why doesn't `enforce` fix or label an output's unit?
+## Why doesn't `xra.check_annotations` fix or label an output's unit?
 
 A label that differs from the declaration could be a forgotten conversion, where the label is true and the values are in the wrong unit, or a stale label left behind by arithmetic.
 The package cannot tell them apart, and fixing the wrong one would produce a mislabelled result without any error.

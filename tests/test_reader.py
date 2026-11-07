@@ -322,10 +322,10 @@ class TestOneMarkerPerFacet:
             declarations_from_signature(_return_hint(Out))
         assert any("output 'q'" in note for note in info.value.__notes__)
 
-    def test_enforce_rejects_at_decoration(self):
+    def test_check_annotations_rejects_at_decoration(self):
         with pytest.raises(ValueError, match="2 Freq markers"):
 
-            @xra.enforce
+            @xra.check_annotations
             def f(p: Annotated[xr.DataArray, Freq("D"), Freq("D")]): ...
 
     def test_bare_string_beside_a_unit_marker_is_a_description(self):
@@ -388,7 +388,7 @@ class TestReadsThroughWrappers:
         assert declaration_from_hint(hint) == declaration_from_hint(_PA)
 
     def test_optional_parameter_is_enforced(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(x: _PA | None = None) -> None: ...
 
         f()
@@ -400,7 +400,7 @@ class TestReadsThroughWrappers:
         class Out(typing.TypedDict):
             a: typing.NotRequired[Annotated[xr.DataArray, Unit("Pa")]]
 
-        @xra.enforce
+        @xra.check_annotations
         def f() -> Out:
             return {"a": xr.DataArray([1.0])}
 
@@ -436,9 +436,9 @@ class TestSelfReferringAliases:
         with pytest.raises(ValueError, match=r"type alias _\w+ refers to itself"):
             declaration_from_hint(alias)
 
-    def test_enforce_raises_it_at_decoration(self):
+    def test_check_annotations_raises_it_at_decoration(self):
         with pytest.raises(ValueError, match="refers to itself"):
-            xra.enforce(_returning(_ToNone))
+            xra.check_annotations(_returning(_ToNone))
 
     def test_signature_reader_raises_it_with_the_location(self):
         with pytest.raises(ValueError, match="refers to itself") as excinfo:
@@ -454,6 +454,6 @@ class TestSelfReferringAliases:
 
     def test_a_generic_alias_does_not_recurse(self):
         # The reader does not enter `_Generic[int]`, so nothing has raised by the time
-        # `enforce` looks for a record in the return hint.
-        f = xra.enforce(_returning(_Generic[int]))
+        # `check_annotations` looks for a record in the return hint.
+        f = xra.check_annotations(_returning(_Generic[int]))
         assert f() is None

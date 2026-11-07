@@ -83,7 +83,7 @@ def enabled(value: bool | np.bool_) -> Generator[None]:
         >>> from typing import Annotated
         >>> import xarray as xr
         >>> import xarray_annotated as xra
-        >>> @xra.enforce
+        >>> @xra.check_annotations
         ... def f(p: Annotated[xr.DataArray, xra.Unit("Pa")]):
         ...     return p
         >>> hpa = xr.DataArray([1.0], attrs={"units": "hPa"})

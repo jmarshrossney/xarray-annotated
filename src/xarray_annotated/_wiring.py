@@ -89,7 +89,7 @@ def _non_array_types(hint: Any) -> tuple[Any, ...] | None:
 
 
 def _refuses(declared: Declared, kinds: tuple[Any, ...]) -> bool:
-    """Whether `enforce` would refuse a value of every one of these types."""
+    """Whether `check_annotations` would refuse a value of every one of these types."""
     return all(
         types.NoneType not in declared.others
         if kind is types.NoneType
@@ -141,8 +141,8 @@ def wiring_conflicts(
     structure is a decision about its body.
 
     A value whose hint rules out a `DataArray`, such as a node returning `float` or a
-    record, or a record field hinted `int`, is reported where it is wired to a
-    declared parameter that `enforce` would refuse it for.  A missing or `Any` hint
+    record, or a record field hinted `int`, is reported where it is wired to a declared
+    parameter that `check_annotations` would refuse it for.  A missing or `Any` hint
     says nothing, so is not reported, and nor is a value wired to an undeclared
     parameter, as checking those types is a type checker's job.
 

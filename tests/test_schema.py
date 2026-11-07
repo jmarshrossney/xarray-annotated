@@ -1,7 +1,7 @@
 """Tests for the `xarray_annotated.schema` structural-validation domain.
 
 Covers the markers (with their options), the annotation reader, the per-property
-checkers, the policy, and `enforce` over schema markers.  Structural validation
+checkers, the policy, and `check_annotations` over schema markers.  Structural validation
 never mutates, so the checks assert/raise/warn but return arrays unchanged.
 """
 
@@ -271,13 +271,13 @@ class TestAssertValidSchema:
 
 
 # ---------------------------------------------------------------------------
-# enforce over schema markers
+# check_annotations over schema markers
 # ---------------------------------------------------------------------------
 
 
 class TestDeclareSchema:
     def test_validates_input_and_passes_through(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(x: Annotated[xr.DataArray, Dims("time", "x")]) -> xr.DataArray:
             return x
 
@@ -287,7 +287,7 @@ class TestDeclareSchema:
             f(_da(("time",)))
 
     def test_keyword_and_non_dataarray_args(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             flag: bool,
             x: Annotated[xr.DataArray, Dtype("float64")],
@@ -297,7 +297,7 @@ class TestDeclareSchema:
         assert f(True, x=_da()).shape  # keyword DataArray; non-DataArray passes through
 
     def test_optional_none_input_skipped(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Dims("time", "x")] | None = None,
         ) -> xr.DataArray | None:
@@ -306,7 +306,7 @@ class TestDeclareSchema:
         assert f(None) is None
 
     def test_declared_default_is_validated(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Dims("time", "x")] = _da(("time",)),
         ) -> xr.DataArray:
@@ -316,7 +316,7 @@ class TestDeclareSchema:
             f()  # x left at its non-conforming default
 
     def test_varargs_and_kwargs_survive_apply_defaults(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Dims("time", "x")], *rest: int, **kw: int
         ) -> xr.DataArray:
@@ -328,7 +328,7 @@ class TestDeclareSchema:
         assert f(da, 1, 2, z=3) is da
 
     def test_output_single_validated(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(n: int) -> Annotated[xr.DataArray, Dtype("float64")]:
             return _da(dtype="int64")
 
@@ -339,7 +339,7 @@ class TestDeclareSchema:
         class Out(TypedDict):
             good: Annotated[xr.DataArray, Dims("time", "x")]
 
-        @xra.enforce
+        @xra.check_annotations
         def f() -> Out:
             return {"good": _da(("time",))}
 
@@ -351,7 +351,7 @@ class TestDeclareSchema:
         class Out:
             good: Annotated[xr.DataArray, Dims("time", "x")]
 
-        @xra.enforce
+        @xra.check_annotations
         def f() -> Out:
             return Out(good=_da(("time",)))
 
@@ -359,7 +359,7 @@ class TestDeclareSchema:
             f()
 
     def test_disabled_is_total_noop(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(x: Annotated[xr.DataArray, Dims("nope")]) -> xr.DataArray:
             return x
 
@@ -369,14 +369,14 @@ class TestDeclareSchema:
     def test_fail_fast_bad_input_declaration(self):
         with pytest.raises(ValueError, match="invalid dtype"):
 
-            @xra.enforce
+            @xra.check_annotations
             def f(x: Annotated[xr.DataArray, Dtype("bogus")]) -> xr.DataArray:
                 return x
 
     def test_fail_fast_bad_output_declaration(self):
         with pytest.raises(ValueError, match="invalid dtype"):
 
-            @xra.enforce
+            @xra.check_annotations
             def f(n: int) -> Annotated[xr.DataArray, Dtype("bogus")]:
                 return _da()
 
@@ -391,7 +391,7 @@ class TestAnnotationsSurviveWraps:
         fn = ns["f"]
         fn.__annotations__["return"] = Annotated[xr.DataArray, Dims("time")]
 
-        wrapped = xra.enforce(fn)
+        wrapped = xra.check_annotations(fn)
         hints = typing.get_type_hints(wrapped, include_extras=True)
         assert "return" in hints
 

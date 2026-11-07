@@ -79,7 +79,7 @@ class TestEdges:
         assert xra.wiring_conflicts(graph, inputs=["p"]) == []
 
     def test_enforced_functions(self):
-        a, b = xra.enforce(_hpa_to_pa), xra.enforce(_wants_hpa)
+        a, b = xra.check_annotations(_hpa_to_pa), xra.check_annotations(_wants_hpa)
         graph = {"a": (a, {"p": "p"}), "b": (b, {"x": "a"})}
         assert len(xra.wiring_conflicts(graph, inputs=["p"])) == 1
 

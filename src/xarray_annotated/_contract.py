@@ -1,9 +1,9 @@
-"""Whole-declaration checks, for `enforce` and for tools built on declarations.
+"""Whole-declaration checks, for `check_annotations` and for tools built on them.
 
-A `Declared` is compared here as one value, against an array or another `Declared`,
-so a tool such as a pipeline's pre-flight applies the rules `enforce` applies rather
-than a copy of them.  Walking a graph, and deciding which declarations to compare, is
-the tool's job.
+A `Declared` is compared here as one value, against an array or another `Declared`, so a
+tool such as a pipeline's pre-flight applies the rules `check_annotations` applies
+rather than a copy of them.  Walking a graph, and deciding which declarations to
+compare, is the tool's job.
 
 Like `Declared`, this is cross-domain, so it lives at the package root.
 """
@@ -43,8 +43,8 @@ __all__ = [
 def assert_valid_declaration(declared: Declared, context: str) -> None:
     """Raise `ValueError` if any part of a declaration is malformed.
 
-    This is what `enforce` runs at decoration, for a tool that wants to fail as early
-    on a declaration it built or read, with no array in hand.
+    This is what `check_annotations` runs at decoration, for a tool that wants to fail
+    as early on a declaration it built or read, with no array in hand.
 
     Args:
         declared: The declaration to validate.
@@ -123,11 +123,11 @@ def check_declared(
 ) -> Any:
     """Check an input against everything declared for it; return it unchanged.
 
-    This is the check `enforce` makes on each declared input, so a tool calling it
-    before a run gets the verdict the run would.  The declaration is validated first,
-    as `enforce` does at decoration.  Units are checked next, then structure, then
-    frequency, and the first failure raises.  Only metadata and indexes are read, so a
-    lazily opened array stays unread.
+    This is the check `check_annotations` makes on each declared input, so a tool
+    calling it before a run gets the verdict the run would.  The declaration is
+    validated first, as `check_annotations` does at decoration.  Units are checked next,
+    then structure, then frequency, and the first failure raises.  Only metadata and
+    indexes are read, so a lazily opened array stays unread.
 
     A value that is not a `DataArray` raises unless `declared.others` allows it, as
     `| None` allows `None`.  When xarray-annotated is switched off (`xra.enabled(False)`
@@ -231,7 +231,7 @@ def declaration_conflicts(a: Declared, b: Declared) -> list[str]:
     `Coords`, since each declaration only requires names to be present.
 
     Units conflict unless they are equal: `Pa` and `hPa` are compatible, but
-    `check_declared` and `enforce` refuse one for the other.
+    `check_declared` and `check_annotations` refuse one for the other.
 
     Compatibility of two markers is not transitive, as a loose `Dims`, `Dtype` or `Freq`
     is compatible with stricter ones that conflict with each other, as `Freq("month")`

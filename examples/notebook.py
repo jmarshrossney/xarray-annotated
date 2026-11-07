@@ -450,7 +450,7 @@ def _(mo):
 
 @app.cell
 def _(Annotated, Coords, Dims, Dtype, Freq, TypedDict, Unit, xr, xra):
-    @xra.enforce
+    @xra.check_annotations
     def screen_quality_declared(
         flux: Annotated[
             xr.DataArray,
@@ -476,7 +476,7 @@ def _(Annotated, Coords, Dims, Dtype, Freq, TypedDict, Unit, xr, xra):
         gpp: Annotated[xr.DataArray, Dims("time"), Unit("umol m-2 s-1")]
         reco: Annotated[xr.DataArray, Dims("time"), Unit("umol m-2 s-1")]
 
-    @xra.enforce
+    @xra.check_annotations
     def partition_fluxes_declared(
         nee: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
         tair: Annotated[xr.DataArray, Unit("degC")],  # (6)
@@ -490,21 +490,21 @@ def _(Annotated, Coords, Dims, Dtype, Freq, TypedDict, Unit, xr, xra):
             "reco": reco.assign_attrs(units="umol m-2 s-1"),
         }
 
-    @xra.enforce
+    @xra.check_annotations
     def daily_mean_declared(
         flux: Annotated[xr.DataArray, Freq("30min")],
     ) -> Annotated[xr.DataArray, Freq("D")]:  # (7)
         """Mean half-hourly flux within each day."""
         return flux.resample(time="D").mean()
 
-    @xra.enforce
+    @xra.check_annotations
     def weekly_mean_declared(
         daily: Annotated[xr.DataArray, Freq("D")],
     ) -> Annotated[xr.DataArray, Freq("W-SUN")]:  # (8)
         """Mean daily flux within each week ending on a Sunday."""
         return daily.resample(time="W-SUN").mean()
 
-    @xra.enforce
+    @xra.check_annotations
     def compare_with_satellite_declared(
         modelled: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")],  # (9)
         observed: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("W-SUN")],  # (10)
@@ -638,7 +638,7 @@ def _(mo):
 
 @app.cell
 def _(Annotated, UMOL_S_TO_G_D, Unit, xr, xra):
-    @xra.enforce
+    @xra.check_annotations
     def to_mass_flux(
         flux: Annotated[xr.DataArray, Unit("umol m-2 s-1")],
     ) -> Annotated[xr.DataArray, Unit("g m-2 d-1")]:
@@ -673,7 +673,7 @@ def _(
     xr,
     xra,
 ):
-    @xra.enforce
+    @xra.check_annotations
     def annual_total(
         daily_rate: Annotated[xr.DataArray, Unit("g m-2 d-1"), Freq("D")],
     ) -> float:

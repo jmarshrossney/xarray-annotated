@@ -401,8 +401,8 @@ class TestUnitMarker:
         with pytest.raises(ValueError, match="not a recognised"):
             units.assert_valid_unit(units.Unit("not_a_unit"), "ctx")
 
-    def test_enforce_end_to_end_with_marker_input_and_output(self):
-        @xra.enforce
+    def test_check_annotations_end_to_end_with_marker_input_and_output(self):
+        @xra.check_annotations
         def f(
             p: Annotated[xr.DataArray, units.Unit("Pa")],
         ) -> Annotated[xr.DataArray, units.Unit("Pa")]:
@@ -600,8 +600,8 @@ class TestLazyArrays:
         units.check_output_units(da, "Pa", "p")
         assert backend.reads == 0
 
-    def test_enforce_reads_nothing_and_stays_lazy(self, cache):
-        @xra.enforce
+    def test_check_annotations_reads_nothing_and_stays_lazy(self, cache):
+        @xra.check_annotations
         def f(
             p: Annotated[xr.DataArray, Unit("Pa")],
         ) -> Annotated[xr.DataArray, Unit("Pa")]:

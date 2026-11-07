@@ -56,11 +56,11 @@ class Freq:
     compared directly, though business-day and custom frequencies have nothing to
     compare, so pass.  Zero or one timestamp always passes.
 
-    **A malformed declaration** raises `ValueError` when `enforce` decorates the
-    function, not at `Freq(...)`.  That covers a string pandas cannot parse, including
-    the legacy aliases `"M"` and `"H"`, now spelled `"ME"` and `"h"`; a zero calendar
-    step such as `"0month"`; an empty `dim`; and `gaps_ok` on a business-day, custom or
-    negative frequency, which has no positive step to compare.
+    **A malformed declaration** raises `ValueError` when `check_annotations` decorates
+    the function, not at `Freq(...)`.  That covers a string pandas cannot parse,
+    including the legacy aliases `"M"` and `"H"`, now spelled `"ME"` and `"h"`; a zero
+    calendar step such as `"0month"`; an empty `dim`; and `gaps_ok` on a business-day,
+    custom or negative frequency, which has no positive step to compare.
 
     Args:
         freq: A pandas frequency, or `"month"`, `"year"` or a multiple such as

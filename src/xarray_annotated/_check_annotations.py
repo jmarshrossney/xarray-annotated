@@ -1,4 +1,4 @@
-"""`enforce`: apply every facet declared on a signature, in one decorator.
+"""`check_annotations`: apply every facet declared on a signature, in one decorator.
 
 The single cross-domain decorator.  It reads a function's
 `Annotated[DataArray, ...]` hints once, at decoration time, and on every call
@@ -53,7 +53,7 @@ from .temporal._check import _check_valid_freq
 from .units import Unit
 from .units._check import _check_output_unit
 
-__all__ = ["enforce"]
+__all__ = ["check_annotations"]
 
 
 def _nested_hints(hint: Any, seen: set[Any]) -> list[Any]:
@@ -130,10 +130,10 @@ def _refuse_stray_markers(hint: Any) -> None:
     unread = [hint] if declared is None else declared.others
     if stray := [marker for part in unread for marker in _markers_in(part)]:
         raise ValueError(
-            f"{hint!r} carries {stray!r}, which enforce cannot apply: only an "
-            f"Annotated[DataArray, ...] parameter, return, or TypedDict or dataclass "
-            f"field declares anything. For several outputs, return a TypedDict or "
-            f"dataclass."
+            f"{hint!r} carries {stray!r}, which check_annotations cannot apply: "
+            f"only an Annotated[DataArray, ...] parameter, return, or TypedDict or "
+            f"dataclass field declares anything. For several outputs, return a "
+            f"TypedDict or dataclass."
         )
 
 
@@ -148,14 +148,15 @@ def _refuse_unread_fields(hint: Any) -> None:
     stray = [m for field in _record_fields_in(hint) for m in _markers_in(field)]
     if stray:
         raise ValueError(
-            f"{hint!r} holds fields carrying {stray!r}, which enforce cannot apply: "
+            f"{hint!r} holds fields carrying {stray!r}, which check_annotations "
+            f"cannot apply: "
             f"only one TypedDict or dataclass return, optionally `| None`, is read "
             f"field by field, and not any class nested in its fields or any parameter. "
             f"Declare a parameter's arrays as parameters of their own."
         )
 
 
-def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
+def check_annotations(func: Callable[..., Any]) -> Callable[..., Any]:
     """Apply every facet declared on a function's signature at runtime.
 
     Reads the decorated function's type hints once: parameters annotated
@@ -186,7 +187,7 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
 
     There are no options: every failed check raises, and nothing is changed: the body
     receives the objects the caller passed, quantified or not, and the caller receives
-    the object the body returned.  Applied bare, as `@xra.enforce`.
+    the object the body returned.  Applied bare, as `@xra.check_annotations`.
 
     On an `async def`, the checks run when the coroutine is awaited, and outputs
     are applied to the awaited result.
@@ -221,7 +222,7 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
         >>> import xarray as xr
         >>> import xarray_annotated as xra
         >>> from xarray_annotated import Dims, Unit
-        >>> @xra.enforce
+        >>> @xra.check_annotations
         ... def double(
         ...     p: Annotated[xr.DataArray, Unit("Pa"), Dims("x")],
         ... ) -> Annotated[xr.DataArray, Unit("Pa")]:
@@ -251,9 +252,9 @@ def enforce(func: Callable[..., Any]) -> Callable[..., Any]:
             inspect.Parameter.VAR_KEYWORD,
         ):
             raise ValueError(
-                f"{qualname} input {name!r}: enforce cannot check a declaration "
-                f"on a variadic parameter, since it binds a tuple or dict rather "
-                f"than a DataArray. Use named parameters, or call the checkers "
+                f"{qualname} input {name!r}: check_annotations cannot check a "
+                f"declaration on a variadic parameter, since it binds a tuple or dict "
+                f"rather than a DataArray. Use named parameters, or call the checkers "
                 f"on each element in the function body."
             )
     if isinstance(output, Declared):

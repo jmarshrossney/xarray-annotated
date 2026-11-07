@@ -110,7 +110,7 @@ class TestTypeAliases:
         beartype = pytest.importorskip("beartype").beartype
 
         @jaxtyping.jaxtyped(typechecker=beartype)
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[PascalAlias, Dims("time", "x")],
         ) -> PascalAlias:
@@ -133,7 +133,7 @@ class TestTypeAliases:
 
 class TestDecorators:
     def test_units_are_checked(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[FloatDA, Unit("Pa")],
         ) -> Annotated[FloatDA, Unit("Pa")]:
@@ -144,7 +144,7 @@ class TestDecorators:
             f(_da(unit="hPa", fill=1.0))
 
     def test_schema_mismatch_still_raises(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(x: Annotated[FloatDA, Dims("time", "x")]): ...
 
         with pytest.raises(SchemaError):
@@ -164,7 +164,7 @@ class TestFullStack:
     """The stack documented in ``docs/tools/jaxtyping.md``, pinned end to end.
 
     ``jaxtyped`` must be **outermost** so it sees the original call, before
-    ``enforce`` has touched anything; the size-symbol binding it provides is
+    ``check_annotations`` has touched anything; the size-symbol binding it provides is
     what makes ``"time x"`` mean *the same sizes across arguments*.
     """
 
@@ -173,7 +173,7 @@ class TestFullStack:
         beartype = pytest.importorskip("beartype").beartype
 
         @jaxtyping.jaxtyped(typechecker=beartype)
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[FloatDA, Unit("Pa"), Dims("time", "x")],
             y: Annotated[FloatDA, Unit("Pa"), Dims("time", "x")],

@@ -42,7 +42,7 @@ def daily_air_density(p: xr.DataArray, t: xr.DataArray) -> xr.DataArray:
 
 ## Move the expectations into the signature
 
-Each expectation becomes a marker in an `Annotated` hint, and `enforce` checks them on every call:
+Each expectation becomes a marker in an `Annotated` hint, and `xra.check_annotations` checks them on every call:
 
 ```python
 from typing import Annotated
@@ -52,7 +52,7 @@ import xarray_annotated as xra
 from xarray_annotated import Dims, Freq, Unit
 
 
-@xra.enforce
+@xra.check_annotations
 def daily_air_density(
     p: Annotated[xr.DataArray, Dims("time", "site"), Unit("hPa"), Freq("h")],
     t: Annotated[xr.DataArray, Dims("time", "site"), Unit("K"), Freq("h")],

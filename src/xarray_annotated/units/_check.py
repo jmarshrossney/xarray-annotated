@@ -477,7 +477,7 @@ def convert(da: xr.DataArray, unit: str | Unit) -> xr.DataArray:
     """Convert a `DataArray` to `unit`, where you know that is correct for the data.
 
     Pint knows whether two units are compatible, but not whether converting is right
-    for this quantity, so `enforce` never does this for you.
+    for this quantity, so `check_annotations` never does this for you.
 
     The result is the same kind of array as `da`.  Only the data is converted, so
     coordinates and their labels are left alone.  Every conversion is logged at DEBUG on

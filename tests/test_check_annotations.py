@@ -1,6 +1,6 @@
-"""Tests specific to ``enforce``: facet ordering, prefixed keywords, the switch.
+"""Tests specific to ``check_annotations``: facet ordering, prefixed keywords, the switch.
 
-Per-domain behaviour under ``enforce`` is covered in each domain's test module;
+Per-domain behaviour under ``check_annotations`` is covered in each domain's test module;
 this one pins what only the unified decorator can get right — that units are
 applied *before* structure and frequency on both sides of the call — and the
 surface that is new with it.
@@ -44,7 +44,7 @@ def _int_da(unit: str | None = "hPa") -> xr.DataArray:
 class TestOrdering:
     def test_input_units_checked_before_schema_check(self):
         # Both are wrong, and the unit is reported.
-        @xra.enforce
+        @xra.check_annotations
         def f(p: Annotated[xr.DataArray, Unit("Pa"), Dtype("float64")]):
             return p
 
@@ -53,7 +53,7 @@ class TestOrdering:
 
     def test_output_units_checked_before_schema_check(self):
         # Both are wrong, and the unit is reported.
-        @xra.enforce
+        @xra.check_annotations
         def f() -> Annotated[xr.DataArray, Unit("Pa"), Dtype("float64")]:
             return _int_da()
 
@@ -61,7 +61,7 @@ class TestOrdering:
             f()
 
     def test_output_schema_mismatch_reported_after_units(self):
-        @xra.enforce
+        @xra.check_annotations
         def f() -> Annotated[xr.DataArray, Unit("Pa"), Dims("x")]:
             return _int_da("Pa")
 
@@ -72,7 +72,7 @@ class TestOrdering:
         class Out(TypedDict):
             p: Annotated[xr.DataArray, Unit("Pa"), Dims("time"), Freq("D")]
 
-        @xra.enforce
+        @xra.check_annotations
         def f(x: xr.DataArray) -> Out:
             return {"p": x}
 
@@ -84,7 +84,7 @@ class TestOrdering:
         class Out:
             p: Annotated[xr.DataArray, Unit("Pa"), Dtype("float64"), Freq("D")]
 
-        @xra.enforce
+        @xra.check_annotations
         def f() -> Out:
             return Out(p=_int_da("Pa").astype(float).pint.quantify())
 
@@ -97,7 +97,7 @@ class TestOrdering:
         class Out:
             p: Annotated[xr.DataArray, Unit("Pa"), Dims("time")]
 
-        @xra.enforce
+        @xra.check_annotations
         def f() -> Out:
             return Out(p=_int_da("Pa").pint.quantify())
 
@@ -106,29 +106,29 @@ class TestOrdering:
 
 class TestNoOptions:
     def test_missing_unit_raises(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
 
         with pytest.raises(UnitError, match="no 'units' attribute"):
             f(_int_da(unit=None))
 
     @pytest.mark.parametrize("kwarg", ["temporal_on_uninferable", "units_on_output"])
-    def test_enforce_has_no_keywords(self, kwarg):
+    def test_check_annotations_has_no_keywords(self, kwarg):
         with pytest.raises(TypeError, match=kwarg):
-            xra.enforce(**{kwarg: "warn"})  # type: ignore[call-arg]
+            xra.check_annotations(**{kwarg: "warn"})  # type: ignore[call-arg]
 
 
 class TestDecorationTime:
     def test_bad_unit_raises(self):
         with pytest.raises(ValueError, match=r"input 'p'.*not a recognised unit"):
 
-            @xra.enforce
+            @xra.check_annotations
             def f(p: Annotated[xr.DataArray, Unit("not_a_unit")]): ...
 
     def test_bad_freq_raises(self):
         with pytest.raises(ValueError, match="output: invalid frequency"):
 
-            @xra.enforce
+            @xra.check_annotations
             def f() -> Annotated[xr.DataArray, Freq("not_an_offset")]: ...
 
     def test_bad_output_field_raises(self):
@@ -137,13 +137,13 @@ class TestDecorationTime:
 
         with pytest.raises(ValueError, match=r"output 'p'.*not a recognised unit"):
 
-            @xra.enforce
+            @xra.check_annotations
             def f() -> Out: ...
 
 
 class TestWrapper:
     def test_disabled_is_total_noop(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             p: Annotated[xr.DataArray, Unit("Pa"), Dims("x"), Freq("7D")],
         ) -> Annotated[xr.DataArray, Unit("kg"), Dims("y")]:
@@ -156,21 +156,21 @@ class TestWrapper:
         assert out.attrs["units"] == "hPa"
 
     def test_annotations_preserved(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(p: Annotated[xr.DataArray, Unit("Pa"), Dims("time")]) -> None: ...
 
         hint = typing.get_type_hints(f, include_extras=True)["p"]
         assert typing.get_args(hint)[1:] == (Unit("Pa"), Dims("time"))
 
     def test_non_dataarray_arguments_untouched(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(p: Annotated[xr.DataArray, Unit("Pa")], n: int = 3) -> int:
             return n
 
         assert f(_int_da("Pa"), n=5) == 5
 
     def test_dimensional_mismatch_always_raises(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(p: Annotated[xr.DataArray, Unit("Pa")]): ...
 
         with pytest.raises(UnitError):
@@ -180,7 +180,7 @@ class TestWrapper:
         class Out(TypedDict):
             p: Annotated[xr.DataArray, Unit("Pa"), Dims("x")] | None
 
-        @xra.enforce
+        @xra.check_annotations
         def f() -> Out:
             return {"p": None}
 
@@ -189,7 +189,7 @@ class TestWrapper:
 
 class TestAsync:
     def test_output_is_checked_on_the_awaited_result(self):
-        @xra.enforce
+        @xra.check_annotations
         async def f(
             p: Annotated[xr.DataArray, Unit("Pa")],
         ) -> Annotated[xr.DataArray, Unit("kPa"), Dims("time")]:
@@ -199,7 +199,7 @@ class TestAsync:
         assert out.attrs["units"] == "kilopascal"
 
     def test_output_checks_run(self):
-        @xra.enforce
+        @xra.check_annotations
         async def f() -> Annotated[xr.DataArray, Dims("nope")]:
             return _int_da()
 
@@ -207,7 +207,7 @@ class TestAsync:
             asyncio.run(f())
 
     def test_output_unit_is_checked_on_the_awaited_result(self):
-        @xra.enforce
+        @xra.check_annotations
         async def f() -> Annotated[xr.DataArray, Unit("Pa")]:
             return _int_da("hPa")
 
@@ -215,14 +215,14 @@ class TestAsync:
             asyncio.run(f())
 
     def test_input_checks_run(self):
-        @xra.enforce
+        @xra.check_annotations
         async def f(p: Annotated[xr.DataArray, Unit("kg")]) -> None: ...
 
         with pytest.raises(UnitError):
             asyncio.run(f(_int_da("Pa")))
 
     def test_disabled_is_a_noop(self):
-        @xra.enforce
+        @xra.check_annotations
         async def f() -> Annotated[xr.DataArray, Unit("Pa")]:
             return _int_da(None)
 
@@ -230,7 +230,7 @@ class TestAsync:
             assert "units" not in asyncio.run(f()).attrs
 
     def test_stays_a_coroutine_function(self):
-        @xra.enforce
+        @xra.check_annotations
         async def f() -> None: ...
 
         assert inspect.iscoroutinefunction(f)
@@ -240,7 +240,7 @@ class TestChecksChangeNothing:
     """The body gets what the caller passed, the caller what the body returned."""
 
     def _passthrough(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             x: Annotated[xr.DataArray, Unit("Pa")],
         ) -> Annotated[xr.DataArray, Unit("Pa")]:
@@ -264,7 +264,7 @@ class TestChecksChangeNothing:
     def test_the_body_sees_a_quantified_input(self):
         seen = {}
 
-        @xra.enforce
+        @xra.check_annotations
         def f(x: Annotated[xr.DataArray, Unit("Pa")]) -> None:
             seen["x"] = x
 
@@ -282,7 +282,7 @@ class TestChecksChangeNothing:
         assert self._passthrough()(da).encoding == {"dtype": "int16"}
 
     def test_same_result_when_switched_off(self):
-        @xra.enforce
+        @xra.check_annotations
         def dry(rh: Annotated[xr.DataArray, Unit("percent")]) -> xr.DataArray:
             return 1 - rh / 100
 
@@ -294,7 +294,7 @@ class TestChecksChangeNothing:
 
     def test_two_spellings_in_a_plain_body_lose_the_label(self):
         # xarray drops conflicting attrs, so the output has no label to check.
-        @xra.enforce
+        @xra.check_annotations
         def add(
             a: Annotated[xr.DataArray, Unit("Pa")],
             b: Annotated[xr.DataArray, Unit("Pa")],
@@ -307,7 +307,7 @@ class TestChecksChangeNothing:
 
 class TestValidatesOnce:
     def test_nothing_is_validated_when_called(self, monkeypatch):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             p: Annotated[xr.DataArray, Unit("Pa")],
         ) -> Annotated[xr.DataArray, Unit("Pa")]:
@@ -321,7 +321,7 @@ class TestValidatesOnce:
         f(_int_da("Pa"))
 
     def test_nothing_is_validated_when_called_on_any_facet(self, monkeypatch):
-        @xra.enforce
+        @xra.check_annotations
         def f(
             p: Annotated[xr.DataArray, Dtype("int"), Freq("D")],
         ) -> Annotated[xr.DataArray, Dtype("int"), Freq("D")]:
@@ -343,13 +343,13 @@ class TestNothingDeclared:
         def f(x: xr.DataArray, y: Annotated[int, "a description"]) -> xr.DataArray:
             return x
 
-        assert xra.enforce(f) is f
+        assert xra.check_annotations(f) is f
 
     def test_returns_a_coroutine_function_itself(self):
         async def f(x: xr.DataArray) -> None:
             pass
 
-        assert xra.enforce(f) is f
+        assert xra.check_annotations(f) is f
 
     def test_returns_the_function_for_a_record_with_no_declared_fields(self):
         class Plain(TypedDict):
@@ -358,36 +358,36 @@ class TestNothingDeclared:
         def f() -> Plain:
             return {"x": xr.DataArray([1.0])}
 
-        assert xra.enforce(f) is f
+        assert xra.check_annotations(f) is f
 
     def test_a_stray_marker_still_raises(self):
         def f(x: tuple[Annotated[xr.DataArray, Unit("Pa")], int]) -> None:
             pass
 
-        with pytest.raises(ValueError, match="enforce cannot apply"):
-            xra.enforce(f)
+        with pytest.raises(ValueError, match="check_annotations cannot apply"):
+            xra.check_annotations(f)
 
     @pytest.mark.parametrize("side", ["param", "ret"])
     def test_a_declaration_on_either_side_is_wrapped(self, side):
         func = _annotated(**{side: Annotated[xr.DataArray, Unit("Pa")]})
-        assert xra.enforce(func) is not func
+        assert xra.check_annotations(func) is not func
 
 
 class TestVariadics:
     def test_declared_var_positional_is_rejected(self):
         with pytest.raises(ValueError, match=r"'xs'.*variadic"):
 
-            @xra.enforce
+            @xra.check_annotations
             def f(*xs: Annotated[xr.DataArray, Unit("Pa")]) -> None: ...
 
     def test_declared_var_keyword_is_rejected(self):
         with pytest.raises(ValueError, match=r"'xs'.*variadic"):
 
-            @xra.enforce
+            @xra.check_annotations
             def f(**xs: Annotated[xr.DataArray, Dims("x")]) -> None: ...
 
     def test_undeclared_variadics_are_fine(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(p: Annotated[xr.DataArray, Unit("Pa")], *a: int, **k: str) -> int:
             return len(a) + len(k)
 
@@ -436,7 +436,7 @@ def _annotated(*, param=None, ret=None):
 
 
 class TestStrayMarkers:
-    """A marker that `enforce` could not apply raises rather than going unchecked."""
+    """A marker that `check_annotations` could not apply raises rather than going unchecked."""
 
     @pytest.mark.parametrize(
         "hint",
@@ -472,8 +472,8 @@ class TestStrayMarkers:
     )
     @pytest.mark.parametrize("side", ["param", "ret"])
     def test_raises_at_decoration(self, hint, side):
-        with pytest.raises(ValueError, match="enforce cannot apply"):
-            xra.enforce(_annotated(**{side: hint}))
+        with pytest.raises(ValueError, match="check_annotations cannot apply"):
+            xra.check_annotations(_annotated(**{side: hint}))
 
     @pytest.mark.parametrize(
         "hint",
@@ -495,23 +495,23 @@ class TestStrayMarkers:
         with pytest.raises(ValueError, match=message):
             xra.declaration_from_hint(hint)
         with pytest.raises(ValueError, match=message):
-            xra.enforce(_annotated(param=hint))
+            xra.check_annotations(_annotated(param=hint))
 
     def test_the_message_names_the_outer_union_for_none(self):
         with pytest.raises(ValueError, match=r"\.\.\.\] \| None\.$"):
             xra.declaration_from_hint(Annotated[xr.DataArray | None, Unit("Pa")])
 
     def test_raises_on_a_typeddict_field(self):
-        with pytest.raises(ValueError, match="enforce cannot apply") as info:
-            xra.enforce(_annotated(ret=_StrayField))
+        with pytest.raises(ValueError, match="check_annotations cannot apply") as info:
+            xra.check_annotations(_annotated(ret=_StrayField))
         assert "output 'pa'" in info.value.__notes__[-1]
 
     def test_raises_when_switched_off(self):
         with (
             xra.enabled(False),
-            pytest.raises(ValueError, match="enforce cannot apply"),
+            pytest.raises(ValueError, match="check_annotations cannot apply"),
         ):
-            xra.enforce(_annotated(ret=list[_PA]))
+            xra.check_annotations(_annotated(ret=list[_PA]))
 
     @pytest.mark.parametrize(
         "hint",
@@ -536,7 +536,7 @@ class TestStrayMarkers:
     )
     @pytest.mark.parametrize("side", ["param", "ret"])
     def test_hints_without_stray_markers_pass(self, hint, side):
-        xra.enforce(_annotated(**{side: hint}))
+        xra.check_annotations(_annotated(**{side: hint}))
 
     def test_the_readers_still_report_nothing(self):
         def f(x: tuple[_PA, _PA]): ...
@@ -547,12 +547,12 @@ class TestStrayMarkers:
 class TestTypeAliases:
     @pytest.mark.parametrize("hint", [_Alias, _OptionalAlias, _Alias | None])
     def test_parameter_is_enforced(self, hint):
-        f = xra.enforce(_annotated(param=hint))
+        f = xra.check_annotations(_annotated(param=hint))
         with pytest.raises(UnitError, match="differs from declared"):
             f(xr.DataArray([1.0], attrs={"units": "hPa"}))
 
     def test_return_is_checked(self):
-        f = xra.enforce(_annotated(ret=_Alias))
+        f = xra.check_annotations(_annotated(ret=_Alias))
         with pytest.raises(UnitError, match="'hPa' differs"):
             f(xr.DataArray([1.0], attrs={"units": "hPa"}))
 
@@ -590,7 +590,7 @@ class TestTypeAliases:
             xra.declaration_from_hint(hint)
 
     def test_merged_markers_are_all_enforced(self):
-        f = xra.enforce(_annotated(param=Annotated[_Alias, Dims("x")]))
+        f = xra.check_annotations(_annotated(param=Annotated[_Alias, Dims("x")]))
         f(xr.DataArray([1.0], dims="x", attrs={"units": "Pa"}))
         with pytest.raises(UnitError, match="differs from declared"):
             f(xr.DataArray([1.0], dims="x", attrs={"units": "hPa"}))
@@ -603,7 +603,7 @@ class TestTypeAliases:
         )
 
     def test_aliased_typeddict_return_is_read_per_field(self):
-        f = xra.enforce(_annotated(ret=_FieldsAlias))
+        f = xra.check_annotations(_annotated(ret=_FieldsAlias))
         with pytest.raises(UnitError, match="'hPa' differs"):
             f({"pa": xr.DataArray([1.0], attrs={"units": "hPa"})})
 
@@ -694,7 +694,7 @@ class TestReturnContainers:
         ],
     )
     def test_read_field_by_field(self, hint, value):
-        f = xra.enforce(_annotated(ret=hint))
+        f = xra.check_annotations(_annotated(ret=hint))
         with pytest.raises(UnitError):
             f(value())
 
@@ -720,8 +720,8 @@ class TestReturnContainers:
         ],
     )
     def test_refused_at_decoration(self, hint):
-        with pytest.raises(ValueError, match=r"enforce\s+cannot apply"):
-            xra.enforce(_annotated(ret=hint))
+        with pytest.raises(ValueError, match=r"check_annotations\s+cannot apply"):
+            xra.check_annotations(_annotated(ret=hint))
 
     @pytest.mark.parametrize(
         "hint",
@@ -731,8 +731,8 @@ class TestReturnContainers:
         ],
     )
     def test_marker_on_the_container_itself_is_refused(self, hint):
-        with pytest.raises(ValueError, match="enforce cannot apply"):
-            xra.enforce(_annotated(ret=hint))
+        with pytest.raises(ValueError, match="check_annotations cannot apply"):
+            xra.check_annotations(_annotated(ret=hint))
 
     @pytest.mark.parametrize(
         "hint",
@@ -746,10 +746,10 @@ class TestReturnContainers:
         ],
     )
     def test_nothing_unread_is_not_refused(self, hint):
-        xra.enforce(_annotated(ret=hint))
+        xra.check_annotations(_annotated(ret=hint))
 
     def test_optional_container_may_return_none(self):
-        f = xra.enforce(_annotated(ret=_Record | None))
+        f = xra.check_annotations(_annotated(ret=_Record | None))
         assert f(None) is None
 
     def test_reader_reports_the_fields(self):
@@ -758,7 +758,7 @@ class TestReturnContainers:
             _, output = xra.declarations_from_signature(_annotated(ret=hint))
             assert output == expected
 
-    def test_reader_returns_nothing_for_what_enforce_refuses(self):
+    def test_reader_returns_nothing_for_what_check_annotations_refuses(self):
         for hint in (_Tuple, list[_Record], _Record | _Record2):
             _, output = xra.declarations_from_signature(_annotated(ret=hint))
             assert output is None
@@ -787,7 +787,7 @@ class TestRecordReturnsAreNotTouched:
     """A record return comes back as the same object, once every field has passed."""
 
     def _identity(self, hint):
-        return xra.enforce(_annotated(ret=hint))
+        return xra.check_annotations(_annotated(ret=hint))
 
     def test_failed_dict_check_raises(self):
         with pytest.raises(UnitError):
@@ -870,14 +870,14 @@ class TestOtherValues:
         ids=lambda v: type(v).__name__,
     )
     def test_input_raises(self, value):
-        @xra.enforce
+        @xra.check_annotations
         def f(p: Annotated[xr.DataArray, Dims("x")]): ...
 
         with pytest.raises(xra.ContractError, match="input 'p': declared a DataArray"):
             f(value)
 
     def test_none_raises_at_a_default_the_hint_does_not_allow(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(p: Annotated[xr.DataArray, Dims("x")] = None): ...  # type: ignore[assignment]
 
         with pytest.raises(xra.ContractError, match=r"got None.*\| None"):
@@ -891,7 +891,7 @@ class TestOtherValues:
         ],
     )
     def test_optional_allows_none_only(self, hint):
-        @xra.enforce
+        @xra.check_annotations
         def f(p: hint): ...  # pyright: ignore[reportInvalidTypeForm]
 
         f(None)
@@ -900,7 +900,7 @@ class TestOtherValues:
 
     @pytest.mark.parametrize("value", [1.0, "not a float"])
     def test_another_type_allows_every_other_value_but_not_none(self, value):
-        @xra.enforce
+        @xra.check_annotations
         def f(p: Annotated[xr.DataArray, Dims("x")] | float): ...
 
         f(value)  # pyright: ignore[reportArgumentType]
@@ -908,20 +908,20 @@ class TestOtherValues:
             f(None)  # pyright: ignore[reportArgumentType]
 
     def test_a_dataarray_under_a_union_is_still_checked(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(p: Annotated[xr.DataArray, Dims("x")] | None): ...
 
         with pytest.raises(schema.SchemaError):
             f(xr.DataArray([1.0], dims="y"))
 
     def test_undeclared_parameters_are_not_looked_at(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(p: xr.DataArray, q: Annotated[int, "a description"]): ...
 
         f(None, None)  # type: ignore[arg-type]
 
     def test_switched_off_checks_nothing(self):
-        @xra.enforce
+        @xra.check_annotations
         def f(p: Annotated[xr.DataArray, Dims("x")]): ...
 
         with xra.enabled(False):
@@ -955,14 +955,14 @@ class TestRecordParameters:
         def f(x: hint): ...  # pyright: ignore[reportInvalidTypeForm]
 
         with pytest.raises(ValueError, match="Declare a parameter's arrays"):
-            xra.enforce(f)
+            xra.check_annotations(f)
 
     def test_a_record_with_no_markers_is_fine(self):
         @dataclass
         class Plain:
             p: xr.DataArray
 
-        @xra.enforce
+        @xra.check_annotations
         def f(x: Plain):
             return x
 
@@ -1001,4 +1001,4 @@ class TestMalformedMarkers:
 
         f, match = (takes, "input 'p'") if side == "input" else (returns, "output")
         with pytest.raises(ValueError, match=match):
-            xra.enforce(f)
+            xra.check_annotations(f)

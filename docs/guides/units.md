@@ -65,7 +65,7 @@ How to get there depends on what the body does:
 Here the arithmetic produces a new quantity, so the body states its unit:
 
 ```python
-@xra.enforce
+@xra.check_annotations
 def altitude(
     p: Annotated[xr.DataArray, Unit("Pa")],
 ) -> Annotated[xr.DataArray, Unit("m")]:
@@ -76,7 +76,7 @@ def altitude(
 And here a library works on bare numbers, whose unit the body states and then converts:
 
 ```python
-@xra.enforce
+@xra.check_annotations
 def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g / m**2 / day")]:
     raw = some_library.gpp(ppfd.values)  # documented as ug m-2 s-1
     out = xr.DataArray(raw, dims=ppfd.dims, coords=ppfd.coords)
@@ -88,7 +88,7 @@ def gpp(ppfd: xr.DataArray) -> Annotated[xr.DataArray, Unit("g / m**2 / day")]:
 xarray keeps `attrs` through arithmetic, so this result is in `Pa` and still labelled `hPa`:
 
 ```python
-@xra.enforce
+@xra.check_annotations
 def to_pascals(
     p: Annotated[xr.DataArray, Unit("hPa")],
 ) -> Annotated[xr.DataArray, Unit("Pa")]:
@@ -115,7 +115,7 @@ An output check shows that a body and its signature agree, not that the values a
 Values are never inspected, so `assign_attrs` is a claim rather than a check, and it can silence a wrong body as easily as a right one:
 
 ```python
-@xra.enforce
+@xra.check_annotations
 def daily_carbon(
     flux: Annotated[xr.DataArray, Unit("mol / m**2 / s")],
 ) -> Annotated[xr.DataArray, Unit("g / m**2 / day")]:

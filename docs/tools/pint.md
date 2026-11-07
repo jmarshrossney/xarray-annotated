@@ -27,7 +27,7 @@ mass + accel
 ## How checks treat a quantified array
 
 `Unit` reads the unit a quantified array holds, without loading it, and requires the declared unit exactly, as it does on a plain array.
-`enforce` only checks, so a body receives whichever kind of array the caller passed.
+`xra.check_annotations` only checks, so a body receives whichever kind of array the caller passed.
 
 What an output check proves depends on where the unit came from:
 
@@ -58,7 +58,7 @@ Call `xra.units.quantify` on each input you compute with, and return `xra.units.
 MOLAR_MASS_C = Q(12.011, "g / mol")  # (1)!
 
 
-@xra.enforce
+@xra.check_annotations
 def to_mass_flux(
     flux: Annotated[xr.DataArray, Unit("umol / m**2 / s")],
 ) -> Annotated[xr.DataArray, Unit("g / m**2 / day")]:
