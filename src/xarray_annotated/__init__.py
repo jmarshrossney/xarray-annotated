@@ -27,7 +27,8 @@ declaration *writer* ``annotate`` and its inverse *readers*
 ``declaration_from_hint`` and ``declarations_from_signature`` (which read every facet
 declared on a hint or a signature into one uniform ``Declared`` value); and, for tools
 built on those, ``assert_valid_declaration``, ``check_declared``,
-``declaration_conflicts``, ``declaration_violations``, ``resolve_enabled`` and
+``declaration_conflicts``, ``declaration_violations``, ``wiring_conflicts``,
+``resolve_enabled`` and
 the ``ContractError`` base of every failed check.
 """
 
@@ -44,6 +45,7 @@ from ._contract import (
 from ._enforce import enforce
 from ._errors import ContractError
 from ._reader import Declared, declaration_from_hint, declarations_from_signature
+from ._wiring import wiring_conflicts
 from ._writer import annotate
 from .schema import Coords, Dims, Dtype
 from .temporal import Freq
@@ -73,4 +75,5 @@ __all__ = [
     "schema",
     "temporal",
     "units",
+    "wiring_conflicts",
 ]

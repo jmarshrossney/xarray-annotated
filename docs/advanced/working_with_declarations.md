@@ -82,4 +82,4 @@ xra.declaration_conflicts(produced, consumed["p"])
 - **Malformed declarations:** these raise `ValueError` rather than conflict, and [`assert_valid_declaration`][xarray_annotated.assert_valid_declaration] asks only that.
 - **The switch:** a conflict is a fact about declarations, so this ignores [`xra.enabled`](../guides/first_principles.md#enabled). A tool that should stay quiet can ask [`resolve_enabled`][xarray_annotated.resolve_enabled] first.
 
-To run these comparisons across a pipeline, and against its input files, see [Pre-flight checks](preflight.md).
+To run these comparisons along every edge of a pipeline with [`wiring_conflicts`][xarray_annotated.wiring_conflicts], and against its input files, see [Pre-flight checks](preflight.md#whole-graph).
