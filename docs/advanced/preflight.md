@@ -106,7 +106,10 @@ Without a pre-flight, each mismatch appears only when the run reaches it, so a m
 Applying both kinds of check to every edge and input of the pipeline's graph, before loading anything, reports them all at the start.
 
 This adds coverage rather than a new kind of check, and because no function runs, it works on any pipeline, however its bodies compute.
-The graph can be written out by hand, here with each node naming its function and where each parameter comes from:
+
+### Every edge { #every-edge }
+
+Write the graph out with each node naming its function and where each of its parameters comes from, and [`wiring_conflicts`][xarray_annotated.wiring_conflicts] compares the declarations along every edge:
 
 ```python
 graph = {
@@ -115,44 +118,60 @@ graph = {
     "daily": (daily_mean, {"x": "density"}),
 }
 
+xra.wiring_conflicts(graph, inputs=["p", "t"])
+# []
+```
 
-def preflight(graph, sources):
-    problems = []
-    for name, (func, wiring) in graph.items():
-        consumed, _ = xra.declarations_from_signature(func)
-        for param, upstream in wiring.items():
-            if param not in consumed:
-                continue
-            if upstream in sources:
-                problems += xra.declaration_violations(
-                    sources[upstream], consumed[param], param, func.__qualname__
-                )
-                continue
-            _, produced = xra.declarations_from_signature(graph[upstream][0])
-            if isinstance(produced, xra.Declared):
-                conflicts = xra.declaration_conflicts(produced, consumed[param])
-                problems += [f"{upstream} -> {name}: {c}" for c in conflicts]
-    return problems
+Wiring the last stage to the wrong node shows what a conflict looks like:
 
+```python
+miswired = {**graph, "daily": (daily_mean, {"x": "p_pa"})}
 
-preflight(graph, {"p": ds["p"], "t": ds["t"]})
+xra.wiring_conflicts(miswired, inputs=["p", "t"])
+# ["p_pa -> daily(x): unit: Unit('Pa') and Unit('kg/m^3') are dimensionally incompatible"]
+```
+
+It applies the [rules for comparing declarations](working_with_declarations.md#comparing) to the whole graph:
+
+- **Several outputs:** a source `("stats", "mean")` is the `mean` field of the `TypedDict` or dataclass that node `stats` returns, and each field is its own producer.
+- **Several consumers:** the declarations for one value are compared in all pairs, so two stages reading one input are compared with each other.
+- **Nodes that declare nothing:** they break the chain, as carrying a declaration across one is a decision about what its body does.
+- **Values that cannot be arrays:** a node returning `float`, a record or `None`, or a record field hinted `int`, is reported where it feeds a declared parameter that `enforce` would refuse it for. A missing or `Any` hint says nothing, and checking what reaches an undeclared parameter is a type checker's job, so neither is reported.
+- **Parameters left out of the wiring:** a declared parameter with no default must be wired, even to a name in `inputs` for a fixed array such as a mask, so no declared edge goes unchecked. Any other parameter may be left out, as for one taking a constant.
+- **Names that do not match the functions:** a source that is neither a node nor an input, a parameter its function does not take, or a field its record does not have, raises `ValueError` rather than leaving an edge unchecked, as does an unwired declared parameter.
+
+Like `declaration_conflicts`, it reports a fact about declarations, so it ignores [the switch](#respecting-the-switch).
+
+### Every input { #every-input }
+
+The inputs are checked against each of their consumers with `declaration_violations`, as above:
+
+```python
+sources = {"p": ds["p"], "t": ds["t"]}
+problems = []
+for name, (func, wiring) in graph.items():
+    consumed, _ = xra.declarations_from_signature(func)
+    for param, upstream in wiring.items():
+        if upstream in sources and param in consumed:
+            problems += xra.declaration_violations(
+                sources[upstream], consumed[param], param, func.__qualname__
+            )
+
+problems
 # ["[air_density] input 't': unit 'degC' differs from declared 'K'. Converting would ..."]
 ```
 
-This reports every problem it can see, with no data read and no function run.
+Between them, these report every problem the declarations can show, with no data read and no function run.
 
-### Use a tool for this
+### With a graph tool
 
-The dictionary shows the idea, but it is a second description of the pipeline that can drift from the real calls, and `preflight` skips several cases that a real pipeline runs into:
+The dictionary is a second description of the pipeline.
+`wiring_conflicts` raises when its names stop matching the functions, but cannot tell when the real calls are wired differently from it.
 
-- **Several outputs:** it ignores a `TypedDict` or dataclass return, where each field is its own producer.
-- **Nodes that declare nothing:** they break the chain, and carrying a declaration across one is a decision about what that node does.
-- **Several consumers:** declarations for one array must be compared in all pairs, as compatibility is [not transitive](working_with_declarations.md#comparing).
-
-A tool that owns the graph handles these systematically, and is the better way to run a pre-flight on anything sizeable:
+A tool that owns the graph removes that second description, and is the better way to run a pre-flight on anything sizeable:
 
 - **[Apache Hamilton](https://hamilton.apache.org/concepts/node/):** a function's name is its node and its parameter names are its dependencies, so the graph is read from the signatures that hold the declarations, and cannot drift from them.
-- **[catena](https://github.com/NERC-CEH/catena):** builds on Hamilton, and `catena run --dry-run` opens the input headers, builds the graph and checks every edge and input without executing a node, using the functions on this page. It handles the cases listed above, and carries units across the nodes it knows preserve them.
+- **[catena](https://github.com/NERC-CEH/catena):** builds on Hamilton, and `catena run --dry-run` opens the input headers, builds the graph and checks every edge and input without executing a node, using the functions on this page. It also carries units across the nodes it knows preserve them.
 
 ## Going further: calling the bodies { #lazy-run }
 
@@ -228,4 +247,4 @@ Reading metadata is what makes these checks cheap, and it is also their limit:
 ## Respecting the switch
 
 `check_declared` and `declaration_violations` do nothing when [the package is switched off](../guides/first_principles.md#enabled).
-`declaration_conflicts` reports a fact about declarations, so it ignores the switch, and a tool that should stay quiet can ask [`resolve_enabled`][xarray_annotated.resolve_enabled] first.
+`declaration_conflicts` and `wiring_conflicts` report a fact about declarations, so they ignore the switch, and a tool that should stay quiet can ask [`resolve_enabled`][xarray_annotated.resolve_enabled] first.
