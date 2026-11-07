@@ -21,7 +21,7 @@ import numpy as np
 import xarray as xr
 
 from ._annotations import _record_return
-from ._check_annotations import _CHECKED
+from ._check_annotations import _CHECKED, _markers_in, _record_fields_in
 from ._reader import Declared, declarations_from_signature
 from .units._check import _quantified_units, _stamped, assert_valid_unit
 
@@ -135,11 +135,19 @@ def _decorate(
         )
     _, output = declarations_from_signature(func)
     units = _declared_units(output)
+    hints = get_type_hints(func, include_extras=True)
     if not units:
+        returned = hints.get("return")
+        fields = _record_fields_in(returned) if returned is not None else []
+        if any(_markers_in(field) for field in fields):
+            raise ValueError(
+                f"{where}: the return's fields carry markers, but only a TypedDict "
+                f"or dataclass return is read field by field, so there is nothing "
+                f"to stamp. Return a TypedDict or dataclass."
+            )
         raise ValueError(
             f"{where}: the return declares no Unit, so there is nothing to stamp."
         )
-    hints = get_type_hints(func, include_extras=True)
     record, record_optional = _record_return(hints.get("return"))
     named = units if isinstance(units, dict) else {"return": units}
     for name, unit in named.items():

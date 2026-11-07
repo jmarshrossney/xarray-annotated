@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Annotated, NotRequired, TypedDict
+from typing import Annotated, NamedTuple, NotRequired, TypedDict
 
 import numpy as np
 import pytest
@@ -302,6 +302,16 @@ class TestRefusedAtDecoration:
             @xra.stamp_output_units
             def f(p: MM) -> xr.DataArray:
                 return p
+
+    def test_namedtuple_return_is_named_as_the_reason(self):
+        class Pair(NamedTuple):
+            depth: MM
+
+        with pytest.raises(ValueError, match="Return a TypedDict or dataclass"):
+
+            @xra.stamp_output_units
+            def f() -> Pair:
+                return Pair(_bare())
 
     def test_malformed_unit(self):
         with pytest.raises(ValueError, match="not a recognised unit"):
