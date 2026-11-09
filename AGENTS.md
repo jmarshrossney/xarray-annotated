@@ -76,6 +76,7 @@ Units are checked first on both sides, as that fixed order is the reason there i
 
 - Every `python` fence in `docs/` and the README runs under `tests/test_docs.py`, per page, top to bottom.
   On the line before a fence, mark a fragment with `<!-- docs-test: skip -->` and a deliberate failure with `<!-- docs-test: raises SomeError -->`.
+- A `text` fence directly after a `python` fence is checked against what that fence prints, or `SomeError: message` if it raises, with whitespace runs compared equal, so shown output cannot drift.
 - ADRs in `docs/adr/` are excluded from the site, so user-facing pages must not link to them.
 - `just docs` reporting a failed notebook cell is expected: `examples/notebook.py` demonstrates a `UnitError` by raising one.
 
