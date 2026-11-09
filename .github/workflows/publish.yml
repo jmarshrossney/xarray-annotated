@@ -1,27 +1,24 @@
 name: Publish to PyPI
 
-# Publishing workflow with three trigger modes:
+# Publishing workflow with two trigger modes:
 #
-# 1. Publish to TestPyPI (verify before a full release):
-#      just tag
-#    which tags the version in pyproject.toml and pushes the tag.
+# 1. Publish to PyPI: `just release`, or publish a GitHub Release on
+#    github.com. A version such as 0.2.0rc1 is a pre-release: PyPI serves it
+#    only to those who ask for it, and the docs workflow does not deploy it.
+#    `just release` marks it as one on GitHub; on github.com, tick "Set as a
+#    pre-release".
 #
-# 2. Publish to PyPI:
-#      just release
-#    or create a GitHub Release for that tag on github.com. A version such as
-#    0.2.0rc1 is a pre-release: PyPI serves it only to those who ask for it,
-#    and the docs workflow does not deploy it. `just release` marks it as one
-#    on GitHub; on github.com, tick "Set as a pre-release".
-#
-# 3. Manual publish (Actions tab -> "Publish to PyPI" -> "Run workflow"):
+# 2. Manual publish (Actions tab -> "Publish to PyPI" -> "Run workflow"):
 #    Choose 'testpypi' or 'pypi' from the dropdown. Defaults to testpypi.
+#    Use testpypi as a dry run after changing this workflow or the build.
+#
+# Both targets use trusted publishing, so no API tokens are needed -- but the
+# `pypi` and `testpypi` environments must exist in the repo settings, and a
+# pending publisher must be registered on (Test)PyPI for this repo.
 
 on:
   release:
     types: [published]
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       target:
@@ -35,9 +32,9 @@ on:
 
 jobs:
   pypi-publish:
-    name: Upload release to ${{ github.event_name == 'push' && 'testpypi' || inputs.target || 'pypi' }}
+    name: Upload release to ${{ inputs.target || 'pypi' }}
     runs-on: ubuntu-latest
-    environment: ${{ github.event_name == 'push' && 'testpypi' || inputs.target || 'pypi' }}
+    environment: ${{ inputs.target || 'pypi' }}
     permissions:
       id-token: write
       contents: read
@@ -45,4 +42,4 @@ jobs:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v8.1.0
       - run: uv build
-      - run: uv publish ${{ (github.event_name == 'push' || inputs.target == 'testpypi') && '--publish-url https://test.pypi.org/legacy/' || '' }}
+      - run: uv publish ${{ inputs.target == 'testpypi' && '--publish-url https://test.pypi.org/legacy/' || '' }}

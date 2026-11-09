@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.12", "3.13", "3.14"]
+        python-version: ["3.12", "3.13", "3.14", "3.15"]
     steps:
       - uses: actions/checkout@v6
       - uses: extractions/setup-just@v4
@@ -29,3 +29,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: uv sync --group dev --locked
       - run: uv run just test-cov
+
+  smoke:
+    # Install the built wheel rather than the source tree, so a file missing
+    # from the wheel fails here instead of after a release. `uv build` builds
+    # the wheel from the sdist, so this covers both.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8.1.0
+      - run: uv build
+      - run: uv run --isolated --no-project --with dist/*.whl python -c "import xarray_annotated"

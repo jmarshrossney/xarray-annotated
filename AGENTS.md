@@ -83,9 +83,15 @@ Units are checked first on both sides, as that fixed order is the reason there i
 
 Every PR merges to `main`; a release is a tag on it, made by the maintainer only.
 
-1. `uv version --bump rc` (giving e.g. `0.9.0rc1`), or `--bump stable` for a full release, and commit.
-2. `just tag`, then `just release`.
+1. `uv version --bump rc` (`0.10.0.dev1` → `0.10.0rc1`, `0.10.0rc1` → `0.10.0rc2`), or `--bump stable` for a full release, and commit it to `main`.
+2. `just release`, which refuses a dev version, a dirty tree, or a `main` that differs from `origin/main`.
 3. After a full release, `uv version --bump minor --bump dev` and commit, so a git install of `main` does not report the released version.
+   After a pre-release, `main` keeps reporting the rc version until the next bump; that is accepted.
 
 A pre-release lets downstream projects (conduit, satterc) test unreleased work from PyPI by asking for it explicitly (`>=0.9.0rc1`), while everyone else keeps the last stable release.
+
 The docs site deploys only on a stable release, so it documents what PyPI serves.
+To rebuild a release's docs: `gh workflow run docs.yml -f ref=v0.9.0`.
+Running it without `ref` deploys `main`, so the site then documents unreleased work; to publish a docs fix properly, release a patch.
+
+TestPyPI is manual only (Actions → "Publish to PyPI" → testpypi), as a dry run after changing the publish workflow or the build.
