@@ -33,7 +33,7 @@ Known limitation: `Day` is DST-aware in pandas while `24h` is not, so treating t
 the same spacing is an approximation for timezone-aware axes.
 """
 
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -54,7 +54,7 @@ from pandas.tseries.offsets import (
 from xarray.indexes import PandasIndex
 
 from .._config import resolve_enabled
-from .._errors import ContractError
+from .._errors import ContractError, Kind, Role
 from ._annotations import _ANY_DAY, Freq
 
 _NANOS_PER_DAY = 86_400_000_000_000
@@ -283,39 +283,54 @@ def _why_not_axis(da: xr.DataArray, name: str) -> str | None:
     return f"{name!r} has no index, so add one with .set_xindex({name!r})"
 
 
-def _locate_axis(da: xr.DataArray, marker: Freq) -> tuple[str | None, str]:
+class _Miss(NamedTuple):
+    """How a time axis contradicts a declaration, for a `FreqError`."""
+
+    detail: str
+    kind: Kind
+    found: str | None = None
+    hint: str | None = None
+
+
+def _locate_axis(da: xr.DataArray, marker: Freq) -> str | _Miss:
     """Find the time coordinate a `Freq` declaration is about.
 
-    Returns `(dim, "")` on success, or `(None, detail)` when the array offers no
-    unambiguous answer — which is itself a mismatch (the declaration says the array
-    has a time axis; it does not, or it has two).
+    Returns its name, or how the array offers no unambiguous answer, which is itself a
+    mismatch: the declaration says the array has a time axis, and it has none or two.
     """
     names = [str(name) for name in da.coords]
     candidates = [name for name in names if _is_datetime_like(da, name)]
     if marker.dim is not None:
         if marker.dim not in candidates:
             reason = _why_not_axis(da, marker.dim) if marker.dim in names else None
-            return None, (
+            return _Miss(
                 f"declared {marker!r} but {marker.dim!r} is not an indexed datetime "
-                f"coordinate: {reason or f'indexed datetime coords: {candidates}'}"
+                f"coordinate: {reason or f'indexed datetime coords: {candidates}'}",
+                "freq_no_axis",
+                hint=reason,
             )
-        return marker.dim, ""
+        return marker.dim
     if not candidates:
-        reasons = [r for name in names if (r := _why_not_axis(da, name))]
-        return None, (
+        reasons = "; ".join(r for name in names if (r := _why_not_axis(da, name)))
+        return _Miss(
             f"declared {marker!r} but the array has no indexed datetime coordinate"
             + (
-                f": {'; '.join(reasons)}"
+                f": {reasons}"
                 if reasons
                 else "; unindexed cftime and undecoded times look like this too"
-            )
+            ),
+            "freq_no_axis",
+            hint=reasons or None,
         )
     if len(candidates) > 1:
-        return None, (
+        hint = "name one with Freq(..., dim=...)"
+        return _Miss(
             f"declared {marker!r} but the time axis is ambiguous: indexed datetime "
-            f"coords {candidates}; name one with Freq(..., dim=...)"
+            f"coords {candidates}; {hint}",
+            "freq_ambiguous_axis",
+            hint=hint,
         )
-    return candidates[0], ""
+    return candidates[0]
 
 
 def _infer(coord: xr.DataArray) -> str | None:
@@ -378,7 +393,7 @@ def _calendar_phase_mismatch(marker: Freq, coord: xr.DataArray) -> str | None:
     return None if (month % 3 if is_quarterly else month) == anchor else _pair(times, 0)
 
 
-def _step_mismatch(marker: Freq, coord: xr.DataArray) -> str | None:
+def _step_mismatch(marker: Freq, coord: xr.DataArray) -> _Miss | None:
     """Compare an axis step by step, where `xarray.infer_freq` has no answer.
 
     That is an axis of two points, as it needs three; a `gaps_ok` axis or an any-day
@@ -393,57 +408,73 @@ def _step_mismatch(marker: Freq, coord: xr.DataArray) -> str | None:
     if kind == "fixed":
         steps = pd.TimedeltaIndex(times[1:] - times[:-1])
         got = _steps_mismatch(steps, pd.Timedelta(spacing, "ns"), marker, times)
-        if got is not None or _on_declared_weekday(marker, coord):
-            return got
-        return _pair(times, 0)
+        if got is not None:
+            return _Miss(got, "freq_mismatch")
+        if _on_declared_weekday(marker, coord):
+            return None
+        return _Miss(_pair(times, 0), "freq_phase")
     months = 12 * coord.dt.year.values + coord.dt.month.values
     got = _steps_mismatch(np.diff(months), spacing, marker, times)
-    if got is not None or _any_day_months(marker.freq) is not None:
-        return got
-    return _calendar_phase_mismatch(marker, coord)
+    if got is not None:
+        return _Miss(got, "freq_mismatch")
+    if _any_day_months(marker.freq) is not None:
+        return None
+    off = _calendar_phase_mismatch(marker, coord)
+    return None if off is None else _Miss(off, "freq_phase")
 
 
-def _mismatch(marker: Freq, coord: xr.DataArray) -> tuple[str, str | None] | None:
+def _mismatch(marker: Freq, coord: xr.DataArray) -> _Miss | None:
     """How a time axis contradicts a declaration, or `None` if it does not.
 
-    Returns the detail for the message and the axis's inferred frequency, or `None`
-    for the latter where none was inferred.  An axis of zero or one point has no
-    spacing, so nothing can contradict it.
+    `found` is the axis's inferred frequency, where one was inferred.  An axis of zero
+    or one point has no spacing, so nothing can contradict it.
     """
     if coord.size < 2:
         return None
     if coord.size == 2 or marker.gaps_ok or _any_day_months(marker.freq) is not None:
-        got = _step_mismatch(marker, coord)
-        return None if got is None else (got, None)
+        return _step_mismatch(marker, coord)
     inferred = _infer(coord)
     if inferred is None:
-        return "irregular spacing", None
+        return _Miss("irregular spacing", "freq_irregular")
     if not freq_compatible(marker, Freq(inferred)):
-        return repr(inferred), inferred
+        return _Miss(repr(inferred), "freq_mismatch", inferred)
     # On a cftime axis `infer_freq` says `7D` where pandas says `W-WED`.
     if _on_declared_weekday(marker, coord):
         return None
-    return f"{inferred!r} on another day", inferred
+    return _Miss(f"{inferred!r} on another day", "freq_phase", inferred)
 
 
 def _check_valid_freq(
-    da: xr.DataArray, declared: Freq, name: str, qualname: str | None
+    da: xr.DataArray,
+    declared: Freq,
+    name: str,
+    qualname: str | None,
+    role: Role = "input",
 ) -> None:
     """`check_freq` on a validated declaration, whatever `enabled` says."""
     prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
-    dim, detail = _locate_axis(da, declared)
-    if dim is None:
-        raise FreqError(f"{prefix} {detail}", facet="freq", declared=declared)
-    mismatch = _mismatch(declared, da[dim])
-    if mismatch is not None:
-        got, inferred = mismatch
-        raise FreqError(
-            f"{prefix} frequency mismatch on {dim!r}: expected {declared.freq!r}, "
-            f"got {got}",
-            facet="freq",
-            declared=declared,
-            found=inferred,
+    located = _locate_axis(da, declared)
+    if isinstance(located, _Miss):
+        message, miss = f"{prefix} {located.detail}", located
+    else:
+        miss = _mismatch(declared, da[located])
+        if miss is None:
+            return
+        message = (
+            f"{prefix} frequency mismatch on {located!r}: expected "
+            f"{declared.freq!r}, got {miss.detail}"
         )
+    raise FreqError(
+        message,
+        name=name,
+        qualname=qualname,
+        role=role,
+        facet="freq",
+        kind=miss.kind,
+        declared=declared,
+        found=miss.found,
+        hint=miss.hint,
+    )
 
 
 def check_freq(

@@ -12,13 +12,13 @@ nothing else here changes.
 """
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import xarray as xr
 
 from .._config import resolve_enabled
-from .._errors import ContractError
+from .._errors import ContractError, Kind, Role
 from ._annotations import Coords, Dims, Dtype, SchemaMarker
 
 #: Dtype names meaning any dtype of that kind.  numpy reads each as one dtype, whose
@@ -70,24 +70,33 @@ def assert_valid_schema(marker: SchemaMarker, context: str) -> None:
             raise ValueError(f"{context}: {kind} has duplicate names {marker.names!r}.")
 
 
-def _check_dims(da: xr.DataArray, marker: Dims) -> tuple[bool, str]:
-    """Check a DataArray's dims against a `Dims` marker. Returns (ok, detail)."""
+class _Outcome(NamedTuple):
+    """What a schema checker found: whether it passed, and if not, why."""
+
+    ok: bool
+    detail: str
+    kind: Kind
+    hint: str | None = None
+
+
+def _check_dims(da: xr.DataArray, marker: Dims) -> _Outcome:
+    """Check a DataArray's dims against a `Dims` marker."""
     actual = tuple(da.dims)
+    same_set = set(actual) == set(marker.names)
     if marker.ordered:
-        ok = actual == marker.names
         detail = f"dims order mismatch: expected {marker.names}, got {actual}"
-    else:
-        ok = set(actual) == set(marker.names)
-        detail = f"dims mismatch: expected {marker.names} in any order, got {actual}"
-    return ok, detail
+        kind = "dims_order" if same_set else "dims_mismatch"
+        return _Outcome(actual == marker.names, detail, kind)
+    detail = f"dims mismatch: expected {marker.names} in any order, got {actual}"
+    return _Outcome(same_set, detail, "dims_mismatch")
 
 
-def _check_coords(da: xr.DataArray, marker: Coords) -> tuple[bool, str]:
-    """Check a DataArray carries the declared coords. Returns (ok, detail)."""
+def _check_coords(da: xr.DataArray, marker: Coords) -> _Outcome:
+    """Check a DataArray carries the declared coords."""
     actual = set(map(str, da.coords))
     missing = [n for n in marker.names if n not in actual]
     detail = f"missing coords {missing}; present: {sorted(actual)}"
-    return not missing, detail
+    return _Outcome(not missing, detail, "coords_missing")
 
 
 def _kind(marker: Dtype) -> str:
@@ -110,19 +119,22 @@ def _same_dtype(a: np.dtype, b: np.dtype) -> bool:
     return a.newbyteorder("=") == b.newbyteorder("=")
 
 
-def _check_dtype(da: xr.DataArray, marker: Dtype) -> tuple[bool, str]:
-    """Check a DataArray's dtype against a `Dtype` marker. Returns (ok, detail)."""
+def _check_dtype(da: xr.DataArray, marker: Dtype) -> _Outcome:
+    """Check a DataArray's dtype against a `Dtype` marker."""
     actual = da.dtype
     if not _is_exact(marker):
-        return actual.kind == _kind(marker), (
-            f"dtype mismatch: expected any {marker.dtype}, got {actual}"
-        )
+        detail = f"dtype mismatch: expected any {marker.dtype}, got {actual}"
+        return _Outcome(actual.kind == _kind(marker), detail, "dtype_kind")
     declared = np.dtype(marker.dtype)
     detail = f"dtype mismatch: expected {declared}, got {actual}"
+    if actual.kind != declared.kind:
+        return _Outcome(False, detail, "dtype_kind")
     kind_name = next((k for k in _KIND_NAMES if np.dtype(k).kind == actual.kind), None)
-    if actual.kind == declared.kind and kind_name is not None:
-        detail += f"; Dtype({kind_name!r}) would accept any width"
-    return _same_dtype(actual, declared), detail
+    hint = None
+    if kind_name is not None:
+        hint = f"Dtype({kind_name!r}) would accept any width"
+        detail += f"; {hint}"
+    return _Outcome(_same_dtype(actual, declared), detail, "dtype_width", hint)
 
 
 def dims_compatible(a: Dims, b: Dims) -> bool:
@@ -198,7 +210,7 @@ def dtype_compatible(a: Dtype, b: Dtype) -> bool:
 # they can never be *proven* inconsistent — a build-time edge check skips coords.
 
 
-_CHECKERS: dict[type, Callable[[xr.DataArray, Any], tuple[bool, str]]] = {
+_CHECKERS: dict[type, Callable[[xr.DataArray, Any], _Outcome]] = {
     Dims: _check_dims,
     Coords: _check_coords,
     Dtype: _check_dtype,
@@ -221,17 +233,23 @@ def _check_valid_schema(
     declared: SchemaMarker | list[SchemaMarker],
     name: str,
     qualname: str | None,
+    role: Role = "input",
 ) -> None:
     """`check_schema` on validated markers, whatever `enabled` says."""
     prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
     for marker in _as_list(declared):
-        ok, detail = _CHECKERS[type(marker)](da, marker)
-        if not ok:
+        outcome = _CHECKERS[type(marker)](da, marker)
+        if not outcome.ok:
             raise SchemaError(
-                f"{prefix} {detail}",
+                f"{prefix} {outcome.detail}",
+                name=name,
+                qualname=qualname,
+                role=role,
                 facet=_FACETS[type(marker)],
+                kind=outcome.kind,
                 declared=marker,
                 found=_found(da, marker),
+                hint=outcome.hint,
             )
 
 

@@ -1,6 +1,9 @@
 """Whole-declaration checks, which tools rely on to agree with `check_annotations`."""
 
-from typing import Annotated
+import dataclasses
+import json
+import pickle
+from typing import Annotated, TypedDict, get_args
 
 import numpy as np
 import pandas as pd
@@ -9,6 +12,7 @@ import xarray as xr
 
 import xarray_annotated as xra
 from xarray_annotated import Coords, Declared, Dims, Dtype, Freq, Unit
+from xarray_annotated._errors import Kind
 from xarray_annotated.schema import SchemaError
 from xarray_annotated.temporal import FreqError
 from xarray_annotated.units import UnitError
@@ -308,9 +312,16 @@ class TestDeclarationViolations:
             with pytest.raises(error) as info:
                 xra.check_declared(value, declared, "p")
             exc = info.value
-            first = violations[0]
-            assert first == xra.Violation(
-                "p", exc.facet, exc.declared, exc.found, str(exc)
+            assert violations[0] == xra.Violation(
+                name="p",
+                qualname=None,
+                role="input",
+                facet=exc.facet,
+                kind=exc.kind,
+                declared=exc.declared,
+                found=exc.found,
+                hint=exc.hint,
+                message=str(exc),
             )
 
     def test_reports_every_failing_marker(self):
@@ -359,63 +370,172 @@ class TestResolveEnabled:
             assert xra.resolve_enabled() is True
 
 
+def _two_axes():
+    times = pd.date_range("2000-01-01", periods=4, freq="h")
+    return xr.DataArray(
+        np.ones((4, 4)), dims=("a", "b"), coords={"a": times, "b": times}
+    )
+
+
+def _irregular():
+    times = pd.to_datetime(["2000-01-01", "2000-01-02", "2000-01-04"])
+    return xr.DataArray([1.0, 2.0, 3.0], dims="time", coords={"time": times})
+
+
+def _wednesdays():
+    times = pd.date_range("2025-01-01", periods=2, freq="7D")
+    return xr.DataArray([1.0, 2.0], dims="time", coords={"time": times})
+
+
+def _time_by_x():
+    times = pd.date_range("2000-01-01", periods=4, freq="h")
+    return xr.DataArray(np.ones((4, 2)), dims=("time", "x"), coords={"time": times})
+
+
+#: (value, marker, kind, found), one or more per kind a violation can have.
+VIOLATIONS = {
+    "unit-missing": (_array().drop_attrs(), Unit("Pa"), "unit_missing", None),
+    "unit-too-long": (_array(unit="x" * 300), Unit("Pa"), "unit_too_long", None),
+    "unit-unparseable": (
+        _array(unit="not_a_unit"),
+        Unit("Pa"),
+        "unit_unparseable",
+        "not_a_unit",
+    ),
+    "unit-different": (_array(unit="hPa"), Unit("Pa"), "unit_different", "hPa"),
+    "unit-incompatible": (_array(unit="K"), Unit("Pa"), "unit_incompatible", "K"),
+    "dims-mismatch": (_array(), Dims("x", "y"), "dims_mismatch", ("time",)),
+    "dims-mismatch-ordered": (
+        _array(),
+        Dims("x", ordered=True),
+        "dims_mismatch",
+        ("time",),
+    ),
+    "dims-order": (
+        _time_by_x(),
+        Dims("x", "time", ordered=True),
+        "dims_order",
+        ("time", "x"),
+    ),
+    "coords-missing": (_array(), Coords("lat"), "coords_missing", ("time",)),
+    "dtype-kind": (_array(), Dtype("int"), "dtype_kind", "float64"),
+    "dtype-kind-exact": (_array(), Dtype("int64"), "dtype_kind", "float64"),
+    "dtype-width": (_array().astype("f4"), Dtype("float64"), "dtype_width", "float32"),
+    "freq-no-axis": (_array().drop_vars("time"), Freq("h"), "freq_no_axis", None),
+    "freq-no-named-axis": (_array(), Freq("h", dim="t"), "freq_no_axis", None),
+    "freq-ambiguous-axis": (_two_axes(), Freq("h"), "freq_ambiguous_axis", None),
+    "freq-irregular": (_irregular(), Freq("D"), "freq_irregular", None),
+    "freq-mismatch": (_array(freq="D"), Freq("h"), "freq_mismatch", "D"),
+    "freq-mismatch-stepwise": (
+        _array(freq="2h"),
+        Freq("h", gaps_ok=True),
+        "freq_mismatch",
+        None,
+    ),
+    "freq-phase": (_wednesdays(), Freq("W-SUN"), "freq_phase", None),
+}
+
+#: (a, b, kind), one or more per kind a conflict can have.
+CONFLICTS = {
+    "unit-different": (Unit("Pa"), Unit("hPa"), "unit_different"),
+    "unit-incompatible": (Unit("Pa"), Unit("K"), "unit_incompatible"),
+    "dims-mismatch": (Dims("x"), Dims("x", "y"), "dims_mismatch"),
+    "dims-order": (
+        Dims("x", "y", ordered=True),
+        Dims("y", "x", ordered=True),
+        "dims_order",
+    ),
+    "dtype-kind": (Dtype("float"), Dtype("int"), "dtype_kind"),
+    "dtype-width": (Dtype("float64"), Dtype("float32"), "dtype_width"),
+    "freq-mismatch": (Freq("h"), Freq("D"), "freq_mismatch"),
+}
+
+_SLOTS = {Unit: "unit", Dims: "dims", Coords: "coords", Dtype: "dtype", Freq: "freq"}
+
+#: Kinds only `check_annotations` raises, tested in `TestErrorFields`.
+_RECORD_KINDS = {"record_class", "record_field_missing"}
+
+
+def _violation_of(value, marker):
+    declared = Declared(**{_SLOTS[type(marker)]: marker})
+    [violation] = xra.declaration_violations(value, declared, "p", "f")
+    return violation
+
+
+def test_every_kind_is_reached():
+    reached = (
+        {kind for _, _, kind, _ in VIOLATIONS.values()}
+        | {kind for _, _, kind in CONFLICTS.values()}
+        | _RECORD_KINDS
+        | {"not_array"}
+    )
+    assert reached == set(get_args(Kind.__value__))
+
+
+def test_every_kind_is_documented():
+    for kind in get_args(Kind.__value__):
+        assert f'`"{kind}"`' in (xra.Violation.__doc__ or "")
+    for _, _, kind in CONFLICTS.values():
+        assert f'`"{kind}"`' in (xra.Conflict.__doc__ or "")
+
+
 class TestViolationFields:
     """What a tool reads instead of the message."""
 
     @pytest.mark.parametrize(
-        ("value", "declared", "facet", "found"),
-        [
-            (_array(unit="hPa"), Unit("Pa"), "unit", "hPa"),
-            (_array(unit="K"), Unit("Pa"), "unit", "K"),
-            (_array().drop_attrs(), Unit("Pa"), "unit", None),
-            (_array(unit="x" * 300), Unit("Pa"), "unit", None),
-            (_array(unit="not_a_unit"), Unit("Pa"), "unit", "not_a_unit"),
-            (_array(), Dims("x", "y"), "dims", ("time",)),
-            (_array(), Dims("x", ordered=True), "dims", ("time",)),
-            (_array(), Coords("lat"), "coords", ("time",)),
-            (_array().astype("f4"), Dtype("float64"), "dtype", "float32"),
-            (_array(), Dtype("int"), "dtype", "float64"),
-            (_array(freq="D"), Freq("h"), "freq", "D"),
-            (_array().drop_vars("time"), Freq("h"), "freq", None),
-        ],
-        ids=[
-            "unit-scale",
-            "unit-dimension",
-            "unit-missing",
-            "unit-over-long",
-            "unit-unparseable",
-            "dims",
-            "dims-ordered",
-            "coords",
-            "dtype-width",
-            "dtype-kind",
-            "freq",
-            "freq-no-axis",
-        ],
+        ("value", "marker", "kind", "found"), VIOLATIONS.values(), ids=VIOLATIONS
     )
-    def test_names_the_facet_the_marker_and_what_was_found(
-        self, value, declared, facet, found
-    ):
-        slot = Declared(**{facet: declared})
-        [violation] = xra.declaration_violations(value, slot, "p")
+    def test_says_what_failed_why_and_what_was_found(self, value, marker, kind, found):
+        violation = _violation_of(value, marker)
         assert violation.name == "p"
-        assert violation.facet == facet
-        assert violation.declared == declared
+        assert violation.qualname == "f"
+        assert violation.role == "input"
+        assert violation.facet == _SLOTS[type(marker)]
+        assert violation.kind == kind
+        assert violation.declared == marker
         assert violation.found == found
-
-    def test_irregular_spacing_has_no_frequency(self):
-        times = pd.to_datetime(["2000-01-01", "2000-01-02", "2000-01-04"])
-        value = xr.DataArray([1.0, 2.0, 3.0], dims="time", coords={"time": times})
-        [violation] = xra.declaration_violations(value, Declared(freq=Freq("D")), "p")
-        assert (violation.facet, violation.found) == ("freq", None)
 
     @pytest.mark.parametrize(
-        ("value", "found"), [(None, "None"), ("hPa", "str"), (1.0, "float")]
+        ("value", "marker"),
+        [(value, marker) for value, marker, _, _ in VIOLATIONS.values()],
+        ids=VIOLATIONS,
     )
-    def test_a_value_that_is_not_an_array_names_its_type(self, value, found):
+    def test_a_hint_is_part_of_the_message(self, value, marker):
+        violation = _violation_of(value, marker)
+        assert violation.hint is None or violation.hint in violation.message
+
+    @pytest.mark.parametrize(
+        ("case", "expected"),
+        [
+            ("unit-missing", "Attach the unit"),
+            ("unit-different", "xra.units.convert(da, 'Pa')"),
+            ("unit-incompatible", "Fix the data or the declaration."),
+            ("dtype-width", "Dtype('float') would accept any width"),
+            ("freq-ambiguous-axis", "name one with Freq(..., dim=...)"),
+        ],
+    )
+    def test_says_what_to_do_where_the_message_does(self, case, expected):
+        value, marker, _, _ = VIOLATIONS[case]
+        hint = _violation_of(value, marker).hint
+        assert hint is not None
+        assert expected in hint
+
+    def test_names_how_to_make_a_time_axis(self):
+        value = _array().drop_indexes("time")
+        hint = _violation_of(value, Freq("h")).hint
+        assert hint is not None
+        assert ".set_xindex('time')" in hint
+
+    @pytest.mark.parametrize(
+        ("value", "found", "hinted"),
+        [(None, "NoneType", True), ("hPa", "str", False), (1.0, "float", False)],
+    )
+    def test_a_value_that_is_not_an_array_names_its_type(self, value, found, hinted):
         [violation] = xra.declaration_violations(value, Declared(unit=Unit("Pa")), "p")
         assert (violation.facet, violation.declared) == (None, None)
+        assert violation.kind == "not_array"
         assert violation.found == found
+        assert (violation.hint is not None) == hinted
 
     def test_records_hash_so_consumers_can_be_deduplicated(self):
         value = _array(unit="kg")
@@ -433,6 +553,80 @@ class TestViolationFields:
         assert str(violation) == f"{violation}" == violation.message
 
 
+class TestToDict:
+    @pytest.mark.parametrize(
+        ("value", "marker"),
+        [(value, marker) for value, marker, _, _ in VIOLATIONS.values()],
+        ids=VIOLATIONS,
+    )
+    def test_a_violation_round_trips_through_json(self, value, marker):
+        violation = _violation_of(value, marker)
+        record = violation.to_dict()
+        assert json.loads(json.dumps(record)) == record
+        assert record["kind"] == violation.kind
+        assert record["message"] == violation.message
+
+    def test_a_violation_has_every_field(self):
+        violation = _violation_of(_array(unit="hPa"), Unit("Pa"))
+        assert set(violation.to_dict()) == {
+            f.name for f in dataclasses.fields(violation)
+        }
+
+    def test_a_value_that_is_not_an_array_has_no_marker(self):
+        [violation] = xra.declaration_violations(None, Declared(unit=Unit("Pa")), "p")
+        assert violation.to_dict()["declared"] is None
+
+    @pytest.mark.parametrize(
+        ("marker", "expected"),
+        [
+            (Unit("Pa"), {"unit": "Pa"}),
+            (Dims("x", ordered=True), {"names": ["x"], "ordered": True}),
+            (Coords("lat", "lon"), {"names": ["lat", "lon"]}),
+            (Dtype("float32"), {"dtype": "float32"}),
+            (
+                Freq("D", dim="t", gaps_ok=True),
+                {"freq": "D", "dim": "t", "gaps_ok": True},
+            ),
+        ],
+        ids=lambda v: type(v).__name__ if not isinstance(v, dict) else "",
+    )
+    def test_a_marker_becomes_what_it_declares(self, marker, expected):
+        violation = xra.Violation(
+            name="p",
+            qualname=None,
+            role="input",
+            facet=_SLOTS[type(marker)],
+            kind=None,
+            declared=marker,
+            found=None,
+            hint=None,
+            message="",
+        )
+        assert violation.to_dict()["declared"] == expected
+
+    @pytest.mark.parametrize(("a", "b", "kind"), CONFLICTS.values(), ids=CONFLICTS)
+    def test_a_conflict_round_trips_through_json(self, a, b, kind):
+        slot = _SLOTS[type(a)]
+        [conflict] = xra.declaration_conflicts(
+            Declared(**{slot: a}), Declared(**{slot: b})
+        )
+        record = conflict.to_dict()
+        assert json.loads(json.dumps(record)) == record
+        assert set(record) == {f.name for f in dataclasses.fields(conflict)}
+
+
+class TestConflictKinds:
+    @pytest.mark.parametrize(("a", "b", "kind"), CONFLICTS.values(), ids=CONFLICTS)
+    def test_says_why_either_way_round(self, a, b, kind):
+        slot = _SLOTS[type(a)]
+        for x, y in ((a, b), (b, a)):
+            [conflict] = xra.declaration_conflicts(
+                Declared(**{slot: x}), Declared(**{slot: y})
+            )
+            assert (conflict.facet, conflict.kind) == (slot, kind)
+            assert (conflict.a, conflict.b) == (x, y)
+
+
 class TestErrorFields:
     """`check_annotations` users get the same fields on the error it raises."""
 
@@ -443,48 +637,96 @@ class TestErrorFields:
 
         with pytest.raises(UnitError) as info:
             f(_array(unit="hPa"))
-        assert (info.value.facet, info.value.declared, info.value.found) == (
+        exc = info.value
+        assert (exc.name, exc.role, exc.facet, exc.kind) == (
+            "p",
+            "input",
             "unit",
-            Unit("Pa"),
-            "hPa",
+            "unit_different",
         )
+        assert exc.qualname is not None
+        assert exc.qualname.endswith("f")
+        assert (exc.declared, exc.found) == (Unit("Pa"), "hPa")
+        assert exc.hint is not None
+        assert exc.hint in str(exc)
 
-    def test_an_output_error_carries_them(self):
-        @xra.check_annotations
-        def f() -> Annotated[xr.DataArray, Dims("x")]:
+    @pytest.mark.parametrize(
+        ("marker", "error", "kind"),
+        [
+            (Unit("K"), UnitError, "unit_incompatible"),
+            (Dims("x"), SchemaError, "dims_mismatch"),
+            (Freq("D"), FreqError, "freq_mismatch"),
+        ],
+        ids=["unit", "schema", "freq"],
+    )
+    def test_an_output_error_says_it_is_an_output(self, marker, error, kind):
+        def f():
             return _array()
 
-        with pytest.raises(SchemaError) as info:
-            f()
-        assert (info.value.facet, info.value.declared, info.value.found) == (
-            "dims",
-            Dims("x"),
-            ("time",),
+        f.__annotations__["return"] = xra.annotate(**{_SLOTS[type(marker)]: marker})
+        with pytest.raises(error) as info:
+            xra.check_annotations(f)()
+        exc = info.value
+        assert (exc.name, exc.role, exc.kind, exc.declared) == (
+            "return",
+            "output",
+            kind,
+            marker,
         )
 
-    def test_a_record_mismatch_has_no_facet(self):
+    def test_an_output_that_is_not_an_array_says_so(self):
         @xra.check_annotations
         def f() -> Annotated[xr.DataArray, Unit("Pa")]:
             return 1.0  # pyright: ignore[reportReturnType]
 
         with pytest.raises(xra.ContractError) as info:
             f()
-        assert (info.value.facet, info.value.declared) == (None, None)
-        assert info.value.found == "float"
+        exc = info.value
+        assert (exc.facet, exc.declared, exc.kind) == (None, None, "not_array")
+        assert (exc.role, exc.found) == ("output", "float")
+
+    def test_a_record_of_the_wrong_class_says_so(self):
+        class Out(TypedDict):
+            p: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.check_annotations
+        def f() -> Out:
+            return 1.0  # pyright: ignore[reportReturnType]
+
+        with pytest.raises(xra.ContractError) as info:
+            f()
+        exc = info.value
+        assert (exc.kind, exc.role, exc.found, exc.facet) == (
+            "record_class",
+            "output",
+            "float",
+            None,
+        )
+
+    def test_a_missing_field_says_which(self):
+        class Out(TypedDict):
+            p: Annotated[xr.DataArray, Unit("Pa")]
+
+        @xra.check_annotations
+        def f() -> Out:
+            return {}  # pyright: ignore[reportReturnType]
+
+        with pytest.raises(xra.ContractError) as info:
+            f()
+        exc = info.value
+        assert (exc.kind, exc.name, exc.role) == ("record_field_missing", "p", "output")
 
     def test_the_fields_survive_pickling(self):
-        import pickle
-
         with pytest.raises(UnitError) as info:
             xra.check_declared(_array(unit="hPa"), Declared(unit=Unit("Pa")), "p")
         restored = pickle.loads(pickle.dumps(info.value))
         assert type(restored) is UnitError
         assert str(restored) == str(info.value)
-        assert (restored.facet, restored.declared, restored.found) == (
-            "unit",
-            Unit("Pa"),
-            "hPa",
-        )
+        assert vars(restored) == vars(info.value)
+
+    def test_a_bare_contract_error_has_none_of_them(self):
+        exc = xra.ContractError("message")
+        assert (exc.name, exc.kind, exc.facet, exc.hint) == (None, None, None, None)
 
     def test_quantify_and_convert_still_raise_value_error(self):
         with pytest.raises(ValueError, match="no 'units'"):

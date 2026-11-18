@@ -6,6 +6,7 @@ joins `FACETS`, and every other test here then holds it to the same wiring.
 """
 
 import dataclasses
+import json
 from typing import Any, NamedTuple
 
 import numpy as np
@@ -90,6 +91,10 @@ def test_input_is_checked(slot):
         _array(), Declared(**{slot: facet.misfit}), "p"
     )
     assert (violation.facet, violation.declared) == (slot, facet.misfit)
+    assert violation.kind is not None
+    record = violation.to_dict()
+    assert record["declared"] is not None
+    assert json.loads(json.dumps(record)) == record
 
 
 @parametrize_facets
@@ -107,6 +112,7 @@ def test_output_is_checked(slot):
     with pytest.raises(facet.error) as info:
         returning(facet.misfit)()
     assert (info.value.facet, info.value.declared) == (slot, facet.misfit)
+    assert (info.value.role, info.value.kind is not None) == ("output", True)
 
 
 @parametrize_facets
@@ -130,4 +136,6 @@ def test_conflicts_are_reported(slot):
     )
     assert len(conflicts) == 1
     assert conflicts[0].facet == slot
+    assert conflicts[0].kind is not None
+    assert json.dumps(conflicts[0].to_dict())
     assert conflicts[0].message.startswith(f"{slot}:")

@@ -276,21 +276,26 @@ def check_annotations(func: Callable[..., Any]) -> Callable[..., Any]:
 
     def _check_output(value: Any, decl: Declared, name: str) -> None:
         if not isinstance(value, xr.DataArray):
-            _refuse_other_value(value, decl, f"[{qualname}] output {name!r}")
+            _refuse_other_value(value, decl, name, qualname, "output")
             return
         if decl.unit is not None:
             _check_output_unit(value, decl.unit, name, qualname, decorated=True)
         if markers := decl.schema:
-            _check_valid_schema(value, markers, name, qualname)
+            _check_valid_schema(value, markers, name, qualname, "output")
         if decl.freq is not None:
-            _check_valid_freq(value, decl.freq, name, qualname)
+            _check_valid_freq(value, decl.freq, name, qualname, "output")
 
     def _check_record(result: Any, cls: Any, fields: dict[str, Declared]) -> None:
         values = _record_values(result, cls, fields)
         if values is None:
             raise ContractError(
                 f"[{qualname}] output: declared {cls.__name__}, got "
-                f"{type(result).__name__}."
+                f"{type(result).__name__}.",
+                name="return",
+                qualname=qualname,
+                role="output",
+                kind="record_class",
+                found=type(result).__name__,
             )
         required = getattr(cls, "__required_keys__", frozenset())
         for name, decl in fields.items():
@@ -299,7 +304,11 @@ def check_annotations(func: Callable[..., Any]) -> Callable[..., Any]:
             elif name in required:
                 raise ContractError(
                     f"[{qualname}] output {name!r}: a required field of "
-                    f"{cls.__name__} is missing."
+                    f"{cls.__name__} is missing.",
+                    name=name,
+                    qualname=qualname,
+                    role="output",
+                    kind="record_field_missing",
                 )
 
     def _check_outputs(result: Any) -> None:

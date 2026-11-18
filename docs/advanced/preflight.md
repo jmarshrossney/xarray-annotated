@@ -86,11 +86,21 @@ print(violation)
 It reads as its message, and its fields say the same for a program, such as CI or an agent fixing a configuration:
 
 ```python
-violation.name, violation.facet, violation.declared, violation.found
-# ('t', 'unit', Unit('K'), 'degC')
+violation.facet, violation.kind, violation.declared, violation.found
+# ('unit', 'unit_different', Unit('K'), 'degC')
+violation.hint
+# "Converting would change the values; if that is correct for this quantity, pass ..."
 ```
 
-`found` is what the array has for that facet: its unit label, dims, coord names, dtype, or the frequency inferred for its time axis, and `None` where it has none.
+- **`kind`** says why it failed, so a tool can choose a fix without reading the message: `unit_different` means the unit converts, and `unit_incompatible` that it does not. The full list is on [`Violation`][xarray_annotated.Violation].
+- **`found`** is what the array has for that facet: its unit label, dims, coord names, dtype, or the frequency inferred for its time axis, and `None` where it has none.
+- **`hint`** is the part of the message that says what to do, or `None` where it suggests nothing.
+- **`to_dict()`** gives every field as JSON-ready data, with each marker as a dict, for a report written as JSON or returned from an MCP tool.
+
+```python
+violation.to_dict()["declared"]
+# {'unit': 'K'}
+```
 [`check_declared`][xarray_annotated.check_declared] applies the same checks, but raises at the first failure, as `xra.check_annotations` would when calling the function:
 
 <!-- docs-test: raises UnitError -->
@@ -107,7 +117,7 @@ Neither reads the array's values, with or without dask:
 | `Freq` | The time axis's index, which xarray holds in memory |
 
 A failed check raises a [`ContractError`][xarray_annotated.ContractError]: `UnitError`, `SchemaError` or `FreqError`, or `ContractError` itself for a value that is not a `DataArray`.
-It carries the same `facet`, `declared` and `found` as a `Violation`.
+It carries the same fields as a `Violation`, with `role` saying whether an input or an output failed.
 A malformed declaration raises `ValueError` instead.
 
 ## Checking the whole graph { #whole-graph }

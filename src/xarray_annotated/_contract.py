@@ -14,10 +14,11 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
+import numpy as np
 import xarray as xr
 
 from ._config import resolve_enabled
-from ._errors import ContractError
+from ._errors import ContractError, Kind, Role, _label
 from ._reader import Declared
 from .schema._annotations import Coords, Dims, Dtype
 from .schema._check import (
@@ -48,14 +49,56 @@ __all__ = [
 type Marker = Unit | Dims | Coords | Dtype | Freq
 
 
+def _marker_dict(marker: Marker | None) -> dict[str, Any] | None:
+    """A marker as JSON-ready data, one key per thing it declares."""
+    match marker:
+        case None:
+            return None
+        case Unit():
+            return {"unit": marker.unit}
+        case Dims():
+            return {"names": list(marker.names), "ordered": marker.ordered}
+        case Coords():
+            return {"names": list(marker.names)}
+        case Dtype():
+            return {"dtype": marker.dtype}
+        case Freq():
+            return {"freq": marker.freq, "dim": marker.dim, "gaps_ok": marker.gaps_ok}
+
+
 @dataclass(frozen=True)
 class Violation:
     """One way an input fails its declaration, as `declaration_violations` reports it.
 
     The fields say what `message` says, for a tool or an agent that should not parse
-    prose.  `facet` is the `Declared` slot that failed, so its values are those of the
-    slots: `"unit"`, `"dims"`, `"coords"`, `"dtype"` and `"freq"`.  `str()` gives
-    `message`, so a record interpolates as the message did.
+    prose, and `to_dict` gives them as JSON-ready data.  `str()` gives `message`, so a
+    record interpolates as the message did.  `check_annotations` raises a
+    `ContractError` with the same fields.
+
+    `facet` is the `Declared` slot that failed, and `kind` says why.  Both are public
+    API: a `kind` is added only for a new way to fail, and never renamed.
+
+    | `facet` | `kind` | Meaning |
+    | --- | --- | --- |
+    | `"unit"` | `"unit_missing"` | The array has no unit |
+    | | `"unit_too_long"` | Its unit is too long to parse safely |
+    | | `"unit_unparseable"` | Its unit is not one the registry knows |
+    | | `"unit_different"` | Its unit converts to the declared one, but is not it |
+    | | `"unit_incompatible"` | Its unit cannot convert to the declared one |
+    | `"dims"` | `"dims_mismatch"` | It has other dims |
+    | | `"dims_order"` | It has the declared dims, in another order |
+    | `"coords"` | `"coords_missing"` | It lacks a declared coord |
+    | `"dtype"` | `"dtype_kind"` | Its dtype is another kind, such as int for float |
+    | | `"dtype_width"` | Its dtype is the declared kind, at another width |
+    | `"freq"` | `"freq_no_axis"` | It has no time axis |
+    | | `"freq_ambiguous_axis"` | It has several, and the declaration names none |
+    | | `"freq_irregular"` | Its time axis has no regular frequency |
+    | | `"freq_mismatch"` | Its time axis steps at another frequency |
+    | | `"freq_phase"` | It steps as declared, on another weekday or day |
+    | `None` | `"not_array"` | The value is not a `DataArray`, and the hint refuses it |
+
+    A `ContractError` from `check_annotations` can also have `kind` `"record_class"`,
+    for a returned record of the wrong class, or `"record_field_missing"`.
 
     `found` is what the array has for the facet, read from metadata and indexes only:
 
@@ -66,27 +109,62 @@ class Violation:
     | `"coords"` | the names of all its coords, sorted |
     | `"dtype"` | its dtype, such as `"float32"` |
     | `"freq"` | the frequency inferred for its time axis, or `None` if none was |
-
-    A value that is not a `DataArray` has `facet` and `declared` `None`, and `found`
-    the name of its type.
+    | `None` | the name of the value's type, such as `"NoneType"` |
 
     Attributes:
         name: The name the input was checked under.
+        qualname: The qualified name of the function it is for, if one was given.
+        role: `"input"`, as only inputs are checked before a run.
         facet: The `Declared` slot that failed, or `None` for a value that is not a
             `DataArray`.
+        kind: Why it failed, as above.
         declared: The marker that failed, or `None` when `facet` is.
         found: What the array has for that facet, as above.
+        hint: What to do about it, as it appears in `message`, or `None` if the
+            message suggests nothing.
         message: The message `check_declared` would raise with.
     """
 
     name: str
+    qualname: str | None
+    role: Role
     facet: str | None
+    kind: Kind | None
     declared: Marker | None
     found: str | tuple[str, ...] | None
+    hint: str | None
     message: str
 
     def __str__(self) -> str:
         return self.message
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the fields as JSON-ready data, with each marker as a dict.
+
+        Examples:
+            >>> import json
+            >>> import xarray as xr
+            >>> import xarray_annotated as xra
+            >>> p = xr.DataArray([1.0], dims="x", attrs={"units": "Pa"})
+            >>> declared = xra.Declared(dims=xra.Dims("y"))
+            >>> [violation] = xra.declaration_violations(p, declared, "p")
+            >>> record = violation.to_dict()
+            >>> record["kind"], record["declared"], record["found"]
+            ('dims_mismatch', {'names': ['y'], 'ordered': False}, ['x'])
+            >>> _ = json.dumps(record)
+        """
+        found = list(self.found) if isinstance(self.found, tuple) else self.found
+        return {
+            "name": self.name,
+            "qualname": self.qualname,
+            "role": self.role,
+            "facet": self.facet,
+            "kind": self.kind,
+            "declared": _marker_dict(self.declared),
+            "found": found,
+            "hint": self.hint,
+            "message": self.message,
+        }
 
 
 @dataclass(frozen=True)
@@ -95,23 +173,57 @@ class Conflict:
 
     `a` and `b` are the two markers in the order the declarations were given, and
     `facet` is their `Declared` slot: `"unit"`, `"dims"`, `"dtype"` or `"freq"`, as
-    `Coords` cannot conflict.  `str()` gives `message`, so a record interpolates as the
-    message did.
+    `Coords` cannot conflict.  `kind` takes its values from those of `Violation`:
+
+    | `kind` | Meaning |
+    | --- | --- |
+    | `"unit_different"` | The units convert, but are not equal |
+    | `"unit_incompatible"` | The units cannot convert |
+    | `"dims_mismatch"` | The dims are different sets |
+    | `"dims_order"` | Both pin an order, and the orders differ |
+    | `"dtype_kind"` | The dtypes are different kinds |
+    | `"dtype_width"` | Both name a width of one kind, and the widths differ |
+    | `"freq_mismatch"` | The frequencies cannot describe one axis |
+
+    `to_dict` gives the fields as JSON-ready data, and `str()` gives `message`, so a
+    record interpolates as the message did.
 
     Attributes:
         facet: The `Declared` slot the two disagree on.
+        kind: Why, as above.
         a: The marker from the first declaration.
         b: The marker from the second.
         message: The conflict in words, starting with `facet`.
     """
 
     facet: str
+    kind: Kind
     a: Marker
     b: Marker
     message: str
 
     def __str__(self) -> str:
         return self.message
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the fields as JSON-ready data, with each marker as a dict.
+
+        Examples:
+            >>> import xarray_annotated as xra
+            >>> pa = xra.Declared(unit=xra.Unit("Pa"))
+            >>> hpa = xra.Declared(unit=xra.Unit("hPa"))
+            >>> [conflict] = xra.declaration_conflicts(pa, hpa)
+            >>> record = conflict.to_dict()
+            >>> record["kind"], record["a"], record["b"]
+            ('unit_different', {'unit': 'Pa'}, {'unit': 'hPa'})
+        """
+        return {
+            "facet": self.facet,
+            "kind": self.kind,
+            "a": _marker_dict(self.a),
+            "b": _marker_dict(self.b),
+            "message": self.message,
+        }
 
 
 def assert_valid_declaration(declared: Declared, context: str) -> None:
@@ -145,30 +257,34 @@ def assert_valid_declaration(declared: Declared, context: str) -> None:
         assert_valid_freq(declared.freq, context)
 
 
-def _refuse_other_value(value: Any, decl: Declared, where: str) -> None:
+def _refuse_other_value(
+    value: Any, decl: Declared, name: str, qualname: str | None, role: Role
+) -> None:
     """Raise unless the hint allows this value, which is not a `DataArray`.
 
     Raises:
         ContractError: If the hint names nothing that could be this value.
     """
+    where = _label(name, qualname, role)
+    site: dict[str, Any] = {"name": name, "qualname": qualname, "role": role}
     if value is None:
         if types.NoneType not in decl.others:
+            hint = "If that is allowed, declare it with `| None`."
             raise ContractError(
-                f"{where}: declared a DataArray, got None. If that is allowed, declare "
-                f"it with `| None`.",
-                found="None",
+                f"{where}: declared a DataArray, got None. {hint}",
+                **site,
+                kind="not_array",
+                found="NoneType",
+                hint=hint,
             )
     elif all(other is types.NoneType for other in decl.others):
         raise ContractError(
             f"{where}: declared a DataArray, got {type(value).__name__}. Checks apply "
             f"only to a DataArray, so this value could not be checked.",
+            **site,
+            kind="not_array",
             found=type(value).__name__,
         )
-
-
-def _input_label(name: str, qualname: str | None) -> str:
-    """Name an input in a message."""
-    return f"[{qualname}] input {name!r}" if qualname else f"input {name!r}"
 
 
 def _facet_checks(
@@ -188,7 +304,7 @@ def _check_valid_declared(
 ) -> None:
     """`check_declared` on a validated declaration, whatever `enabled` says."""
     if not isinstance(value, xr.DataArray):
-        _refuse_other_value(value, declared, _input_label(name, qualname))
+        _refuse_other_value(value, declared, name, qualname, "input")
         return
     for check in _facet_checks(value, declared, name, qualname):
         check()
@@ -237,13 +353,23 @@ def check_declared(
     """
     if not resolve_enabled():
         return value
-    assert_valid_declaration(declared, _input_label(name, qualname))
+    assert_valid_declaration(declared, _label(name, qualname, "input"))
     _check_valid_declared(value, declared, name, qualname)
     return value
 
 
-def _violation(exc: ContractError, name: str) -> Violation:
-    return Violation(name, exc.facet, exc.declared, exc.found, str(exc))
+def _violation(exc: ContractError, name: str, qualname: str | None) -> Violation:
+    return Violation(
+        name=name,
+        qualname=qualname,
+        role="input",
+        facet=exc.facet,
+        kind=exc.kind,
+        declared=exc.declared,
+        found=exc.found,
+        hint=exc.hint,
+        message=str(exc),
+    )
 
 
 def declaration_violations(
@@ -290,19 +416,19 @@ def declaration_violations(
     """
     if not resolve_enabled():
         return []
-    assert_valid_declaration(declared, _input_label(name, qualname))
+    assert_valid_declaration(declared, _label(name, qualname, "input"))
     if not isinstance(value, xr.DataArray):
         try:
-            _refuse_other_value(value, declared, _input_label(name, qualname))
+            _refuse_other_value(value, declared, name, qualname, "input")
         except ContractError as exc:
-            return [_violation(exc, name)]
+            return [_violation(exc, name, qualname)]
         return []
     violations = []
     for check in _facet_checks(value, declared, name, qualname):
         try:
             check()
         except ContractError as exc:
-            violations.append(_violation(exc, name))
+            violations.append(_violation(exc, name, qualname))
     return violations
 
 
@@ -356,30 +482,36 @@ def declaration_conflicts(a: Declared, b: Declared) -> list[Conflict]:
     assert_valid_declaration(b, "declaration_conflicts")
     conflicts = []
 
-    def conflict(facet: str, x: Marker, y: Marker, why: str) -> None:
-        conflicts.append(Conflict(facet, x, y, f"{facet}: {x!r} and {y!r} {why}"))
+    def conflict(facet: str, kind: Kind, x: Marker, y: Marker, why: str) -> None:
+        message = f"{facet}: {x!r} and {y!r} {why}"
+        conflicts.append(Conflict(facet, kind, x, y, message))
 
     if a.unit is not None and b.unit is not None:
         if not units_compatible(a.unit, b.unit):
-            conflict("unit", a.unit, b.unit, "are dimensionally incompatible")
+            why = "are dimensionally incompatible"
+            conflict("unit", "unit_incompatible", a.unit, b.unit, why)
         elif not units_equal(a.unit, b.unit):
-            conflict("unit", a.unit, b.unit, "are different units")
+            conflict("unit", "unit_different", a.unit, b.unit, "are different units")
     if (
         a.dims is not None
         and b.dims is not None
         and not dims_compatible(a.dims, b.dims)
     ):
-        conflict("dims", a.dims, b.dims, "are incompatible")
+        same_set = set(a.dims.names) == set(b.dims.names)
+        kind = "dims_order" if same_set else "dims_mismatch"
+        conflict("dims", kind, a.dims, b.dims, "are incompatible")
     if (
         a.dtype is not None
         and b.dtype is not None
         and not dtype_compatible(a.dtype, b.dtype)
     ):
-        conflict("dtype", a.dtype, b.dtype, "are incompatible")
+        same_kind = np.dtype(a.dtype.dtype).kind == np.dtype(b.dtype.dtype).kind
+        kind = "dtype_width" if same_kind else "dtype_kind"
+        conflict("dtype", kind, a.dtype, b.dtype, "are incompatible")
     if (
         a.freq is not None
         and b.freq is not None
         and not freq_compatible(a.freq, b.freq)
     ):
-        conflict("freq", a.freq, b.freq, "are incompatible")
+        conflict("freq", "freq_mismatch", a.freq, b.freq, "are incompatible")
     return conflicts
