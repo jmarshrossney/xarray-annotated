@@ -110,11 +110,6 @@ def _show(upstream: Upstream) -> str:
     return upstream
 
 
-def _facet(conflict: str) -> str:
-    """The facet a `declaration_conflicts` message is about, such as `"unit"`."""
-    return conflict.split(":", 1)[0]
-
-
 def _accepts_other(declared: Declared) -> bool:
     """Whether a parameter's union allows something besides a `DataArray` and `None`."""
     return any(other is not types.NoneType for other in declared.others)
@@ -260,13 +255,13 @@ def wiring_conflicts(
         if isinstance(produced, Declared):
             for label, declared in consumers:
                 found = declaration_conflicts(produced, declared)
-                reported[label] = {_facet(c) for c in found}
+                reported[label] = {c.facet for c in found}
                 conflicts += [f"{source} -> {label}: {c}" for c in found]
         for (a, da), (b, db) in itertools.combinations(consumers, 2):
             seen = reported.get(a, set()) | reported.get(b, set())
             conflicts += [
                 f"{a} and {b}, both from {source}: {c}"
                 for c in declaration_conflicts(da, db)
-                if _facet(c) not in seen
+                if c.facet not in seen
             ]
     return conflicts

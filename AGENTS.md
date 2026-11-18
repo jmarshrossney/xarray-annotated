@@ -70,6 +70,8 @@ A new `Declared` slot fails `tests/test_facet_wiring.py` until it joins that fil
 | `_check_annotations.py` | `_check_output`, and the hard-coded marker list in `_markers_in` |
 | `__init__.py` | re-export the marker from the root |
 
+The new facet's error must also pass `facet`, `declared` and `found` to `ContractError`, which `declaration_violations` copies into a `Violation`; `FACETS` checks `facet` and `declared`.
+
 Units are checked first on both sides, as that fixed order is the reason there is one decorator, so add the new check after them.
 
 ## Docs

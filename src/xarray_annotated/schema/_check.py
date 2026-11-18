@@ -204,6 +204,17 @@ _CHECKERS: dict[type, Callable[[xr.DataArray, Any], tuple[bool, str]]] = {
     Dtype: _check_dtype,
 }
 
+_FACETS = {Dims: "dims", Coords: "coords", Dtype: "dtype"}
+
+
+def _found(da: xr.DataArray, marker: SchemaMarker) -> str | tuple[str, ...]:
+    """What an array has for the facet a marker declares, for a `Violation`."""
+    if isinstance(marker, Dims):
+        return tuple(map(str, da.dims))
+    if isinstance(marker, Coords):
+        return tuple(sorted(map(str, da.coords)))
+    return str(da.dtype)
+
 
 def _check_valid_schema(
     da: xr.DataArray,
@@ -216,7 +227,12 @@ def _check_valid_schema(
     for marker in _as_list(declared):
         ok, detail = _CHECKERS[type(marker)](da, marker)
         if not ok:
-            raise SchemaError(f"{prefix} {detail}")
+            raise SchemaError(
+                f"{prefix} {detail}",
+                facet=_FACETS[type(marker)],
+                declared=marker,
+                found=_found(da, marker),
+            )
 
 
 def _as_list(declared: SchemaMarker | list[SchemaMarker]) -> list[SchemaMarker]:

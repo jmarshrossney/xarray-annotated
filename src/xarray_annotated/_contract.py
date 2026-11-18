@@ -10,6 +10,7 @@ Like `Declared`, this is cross-domain, so it lives at the package root.
 
 import types
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
@@ -18,13 +19,16 @@ import xarray as xr
 from ._config import resolve_enabled
 from ._errors import ContractError
 from ._reader import Declared
+from .schema._annotations import Coords, Dims, Dtype
 from .schema._check import (
     _check_valid_schema,
     assert_valid_schema,
     dims_compatible,
     dtype_compatible,
 )
+from .temporal._annotations import Freq
 from .temporal._check import _check_valid_freq, assert_valid_freq, freq_compatible
+from .units._annotations import Unit
 from .units._check import (
     _check_input_unit,
     assert_valid_unit,
@@ -33,11 +37,81 @@ from .units._check import (
 )
 
 __all__ = [
+    "Conflict",
+    "Violation",
     "assert_valid_declaration",
     "check_declared",
     "declaration_conflicts",
     "declaration_violations",
 ]
+
+type Marker = Unit | Dims | Coords | Dtype | Freq
+
+
+@dataclass(frozen=True)
+class Violation:
+    """One way an input fails its declaration, as `declaration_violations` reports it.
+
+    The fields say what `message` says, for a tool or an agent that should not parse
+    prose.  `facet` is the `Declared` slot that failed, so its values are those of the
+    slots: `"unit"`, `"dims"`, `"coords"`, `"dtype"` and `"freq"`.  `str()` gives
+    `message`, so a record interpolates as the message did.
+
+    `found` is what the array has for the facet, read from metadata and indexes only:
+
+    | `facet` | `found` |
+    | --- | --- |
+    | `"unit"` | its unit label, or `None` if it has none or it is too long to read |
+    | `"dims"` | its dims, in order |
+    | `"coords"` | the names of all its coords, sorted |
+    | `"dtype"` | its dtype, such as `"float32"` |
+    | `"freq"` | the frequency inferred for its time axis, or `None` if none was |
+
+    A value that is not a `DataArray` has `facet` and `declared` `None`, and `found`
+    the name of its type.
+
+    Attributes:
+        name: The name the input was checked under.
+        facet: The `Declared` slot that failed, or `None` for a value that is not a
+            `DataArray`.
+        declared: The marker that failed, or `None` when `facet` is.
+        found: What the array has for that facet, as above.
+        message: The message `check_declared` would raise with.
+    """
+
+    name: str
+    facet: str | None
+    declared: Marker | None
+    found: str | tuple[str, ...] | None
+    message: str
+
+    def __str__(self) -> str:
+        return self.message
+
+
+@dataclass(frozen=True)
+class Conflict:
+    """One facet on which two declarations conflict, as `declaration_conflicts` says.
+
+    `a` and `b` are the two markers in the order the declarations were given, and
+    `facet` is their `Declared` slot: `"unit"`, `"dims"`, `"dtype"` or `"freq"`, as
+    `Coords` cannot conflict.  `str()` gives `message`, so a record interpolates as the
+    message did.
+
+    Attributes:
+        facet: The `Declared` slot the two disagree on.
+        a: The marker from the first declaration.
+        b: The marker from the second.
+        message: The conflict in words, starting with `facet`.
+    """
+
+    facet: str
+    a: Marker
+    b: Marker
+    message: str
+
+    def __str__(self) -> str:
+        return self.message
 
 
 def assert_valid_declaration(declared: Declared, context: str) -> None:
@@ -81,12 +155,14 @@ def _refuse_other_value(value: Any, decl: Declared, where: str) -> None:
         if types.NoneType not in decl.others:
             raise ContractError(
                 f"{where}: declared a DataArray, got None. If that is allowed, declare "
-                f"it with `| None`."
+                f"it with `| None`.",
+                found="None",
             )
     elif all(other is types.NoneType for other in decl.others):
         raise ContractError(
             f"{where}: declared a DataArray, got {type(value).__name__}. Checks apply "
-            f"only to a DataArray, so this value could not be checked."
+            f"only to a DataArray, so this value could not be checked.",
+            found=type(value).__name__,
         )
 
 
@@ -166,18 +242,23 @@ def check_declared(
     return value
 
 
+def _violation(exc: ContractError, name: str) -> Violation:
+    return Violation(name, exc.facet, exc.declared, exc.found, str(exc))
+
+
 def declaration_violations(
     value: Any, declared: Declared, name: str, qualname: str | None = None
-) -> list[str]:
+) -> list[Violation]:
     """Return every way an input fails its declaration, without raising for it.
 
     This is the array counterpart of `declaration_conflicts`, for a tool reporting all
     that is wrong at once.  It applies the checks `check_declared` applies, and differs
-    only in collecting one message per failing marker rather than raising at the first.
+    only in collecting one record per failing marker rather than raising at the first.
+    Each record's `message` is what `check_declared` would raise with.
 
     To check one array against several consumers, call this once per consumer and
-    de-duplicate by message.  `Declared` equality ignores `others`, so `| None` on one
-    consumer would otherwise excuse `None` for another.
+    de-duplicate, by record or by message.  `Declared` equality ignores `others`, so
+    `| None` on one consumer would otherwise excuse `None` for another.
 
     Args:
         value: The value to check.
@@ -187,8 +268,8 @@ def declaration_violations(
         qualname: The qualified name of the function it is for, if any.
 
     Returns:
-        One message per failure, each naming `name`, or an empty list if there are none
-        or xarray-annotated is switched off.
+        One `Violation` per failure, units first, or an empty list if there are none or
+        xarray-annotated is switched off.
 
     Raises:
         ValueError: If the declaration is malformed, or `XARRAY_ANNOTATED_ENABLED` holds
@@ -199,8 +280,11 @@ def declaration_violations(
         >>> import xarray_annotated as xra
         >>> declared = xra.Declared(unit=xra.Unit("Pa"), dims=xra.Dims("y"))
         >>> p = xr.DataArray([1.0], dims="x", attrs={"units": "Pa"})
-        >>> len(xra.declaration_violations(p, declared, "p"))
-        1
+        >>> [violation] = xra.declaration_violations(p, declared, "p")
+        >>> violation.facet, violation.declared, violation.found
+        ('dims', Dims('y'), ('x',))
+        >>> print(violation)
+        'p' dims mismatch: expected ('y',) in any order, got ('x',)
         >>> xra.declaration_violations(p.rename(x="y"), declared, "p")
         []
     """
@@ -211,18 +295,18 @@ def declaration_violations(
         try:
             _refuse_other_value(value, declared, _input_label(name, qualname))
         except ContractError as exc:
-            return [str(exc)]
+            return [_violation(exc, name)]
         return []
     violations = []
     for check in _facet_checks(value, declared, name, qualname):
         try:
             check()
         except ContractError as exc:
-            violations.append(str(exc))
+            violations.append(_violation(exc, name))
     return violations
 
 
-def declaration_conflicts(a: Declared, b: Declared) -> list[str]:
+def declaration_conflicts(a: Declared, b: Declared) -> list[Conflict]:
     """Return how two declarations provably cannot describe the same array.
 
     This is for checking a producer against a consumer with no array in hand, such as
@@ -250,7 +334,8 @@ def declaration_conflicts(a: Declared, b: Declared) -> list[str]:
         b: Another declaration.
 
     Returns:
-        One message per conflicting facet, or an empty list if there are none.
+        One `Conflict` per conflicting facet, in the order `unit`, `dims`, `dtype`,
+        `freq`, or an empty list if there are none.
 
     Raises:
         ValueError: If either declaration is malformed.
@@ -260,35 +345,41 @@ def declaration_conflicts(a: Declared, b: Declared) -> list[str]:
         >>> a = xra.Declared(unit=xra.Unit("Pa"), dims=xra.Dims("x"))
         >>> xra.declaration_conflicts(a, xra.Declared(unit=xra.Unit("pascal")))
         []
-        >>> xra.declaration_conflicts(a, xra.Declared(unit=xra.Unit("hPa")))
-        ["unit: Unit('Pa') and Unit('hPa') are different units"]
+        >>> hpa = xra.Declared(unit=xra.Unit("hPa"))
+        >>> [conflict] = xra.declaration_conflicts(a, hpa)
+        >>> conflict.facet, conflict.a, conflict.b
+        ('unit', Unit('Pa'), Unit('hPa'))
+        >>> print(conflict)
+        unit: Unit('Pa') and Unit('hPa') are different units
     """
     assert_valid_declaration(a, "declaration_conflicts")
     assert_valid_declaration(b, "declaration_conflicts")
     conflicts = []
+
+    def conflict(facet: str, x: Marker, y: Marker, why: str) -> None:
+        conflicts.append(Conflict(facet, x, y, f"{facet}: {x!r} and {y!r} {why}"))
+
     if a.unit is not None and b.unit is not None:
         if not units_compatible(a.unit, b.unit):
-            conflicts.append(
-                f"unit: {a.unit!r} and {b.unit!r} are dimensionally incompatible"
-            )
+            conflict("unit", a.unit, b.unit, "are dimensionally incompatible")
         elif not units_equal(a.unit, b.unit):
-            conflicts.append(f"unit: {a.unit!r} and {b.unit!r} are different units")
+            conflict("unit", a.unit, b.unit, "are different units")
     if (
         a.dims is not None
         and b.dims is not None
         and not dims_compatible(a.dims, b.dims)
     ):
-        conflicts.append(f"dims: {a.dims!r} and {b.dims!r} are incompatible")
+        conflict("dims", a.dims, b.dims, "are incompatible")
     if (
         a.dtype is not None
         and b.dtype is not None
         and not dtype_compatible(a.dtype, b.dtype)
     ):
-        conflicts.append(f"dtype: {a.dtype!r} and {b.dtype!r} are incompatible")
+        conflict("dtype", a.dtype, b.dtype, "are incompatible")
     if (
         a.freq is not None
         and b.freq is not None
         and not freq_compatible(a.freq, b.freq)
     ):
-        conflicts.append(f"freq: {a.freq!r} and {b.freq!r} are incompatible")
+        conflict("freq", a.freq, b.freq, "are incompatible")
     return conflicts

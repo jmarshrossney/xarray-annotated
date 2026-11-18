@@ -403,24 +403,27 @@ def _step_mismatch(marker: Freq, coord: xr.DataArray) -> str | None:
     return _calendar_phase_mismatch(marker, coord)
 
 
-def _mismatch(marker: Freq, coord: xr.DataArray) -> str | None:
+def _mismatch(marker: Freq, coord: xr.DataArray) -> tuple[str, str | None] | None:
     """How a time axis contradicts a declaration, or `None` if it does not.
 
-    An axis of zero or one point has no spacing, so nothing can contradict it.
+    Returns the detail for the message and the axis's inferred frequency, or `None`
+    for the latter where none was inferred.  An axis of zero or one point has no
+    spacing, so nothing can contradict it.
     """
     if coord.size < 2:
         return None
     if coord.size == 2 or marker.gaps_ok or _any_day_months(marker.freq) is not None:
-        return _step_mismatch(marker, coord)
+        got = _step_mismatch(marker, coord)
+        return None if got is None else (got, None)
     inferred = _infer(coord)
     if inferred is None:
-        return "irregular spacing"
+        return "irregular spacing", None
     if not freq_compatible(marker, Freq(inferred)):
-        return repr(inferred)
+        return repr(inferred), inferred
     # On a cftime axis `infer_freq` says `7D` where pandas says `W-WED`.
-    return (
-        None if _on_declared_weekday(marker, coord) else f"{inferred!r} on another day"
-    )
+    if _on_declared_weekday(marker, coord):
+        return None
+    return f"{inferred!r} on another day", inferred
 
 
 def _check_valid_freq(
@@ -430,12 +433,16 @@ def _check_valid_freq(
     prefix = f"[{qualname}] {name!r}" if qualname else f"{name!r}"
     dim, detail = _locate_axis(da, declared)
     if dim is None:
-        raise FreqError(f"{prefix} {detail}")
-    got = _mismatch(declared, da[dim])
-    if got is not None:
+        raise FreqError(f"{prefix} {detail}", facet="freq", declared=declared)
+    mismatch = _mismatch(declared, da[dim])
+    if mismatch is not None:
+        got, inferred = mismatch
         raise FreqError(
             f"{prefix} frequency mismatch on {dim!r}: expected {declared.freq!r}, "
-            f"got {got}"
+            f"got {got}",
+            facet="freq",
+            declared=declared,
+            found=inferred,
         )
 
 

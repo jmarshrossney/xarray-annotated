@@ -162,7 +162,7 @@ class TestDeclarationConflicts:
         [conflict] = xra.declaration_conflicts(
             Declared(unit=Unit("Pa")), Declared(unit=Unit("K"))
         )
-        assert "dimensionally incompatible" in conflict
+        assert "dimensionally incompatible" in str(conflict)
 
     @pytest.mark.parametrize(
         ("a", "b", "facet"),
@@ -174,8 +174,25 @@ class TestDeclarationConflicts:
     )
     def test_each_facet_is_compared(self, a, b, facet):
         [conflict] = xra.declaration_conflicts(a, b)
-        assert conflict.startswith(f"{facet}:")
+        assert conflict.facet == facet
+        assert conflict.message.startswith(f"{facet}:")
         assert xra.declaration_conflicts(b, a)
+
+    def test_records_the_markers_in_the_order_given(self):
+        a, b = Declared(unit=Unit("Pa")), Declared(unit=Unit("hPa"))
+        [forward] = xra.declaration_conflicts(a, b)
+        [backward] = xra.declaration_conflicts(b, a)
+        assert (forward.a, forward.b) == (Unit("Pa"), Unit("hPa"))
+        assert (backward.a, backward.b) == (Unit("hPa"), Unit("Pa"))
+
+    def test_a_record_reads_as_its_message(self):
+        [conflict] = xra.declaration_conflicts(
+            Declared(unit=Unit("Pa")), Declared(unit=Unit("hPa"))
+        )
+        assert str(conflict) == f"{conflict}" == conflict.message
+        assert (
+            conflict.message == "unit: Unit('Pa') and Unit('hPa') are different units"
+        )
 
     def test_every_conflicting_facet_is_reported(self):
         a = Declared(unit=Unit("Pa"), dims=Dims("x"), dtype=Dtype("float"))
@@ -290,7 +307,11 @@ class TestDeclarationViolations:
         else:
             with pytest.raises(error) as info:
                 xra.check_declared(value, declared, "p")
-            assert violations[0] == str(info.value)
+            exc = info.value
+            first = violations[0]
+            assert first == xra.Violation(
+                "p", exc.facet, exc.declared, exc.found, str(exc)
+            )
 
     def test_reports_every_failing_marker(self):
         declared = Declared(
@@ -302,15 +323,17 @@ class TestDeclarationViolations:
     def test_reports_units_first_and_names_the_array_once(self):
         declared = Declared(unit=Unit("Pa"), dims=Dims("x"))
         unit, dims = xra.declaration_violations(_array(unit="kg"), declared, "p")
-        assert "[mass]" in unit
-        assert "Dims" in dims or "dims" in dims
-        for message in (unit, dims):
-            assert message.count("'p'") == 1
+        assert (unit.facet, dims.facet) == ("unit", "dims")
+        assert "[mass]" in unit.message
+        for violation in (unit, dims):
+            assert violation.name == "p"
+            assert violation.message.count("'p'") == 1
 
     def test_prefixes_the_qualname(self):
         declared = Declared(unit=Unit("Pa"))
-        [message] = xra.declaration_violations(_array(unit="kg"), declared, "p", "f")
-        assert message.startswith("[f] input 'p'")
+        [violation] = xra.declaration_violations(_array(unit="kg"), declared, "p", "f")
+        assert violation.message.startswith("[f] input 'p'")
+        assert violation.name == "p"
 
     @pytest.mark.parametrize("value", [_array(), None], ids=["array", "none"])
     def test_a_malformed_declaration_raises(self, value):
@@ -334,3 +357,135 @@ class TestResolveEnabled:
             assert xra.resolve_enabled() is False
         with xra.enabled(True):
             assert xra.resolve_enabled() is True
+
+
+class TestViolationFields:
+    """What a tool reads instead of the message."""
+
+    @pytest.mark.parametrize(
+        ("value", "declared", "facet", "found"),
+        [
+            (_array(unit="hPa"), Unit("Pa"), "unit", "hPa"),
+            (_array(unit="K"), Unit("Pa"), "unit", "K"),
+            (_array().drop_attrs(), Unit("Pa"), "unit", None),
+            (_array(unit="x" * 300), Unit("Pa"), "unit", None),
+            (_array(unit="not_a_unit"), Unit("Pa"), "unit", "not_a_unit"),
+            (_array(), Dims("x", "y"), "dims", ("time",)),
+            (_array(), Dims("x", ordered=True), "dims", ("time",)),
+            (_array(), Coords("lat"), "coords", ("time",)),
+            (_array().astype("f4"), Dtype("float64"), "dtype", "float32"),
+            (_array(), Dtype("int"), "dtype", "float64"),
+            (_array(freq="D"), Freq("h"), "freq", "D"),
+            (_array().drop_vars("time"), Freq("h"), "freq", None),
+        ],
+        ids=[
+            "unit-scale",
+            "unit-dimension",
+            "unit-missing",
+            "unit-over-long",
+            "unit-unparseable",
+            "dims",
+            "dims-ordered",
+            "coords",
+            "dtype-width",
+            "dtype-kind",
+            "freq",
+            "freq-no-axis",
+        ],
+    )
+    def test_names_the_facet_the_marker_and_what_was_found(
+        self, value, declared, facet, found
+    ):
+        slot = Declared(**{facet: declared})
+        [violation] = xra.declaration_violations(value, slot, "p")
+        assert violation.name == "p"
+        assert violation.facet == facet
+        assert violation.declared == declared
+        assert violation.found == found
+
+    def test_irregular_spacing_has_no_frequency(self):
+        times = pd.to_datetime(["2000-01-01", "2000-01-02", "2000-01-04"])
+        value = xr.DataArray([1.0, 2.0, 3.0], dims="time", coords={"time": times})
+        [violation] = xra.declaration_violations(value, Declared(freq=Freq("D")), "p")
+        assert (violation.facet, violation.found) == ("freq", None)
+
+    @pytest.mark.parametrize(
+        ("value", "found"), [(None, "None"), ("hPa", "str"), (1.0, "float")]
+    )
+    def test_a_value_that_is_not_an_array_names_its_type(self, value, found):
+        [violation] = xra.declaration_violations(value, Declared(unit=Unit("Pa")), "p")
+        assert (violation.facet, violation.declared) == (None, None)
+        assert violation.found == found
+
+    def test_records_hash_so_consumers_can_be_deduplicated(self):
+        value = _array(unit="kg")
+        found = [
+            v
+            for d in (Declared(unit=Unit("Pa")), Declared(unit=Unit("Pa")))
+            for v in xra.declaration_violations(value, d, "p")
+        ]
+        assert len(dict.fromkeys(found)) == 1
+
+    def test_a_record_reads_as_its_message(self):
+        [violation] = xra.declaration_violations(
+            _array(unit="kg"), Declared(unit=Unit("Pa")), "p"
+        )
+        assert str(violation) == f"{violation}" == violation.message
+
+
+class TestErrorFields:
+    """`check_annotations` users get the same fields on the error it raises."""
+
+    def test_an_input_error_carries_them(self):
+        @xra.check_annotations
+        def f(p: Annotated[xr.DataArray, Unit("Pa")]) -> None:
+            pass
+
+        with pytest.raises(UnitError) as info:
+            f(_array(unit="hPa"))
+        assert (info.value.facet, info.value.declared, info.value.found) == (
+            "unit",
+            Unit("Pa"),
+            "hPa",
+        )
+
+    def test_an_output_error_carries_them(self):
+        @xra.check_annotations
+        def f() -> Annotated[xr.DataArray, Dims("x")]:
+            return _array()
+
+        with pytest.raises(SchemaError) as info:
+            f()
+        assert (info.value.facet, info.value.declared, info.value.found) == (
+            "dims",
+            Dims("x"),
+            ("time",),
+        )
+
+    def test_a_record_mismatch_has_no_facet(self):
+        @xra.check_annotations
+        def f() -> Annotated[xr.DataArray, Unit("Pa")]:
+            return 1.0  # pyright: ignore[reportReturnType]
+
+        with pytest.raises(xra.ContractError) as info:
+            f()
+        assert (info.value.facet, info.value.declared) == (None, None)
+        assert info.value.found == "float"
+
+    def test_the_fields_survive_pickling(self):
+        import pickle
+
+        with pytest.raises(UnitError) as info:
+            xra.check_declared(_array(unit="hPa"), Declared(unit=Unit("Pa")), "p")
+        restored = pickle.loads(pickle.dumps(info.value))
+        assert type(restored) is UnitError
+        assert str(restored) == str(info.value)
+        assert (restored.facet, restored.declared, restored.found) == (
+            "unit",
+            Unit("Pa"),
+            "hPa",
+        )
+
+    def test_quantify_and_convert_still_raise_value_error(self):
+        with pytest.raises(ValueError, match="no 'units'"):
+            xra.units.quantify(_array().drop_attrs())

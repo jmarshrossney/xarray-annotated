@@ -291,17 +291,27 @@ def _own_unit(
         da.attrs.get("units") if quantified is None else _quantified_label(quantified)
     )
     expected = "" if declared is None else f"declared {declared!r}"
+
+    def fail(message: str, found: str | None) -> Exception:
+        if not issubclass(error, ContractError):
+            return error(message)
+        marker = None if declared is None else Unit(declared)
+        return error(message, facet="unit", declared=marker, found=found)
+
     if have is None:
         about = f" ({expected})" if expected else ""
-        raise error(f"{where} has no 'units' attribute{about}. {missing or remedy}")
+        raise fail(
+            f"{where} has no 'units' attribute{about}. {missing or remedy}", None
+        )
     if isinstance(have, str) and len(have) > _MAX_UNIT_LEN:
         # An over-long units attribute can hang pint's parser (DoS); refuse it
         # *before* parsing. Never echo `have` in the message -- it may be huge.
         also = f"; {expected}" if expected else ""
-        raise error(
+        raise fail(
             f"{where} has an over-long 'units' attribute "
             f"({len(have)} chars > {_MAX_UNIT_LEN}{also}); "
-            f"refusing to parse. {remedy}"
+            f"refusing to parse. {remedy}",
+            None,
         )
     try:
         get_registry().Unit(have)
@@ -310,9 +320,10 @@ def _own_unit(
         # validated than a missing one; refuse it with a message rather than letting
         # an opaque parse error escape.
         about = f"({expected}): " if expected else ": "
-        raise error(
+        raise fail(
             f"{where} has unparseable 'units' attribute {have!r} "
-            f"{about}{type(exc).__name__}: {exc}{_cf_hint(have)}. {remedy}"
+            f"{about}{type(exc).__name__}: {exc}{_cf_hint(have)}. {remedy}",
+            str(have),
         ) from exc
     return have, quantified is not None
 
@@ -331,16 +342,18 @@ def _refuse(have: str, declared: str, where: str, hint: str, fix: str) -> NoRetu
         UnitError: Always, from the pint error if `have` cannot convert to `declared`.
     """
     registry = get_registry()
+    fields = {"facet": "unit", "declared": Unit(declared), "found": have}
     try:
         registry.Quantity(1.0, have).to(declared)
     except pint.DimensionalityError as err:
         raise UnitError(
             f"{where}: unit {have!r} ({registry.Unit(have).dimensionality}) cannot "
             f"convert to declared {declared!r} "
-            f"({registry.Unit(declared).dimensionality}). {fix}"
+            f"({registry.Unit(declared).dimensionality}). {fix}",
+            **fields,
         ) from err
     raise UnitError(
-        f"{where}: unit {have!r} differs from declared {declared!r}. {hint}"
+        f"{where}: unit {have!r} differs from declared {declared!r}. {hint}", **fields
     )
 
 

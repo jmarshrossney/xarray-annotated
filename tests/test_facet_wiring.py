@@ -86,6 +86,10 @@ def test_input_is_checked(slot):
     )
     with pytest.raises(facet.error):
         xra.check_declared(_array(), Declared(**{slot: facet.misfit}), "p")
+    [violation] = xra.declaration_violations(
+        _array(), Declared(**{slot: facet.misfit}), "p"
+    )
+    assert (violation.facet, violation.declared) == (slot, facet.misfit)
 
 
 @parametrize_facets
@@ -100,8 +104,9 @@ def test_output_is_checked(slot):
         return xra.check_annotations(func)
 
     returning(facet.fits)()
-    with pytest.raises(facet.error):
+    with pytest.raises(facet.error) as info:
         returning(facet.misfit)()
+    assert (info.value.facet, info.value.declared) == (slot, facet.misfit)
 
 
 @parametrize_facets
@@ -124,4 +129,5 @@ def test_conflicts_are_reported(slot):
         Declared(**{slot: facet.fits}), Declared(**{slot: facet.conflicting})
     )
     assert len(conflicts) == 1
-    assert conflicts[0].startswith(f"{slot}:")
+    assert conflicts[0].facet == slot
+    assert conflicts[0].message.startswith(f"{slot}:")

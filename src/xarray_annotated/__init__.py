@@ -27,8 +27,9 @@ it; the ``enabled`` switch; the shared declaration *writer* ``annotate`` and its
 *readers* ``declaration_from_hint`` and ``declarations_from_signature`` (which read
 every facet declared on a hint or a signature into one uniform ``Declared`` value); and,
 for tools built on those, ``assert_valid_declaration``, ``check_declared``,
-``declaration_conflicts``, ``declaration_violations``, ``wiring_conflicts``,
-``resolve_enabled`` and the ``ContractError`` base of every failed check.
+``declaration_conflicts`` and ``declaration_violations`` with the ``Conflict`` and
+``Violation`` records they return, ``wiring_conflicts``, ``resolve_enabled`` and the
+``ContractError`` base of every failed check.
 """
 
 from importlib.metadata import version as _version
@@ -37,6 +38,8 @@ from . import schema, temporal, units
 from ._check_annotations import check_annotations
 from ._config import enabled, resolve_enabled
 from ._contract import (
+    Conflict,
+    Violation,
     assert_valid_declaration,
     check_declared,
     declaration_conflicts,
@@ -54,6 +57,7 @@ from .units import Unit
 __version__ = _version("xarray-annotated")
 
 __all__ = [
+    "Conflict",
     "ContractError",
     "Coords",
     "Declared",
@@ -61,6 +65,7 @@ __all__ = [
     "Dtype",
     "Freq",
     "Unit",
+    "Violation",
     "__version__",
     "annotate",
     "assert_valid_declaration",
