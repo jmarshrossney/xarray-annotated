@@ -9,14 +9,14 @@ Every conversion is logged to the `xarray_annotated.units` logger at DEBUG.
 
 import logging
 import math
-from typing import NoReturn
+from typing import Any, NoReturn
 
 import pint
 import pint_xarray  # noqa: F401  (registers the .pint accessor)
 import xarray as xr
 
 from .._config import resolve_enabled
-from .._errors import ContractError
+from .._errors import ContractError, Kind, Role, _label
 from ._annotations import Unit
 from ._registry import _cf_hint, _label_format, get_registry
 
@@ -263,6 +263,7 @@ def _own_unit(
     remedy: str,
     error: type[Exception],
     missing: str | None = None,
+    site: dict[str, Any] | None = None,
 ) -> tuple[str, bool]:
     """Read the unit an array says it is in, refusing one that cannot be checked.
 
@@ -279,6 +280,7 @@ def _own_unit(
         remedy: What to do about a missing or unreadable unit.
         error: What to raise, as a check and an operation raise different things.
         missing: What to do about a missing unit, if not `remedy`.
+        site: The `name`, `qualname` and `role` a `ContractError` reports.
 
     Returns:
         The unit as a string, and whether the array is quantified.
@@ -291,17 +293,41 @@ def _own_unit(
         da.attrs.get("units") if quantified is None else _quantified_label(quantified)
     )
     expected = "" if declared is None else f"declared {declared!r}"
+
+    def fail(message: str, kind: Kind, found: str | None, hint: str) -> Exception:
+        if not issubclass(error, ContractError):
+            return error(message)
+        marker = None if declared is None else Unit(declared)
+        return error(
+            message,
+            **(site or {}),
+            facet="unit",
+            kind=kind,
+            declared=marker,
+            found=found,
+            hint=hint,
+        )
+
     if have is None:
         about = f" ({expected})" if expected else ""
-        raise error(f"{where} has no 'units' attribute{about}. {missing or remedy}")
+        hint = missing or remedy
+        raise fail(
+            f"{where} has no 'units' attribute{about}. {hint}",
+            "unit_missing",
+            None,
+            hint,
+        )
     if isinstance(have, str) and len(have) > _MAX_UNIT_LEN:
         # An over-long units attribute can hang pint's parser (DoS); refuse it
         # *before* parsing. Never echo `have` in the message -- it may be huge.
         also = f"; {expected}" if expected else ""
-        raise error(
+        raise fail(
             f"{where} has an over-long 'units' attribute "
             f"({len(have)} chars > {_MAX_UNIT_LEN}{also}); "
-            f"refusing to parse. {remedy}"
+            f"refusing to parse. {remedy}",
+            "unit_too_long",
+            None,
+            remedy,
         )
     try:
         get_registry().Unit(have)
@@ -310,14 +336,19 @@ def _own_unit(
         # validated than a missing one; refuse it with a message rather than letting
         # an opaque parse error escape.
         about = f"({expected}): " if expected else ": "
-        raise error(
+        raise fail(
             f"{where} has unparseable 'units' attribute {have!r} "
-            f"{about}{type(exc).__name__}: {exc}{_cf_hint(have)}. {remedy}"
+            f"{about}{type(exc).__name__}: {exc}{_cf_hint(have)}. {remedy}",
+            "unit_unparseable",
+            str(have),
+            remedy,
         ) from exc
     return have, quantified is not None
 
 
-def _refuse(have: str, declared: str, where: str, hint: str, fix: str) -> NoReturn:
+def _refuse(
+    have: str, declared: str, where: str, hint: str, fix: str, site: dict[str, Any]
+) -> NoReturn:
     """Raise for a unit that is not the declared one, by whether the two convert.
 
     Args:
@@ -326,22 +357,35 @@ def _refuse(have: str, declared: str, where: str, hint: str, fix: str) -> NoRetu
         where: Names the array in the message.
         hint: What to do about a unit that converts.
         fix: What to do about one that does not.
+        site: The `name`, `qualname` and `role` the error reports.
 
     Raises:
         UnitError: Always, from the pint error if `have` cannot convert to `declared`.
     """
     registry = get_registry()
+    fields = {**site, "facet": "unit", "declared": Unit(declared), "found": have}
     try:
         registry.Quantity(1.0, have).to(declared)
     except pint.DimensionalityError as err:
         raise UnitError(
             f"{where}: unit {have!r} ({registry.Unit(have).dimensionality}) cannot "
             f"convert to declared {declared!r} "
-            f"({registry.Unit(declared).dimensionality}). {fix}"
+            f"({registry.Unit(declared).dimensionality}). {fix}",
+            **fields,
+            kind="unit_incompatible",
+            hint=fix,
         ) from err
     raise UnitError(
-        f"{where}: unit {have!r} differs from declared {declared!r}. {hint}"
+        f"{where}: unit {have!r} differs from declared {declared!r}. {hint}",
+        **fields,
+        kind="unit_different",
+        hint=hint,
     )
+
+
+def _site(name: str, qualname: str | None, role: Role) -> dict[str, Any]:
+    """The fields a `ContractError` reports for an input or output."""
+    return {"name": name, "qualname": qualname, "role": role}
 
 
 def _check_input_unit(
@@ -349,9 +393,9 @@ def _check_input_unit(
 ) -> None:
     """`check_units` on a validated declaration, whatever `enabled` says."""
     declared = str(declared)
-    prefix = f"[{qualname}] " if qualname else ""
-    where = f"{prefix}input {name!r}"
-    have, _ = _own_unit(da, declared, where, _ATTACH_UNIT, UnitError)
+    where = _label(name, qualname, "input")
+    site = _site(name, qualname, "input")
+    have, _ = _own_unit(da, declared, where, _ATTACH_UNIT, UnitError, site=site)
     if not units_equal(have, declared):
         _refuse(
             have,
@@ -360,6 +404,7 @@ def _check_input_unit(
             f"Converting would change the values; if that is correct for this "
             f"quantity, pass xra.units.convert(da, {declared!r}).",
             "Fix the data or the declaration.",
+            site,
         )
 
 
@@ -562,11 +607,13 @@ def _check_output_unit(
     stated with `stamp_output_units`.
     """
     declared = str(declared)
-    prefix = f"[{qualname}] " if qualname else ""
-    where = f"{prefix}output {name!r}"
+    where = _label(name, qualname, "output")
+    site = _site(name, qualname, "output")
 
     missing = _STAMP_UNIT if decorated else None
-    have, quantified = _own_unit(da, declared, where, _STATE_UNIT, UnitError, missing)
+    have, quantified = _own_unit(
+        da, declared, where, _STATE_UNIT, UnitError, missing, site
+    )
     if units_equal(have, declared):
         return
     hint = (
@@ -582,7 +629,7 @@ def _check_output_unit(
             f"as a new label does not change the values."
         )
     )
-    _refuse(have, declared, where, hint, "Fix the body or the declaration.")
+    _refuse(have, declared, where, hint, "Fix the body or the declaration.", site)
 
 
 def check_output_units(

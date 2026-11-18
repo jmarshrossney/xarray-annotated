@@ -70,8 +70,16 @@ def altitude(
 _, produced = xra.declarations_from_signature(to_pascals)
 consumed, _ = xra.declarations_from_signature(altitude)
 
-xra.declaration_conflicts(produced, consumed["p"])
-# ["unit: Unit('Pa') and Unit('hPa') are different units"]
+[conflict] = xra.declaration_conflicts(produced, consumed["p"])
+print(conflict)
+# unit: Unit('Pa') and Unit('hPa') are different units
+```
+
+Each [`Conflict`][xarray_annotated.Conflict] names the facet, why the two conflict, and the two markers, so a tool need not parse the message, and `to_dict()` gives the same as JSON-ready data:
+
+```python
+conflict.facet, conflict.kind, conflict.a, conflict.b
+# ('unit', 'unit_different', Unit('Pa'), Unit('hPa'))
 ```
 
 - **Partly annotated pipelines:** a facet declared on only one side cannot conflict, so you can adopt this one function at a time.

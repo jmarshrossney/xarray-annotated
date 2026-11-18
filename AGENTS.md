@@ -70,6 +70,9 @@ A new `Declared` slot fails `tests/test_facet_wiring.py` until it joins that fil
 | `_check_annotations.py` | `_check_output`, and the hard-coded marker list in `_markers_in` |
 | `__init__.py` | re-export the marker from the root |
 
+The new facet's error must also pass `name`, `qualname`, `role`, `facet`, `kind`, `declared`, `found` and `hint` to `ContractError`, which `declaration_violations` copies into a `Violation`.
+A new reason to fail needs a `Kind` value, a row in the tables on `Violation` (and `Conflict`, if two declarations can disagree that way), a case in `VIOLATIONS` or `CONFLICTS` in `tests/test_contract.py`, and a branch in `_marker_dict` for a new marker; the tests there and in `FACETS` fail until each is done.
+
 Units are checked first on both sides, as that fixed order is the reason there is one decorator, so add the new check after them.
 
 ## Docs
