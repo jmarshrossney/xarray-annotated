@@ -11,9 +11,15 @@ A comment on the line before a fence changes how it runs:
 * `<!-- docs-test: raises SomeError -->` for a deliberate failure, which must raise
   exactly that, by class name.
 
+A `text` fence directly after a `python` fence is the output a reader is shown, so it
+must equal what the fence prints, or `SomeError: message` for one that raises.  Runs of
+whitespace compare equal, so a long message can be wrapped by hand.
+
 `docs/example.md` is generated from `examples/notebook.py`, and is not checked here.
 """
 
+import contextlib
+import io
 import logging
 import re
 import textwrap
@@ -36,7 +42,8 @@ from xarray_annotated import Coords, Dims, Dtype, Freq, Unit
 
 _FENCE = re.compile(
     r"(?:^[ ]*<!-- docs-test: (?P<directive>.+?) -->\n)?"
-    r"^[ ]*```python\n(?P<code>.*?)^[ ]*```",
+    r"^[ ]*```python\n(?P<code>.*?)^[ ]*```[ ]*$"
+    r"(?:\n(?:[ ]*\n)*^[ ]*```text\n(?P<output>.*?)^[ ]*```)?",
     re.MULTILINE | re.DOTALL,
 )
 
@@ -46,20 +53,31 @@ def _pages() -> list[Path]:
     return [*sorted(pages), DOCS.parent / "README.md"]
 
 
-def _run(code: str, namespace: dict, directive: str | None, where: str) -> None:
+def _run(
+    code: str, namespace: dict, directive: str | None, where: str, output=None
+) -> None:
     if directive == "skip":
         return
-    if directive is None:
-        exec(code, namespace)
-        return
-    expected = directive.removeprefix("raises ")
-    assert expected != directive, f"{where}: unknown directive {directive!r}"
+    expected = None
+    if directive is not None:
+        expected = directive.removeprefix("raises ")
+        assert expected != directive, f"{where}: unknown directive {directive!r}"
     raised = None
+    printed = io.StringIO()
     try:
-        exec(code, namespace)
+        with contextlib.redirect_stdout(printed):
+            exec(code, namespace)
     except Exception as exc:
+        if expected is None:
+            raise
         raised = exc
-    assert type(raised).__name__ == expected, f"{where}: got {raised!r}"
+    if expected is not None:
+        assert type(raised).__name__ == expected, f"{where}: got {raised!r}"
+        printed = io.StringIO(f"{expected}: {raised}")
+    if output is not None:
+        assert printed.getvalue().split() == output.split(), (
+            f"{where}: shown output differs from\n{printed.getvalue()}"
+        )
 
 
 def _pages_about_declarations() -> list[Path]:
@@ -93,14 +111,48 @@ def test_snippets_run(page: Path):
         pytest.importorskip("beartype")
     if page.name in ("dask.md", "preflight.md"):
         pytest.importorskip("dask")
-    if page.name == "preflight.md":
+    if page.name in ("preflight.md", "index.md"):
         pytest.importorskip("netCDF4")
     namespace: dict = {}
     exec(PREAMBLE, namespace)
     for match in _FENCE.finditer(text):
         line = text.count("\n", 0, match.start("code")) + 1
         code = textwrap.dedent(match["code"])
-        _run(code, namespace, match["directive"], f"{page.name}:{line}")
+        where = f"{page.name}:{line}"
+        _run(code, namespace, match["directive"], where, match["output"])
+
+
+class TestShownOutput:
+    """A `text` fence after a `python` fence is checked, so shown output cannot drift."""
+
+    @staticmethod
+    def _page(code: str, output: str, directive: str = "") -> re.Match:
+        page = f"{directive}\n```python\n{code}\n```\n\n```text\n{output}\n```\n"
+        match = _FENCE.search(page.lstrip())
+        assert match is not None
+        return match
+
+    def _check(self, match: re.Match) -> None:
+        namespace: dict = {}
+        code = textwrap.dedent(match["code"])
+        _run(code, namespace, match["directive"], "page", match["output"])
+
+    def test_matching_output_passes(self):
+        self._check(self._page("print('a  b')", "a\nb"))
+
+    def test_mismatched_output_fails(self):
+        with pytest.raises(AssertionError, match="shown output differs"):
+            self._check(self._page("print(1)", "2"))
+
+    def test_mismatched_error_fails(self):
+        directive = "<!-- docs-test: raises ValueError -->"
+        self._check(self._page("raise ValueError('x')", "ValueError: x", directive))
+        with pytest.raises(AssertionError, match="shown output differs"):
+            self._check(self._page("raise ValueError('x')", "ValueError: y", directive))
+
+    def test_an_unexpected_error_is_not_swallowed(self):
+        with pytest.raises(ZeroDivisionError):
+            self._check(self._page("1 / 0", ""))
 
 
 class TestGettingStarted:
