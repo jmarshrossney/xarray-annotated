@@ -83,10 +83,14 @@ def _check_dims(da: xr.DataArray, marker: Dims) -> _Outcome:
     """Check a DataArray's dims against a `Dims` marker."""
     actual = tuple(da.dims)
     same_set = set(actual) == set(marker.names)
+    if marker.ordered and same_set:
+        order = ", ".join(map(repr, marker.names))
+        hint = f"reorder with .transpose({order})"
+        detail = f"dims order mismatch: expected {marker.names}, got {actual}; {hint}"
+        return _Outcome(actual == marker.names, detail, "dims_order", hint)
     if marker.ordered:
-        detail = f"dims order mismatch: expected {marker.names}, got {actual}"
-        kind = "dims_order" if same_set else "dims_mismatch"
-        return _Outcome(actual == marker.names, detail, kind)
+        detail = f"dims mismatch: expected {marker.names}, got {actual}"
+        return _Outcome(False, detail, "dims_mismatch")
     detail = f"dims mismatch: expected {marker.names} in any order, got {actual}"
     return _Outcome(same_set, detail, "dims_mismatch")
 

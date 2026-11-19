@@ -109,11 +109,20 @@ class TestCheckUnits:
             units.check_units(da, "Pa", "vpd")
 
     @pytest.mark.parametrize(
-        "unit", [None, "fraction", "e" * (_check._MAX_UNIT_LEN + 1)]
+        ("unit", "remedy"),
+        [
+            (None, "Attach the unit"),
+            ("fraction", "Correct the label"),
+            ("e" * (_check._MAX_UNIT_LEN + 1), "Correct the label"),
+        ],
+        ids=["missing", "unparseable", "too-long"],
     )
-    def test_every_unreadable_unit_error_gives_the_remedy(self, unit):
-        with pytest.raises(UnitError, match=r"xra\.enabled\(False\)"):
+    def test_every_unreadable_unit_error_gives_the_remedy(self, unit, remedy):
+        with pytest.raises(UnitError, match=remedy) as info:
             units.check_units(_da([[1.0]], unit=unit), "Pa", "x")
+        assert info.value.hint is not None
+        assert remedy in info.value.hint
+        assert "enabled" not in str(info.value)
 
     def test_unparseable_units_error_raises(self):
         # A present-but-unparseable units string (a non-pint spelling) cannot be

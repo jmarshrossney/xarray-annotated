@@ -120,8 +120,9 @@ class Violation:
         kind: Why it failed, as above.
         declared: The marker that failed, or `None` when `facet` is.
         found: What the array has for that facet, as above.
-        hint: What to do about it, as it appears in `message`, or `None` if the
-            message suggests nothing.
+        hint: What to do about it, as it appears in `message`, or `None` when the
+            only fix is to change the data or the declaration.  A hint names a
+            specific action, such as a call to make or a declaration to write.
         message: The message `check_declared` would raise with.
     """
 
@@ -278,12 +279,14 @@ def _refuse_other_value(
                 hint=hint,
             )
     elif all(other is types.NoneType for other in decl.others):
+        found = type(value).__name__
+        hint = f"If that is allowed, declare it with `| {found}`."
         raise ContractError(
-            f"{where}: declared a DataArray, got {type(value).__name__}. Checks apply "
-            f"only to a DataArray, so this value could not be checked.",
+            f"{where}: declared a DataArray, got {found}. {hint}",
             **site,
             kind="not_array",
-            found=type(value).__name__,
+            found=found,
+            hint=hint,
         )
 
 

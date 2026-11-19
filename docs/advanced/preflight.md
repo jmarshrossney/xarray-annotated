@@ -94,7 +94,7 @@ violation.hint
 
 - **`kind`** says why it failed, so a tool can choose a fix without reading the message: `unit_different` means the unit converts, and `unit_incompatible` that it does not. The full list is on [`Violation`][xarray_annotated.Violation].
 - **`found`** is what the array has for that facet: its unit label, dims, coord names, dtype, or the frequency inferred for its time axis, and `None` where it has none.
-- **`hint`** is the part of the message that says what to do, or `None` where it suggests nothing.
+- **`hint`** is the part of the message that names a specific fix, such as a call to make or a declaration to write, or `None` when the only fix is to change the data or the declaration.
 - **`to_dict()`** gives every field as JSON-ready data, with each marker as a dict, for a report written as JSON or returned from an MCP tool.
 
 ```python

@@ -80,6 +80,19 @@ class TestUseCfUnitsHint:
         with pytest.raises(ValueError, match="use_cf_units"):
             units.assert_valid_unit("umol m-2 s-1", "ctx")
 
+    def test_an_unparseable_label_puts_use_cf_units_in_the_hint(self):
+        import pint
+
+        units.set_registry(pint.UnitRegistry())
+        with pytest.raises(units.UnitError) as info:
+            units.check_units(_da([[1.0]], unit="umol m-2 s-1"), "Pa", "x")
+        hint = info.value.hint
+        assert hint is not None
+        assert hint.startswith("If 'umol m-2 s-1' is a CF/UDUNITS unit")
+        assert "use_cf_units()" in hint
+        assert "Correct the label" in hint
+        assert hint in str(info.value)
+
 
 def test_use_cf_units_hides_cf_xarray_matplotlib_warning():
     """No warning about matplotlib, which we neither depend on nor use.

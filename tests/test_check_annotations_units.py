@@ -312,9 +312,10 @@ class TestOutputs:
         with pytest.raises(UnitError, match=caveat):
             self._returning(label)()
 
-    def test_incompatible_label_raises_with_the_fix(self):
-        with pytest.raises(UnitError, match=r"'return'.*Fix the body"):
+    def test_incompatible_label_raises_without_a_hint(self):
+        with pytest.raises(UnitError, match=r"'return'.*cannot convert") as info:
             self._returning("kg")()
+        assert info.value.hint is None
 
     def test_message_names_the_function(self):
         with pytest.raises(UnitError, match=r"\[[\w.<>]*\bf\] output"):

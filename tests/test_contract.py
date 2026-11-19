@@ -508,10 +508,13 @@ class TestViolationFields:
         ("case", "expected"),
         [
             ("unit-missing", "Attach the unit"),
+            ("unit-too-long", "Correct the label"),
+            ("unit-unparseable", "Correct the label"),
             ("unit-different", "xra.units.convert(da, 'Pa')"),
-            ("unit-incompatible", "Fix the data or the declaration."),
+            ("dims-order", ".transpose('x', 'time')"),
             ("dtype-width", "Dtype('float') would accept any width"),
             ("freq-ambiguous-axis", "name one with Freq(..., dim=...)"),
+            ("freq-phase", "Freq('W-WED'), or Freq('W') for any weekday"),
         ],
     )
     def test_says_what_to_do_where_the_message_does(self, case, expected):
@@ -519,6 +522,39 @@ class TestViolationFields:
         hint = _violation_of(value, marker).hint
         assert hint is not None
         assert expected in hint
+
+    @pytest.mark.parametrize(
+        "case",
+        [
+            "unit-incompatible",
+            "dims-mismatch",
+            "dims-mismatch-ordered",
+            "coords-missing",
+            "dtype-kind",
+            "freq-mismatch",
+        ],
+    )
+    def test_no_hint_where_the_fix_is_the_data_or_the_declaration(self, case):
+        value, marker, _, _ = VIOLATIONS[case]
+        assert _violation_of(value, marker).hint is None
+
+    def test_different_dims_are_not_called_an_order_mismatch(self):
+        value, marker, _, _ = VIOLATIONS["dims-mismatch-ordered"]
+        assert "order" not in _violation_of(value, marker).message
+
+    def test_suggests_the_weekday_the_axis_is_on(self):
+        times = pd.date_range("2025-01-01", periods=3, freq="14D")
+        value = xr.DataArray([1.0, 2.0, 3.0], dims="time", coords={"time": times})
+        hint = _violation_of(value, Freq("2W-SUN", dim="time", gaps_ok=True)).hint
+        assert hint is not None
+        assert "Wednesdays" in hint
+        assert "Freq('2W-WED', dim='time', gaps_ok=True)" in hint
+        assert "Freq('2W', dim='time', gaps_ok=True)" in hint
+
+    @pytest.mark.parametrize("suggested", ["W-WED", "W"])
+    def test_the_suggested_weekly_declaration_passes(self, suggested):
+        declared = Declared(freq=Freq(suggested))
+        assert xra.declaration_violations(_wednesdays(), declared, "p") == []
 
     def test_names_how_to_make_a_time_axis(self):
         value = _array().drop_indexes("time")
@@ -528,14 +564,19 @@ class TestViolationFields:
 
     @pytest.mark.parametrize(
         ("value", "found", "hinted"),
-        [(None, "NoneType", True), ("hPa", "str", False), (1.0, "float", False)],
+        [
+            (None, "NoneType", "| None"),
+            ("hPa", "str", "| str"),
+            (1.0, "float", "| float"),
+        ],
     )
     def test_a_value_that_is_not_an_array_names_its_type(self, value, found, hinted):
         [violation] = xra.declaration_violations(value, Declared(unit=Unit("Pa")), "p")
         assert (violation.facet, violation.declared) == (None, None)
         assert violation.kind == "not_array"
         assert violation.found == found
-        assert (violation.hint is not None) == hinted
+        assert violation.hint is not None
+        assert f"declare it with `{hinted}`" in violation.hint
 
     def test_records_hash_so_consumers_can_be_deduplicated(self):
         value = _array(unit="kg")
