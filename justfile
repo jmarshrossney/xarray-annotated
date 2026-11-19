@@ -58,3 +58,20 @@ release:
   git tag -a "v$v" -m "v$v"
   git push origin "v$v"
   gh release create "v$v" --verify-tag --generate-notes ${pre[@]+"${pre[@]}"}
+
+# Dry-run the publish workflow against TestPyPI. It builds origin/main, not the local tree.
+[group('release')]
+release-test:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  v=$(uv version --short)
+  [[ $(git branch --show-current) == main ]] || { echo "not on main" >&2; exit 1; }
+  git diff --quiet HEAD || { echo "uncommitted changes" >&2; exit 1; }
+  git fetch --quiet origin main
+  [[ $(git rev-parse HEAD) == $(git rev-parse origin/main) ]] \
+    || { echo "main differs from origin/main" >&2; exit 1; }
+  ! curl -sf "https://test.pypi.org/pypi/xarray-annotated/$v/json" >/dev/null \
+    || { echo "$v is already on TestPyPI" >&2; exit 1; }
+  gh auth status >/dev/null || { echo "gh is not logged in" >&2; exit 1; }
+  gh workflow run publish.yml -f target=testpypi
+  echo "triggered TestPyPI publish of $v; follow it with: gh run watch"

@@ -97,4 +97,4 @@ The docs site deploys only on a stable release, so it documents what PyPI serves
 To rebuild a release's docs: `gh workflow run docs.yml -f ref=v0.9.0`.
 Running it without `ref` deploys `main`, so the site then documents unreleased work; to publish a docs fix properly, release a patch.
 
-TestPyPI is manual only (Actions → "Publish to PyPI" → testpypi), as a dry run after changing the publish workflow or the build.
+TestPyPI is manual only (`just release-test`, which publishes `origin/main`), as a dry run after changing the publish workflow or the build.
