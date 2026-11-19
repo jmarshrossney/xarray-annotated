@@ -33,6 +33,8 @@ Known limitation: `Day` is DST-aware in pandas while `24h` is not, so treating t
 the same spacing is an approximation for timezone-aware axes.
 """
 
+import calendar
+import re
 from typing import Any, NamedTuple
 
 import numpy as np
@@ -58,6 +60,9 @@ from .._errors import ContractError, Kind, Role
 from ._annotations import _ANY_DAY, Freq
 
 _NANOS_PER_DAY = 86_400_000_000_000
+
+#: pandas weekday suffixes, indexed by `dayofweek`.
+_WEEKDAYS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
 
 
 class FreqError(ContractError):
@@ -352,6 +357,25 @@ def _on_declared_weekday(marker: Freq, coord: xr.DataArray) -> bool:
     return coord.dt.dayofweek.values[0] == anchor
 
 
+def _weekday_miss(
+    marker: Freq, coord: xr.DataArray, detail: str, **found: Any
+) -> _Miss:
+    """A `freq_phase` miss for a weekly axis on another weekday, naming the fix.
+
+    Only reached for a weekly declaration that spells its weekday, so the spelling
+    ends in that weekday's suffix.
+    """
+    day = int(coord.dt.dayofweek.values[0])
+    weekly = re.sub(r"-[A-Za-z]{3}$", "", str(marker.freq))
+    pinned = Freq(f"{weekly}-{_WEEKDAYS[day]}", dim=marker.dim, gaps_ok=marker.gaps_ok)
+    loose = Freq(weekly, dim=marker.dim, gaps_ok=marker.gaps_ok)
+    hint = (
+        f"the axis is on {calendar.day_name[day]}s, so if that is right, declare "
+        f"{pinned!r}, or {loose!r} for any weekday"
+    )
+    return _Miss(f"{detail}; {hint}", "freq_phase", hint=hint, **found)
+
+
 def _pair(times: pd.Index, step: int) -> str:
     """The two timestamps either side of a step, for an error message."""
     return f"{times[step]} then {times[step + 1]}"
@@ -412,7 +436,7 @@ def _step_mismatch(marker: Freq, coord: xr.DataArray) -> _Miss | None:
             return _Miss(got, "freq_mismatch")
         if _on_declared_weekday(marker, coord):
             return None
-        return _Miss(_pair(times, 0), "freq_phase")
+        return _weekday_miss(marker, coord, _pair(times, 0))
     months = 12 * coord.dt.year.values + coord.dt.month.values
     got = _steps_mismatch(np.diff(months), spacing, marker, times)
     if got is not None:
@@ -441,7 +465,7 @@ def _mismatch(marker: Freq, coord: xr.DataArray) -> _Miss | None:
     # On a cftime axis `infer_freq` says `7D` where pandas says `W-WED`.
     if _on_declared_weekday(marker, coord):
         return None
-    return _Miss(f"{inferred!r} on another day", "freq_phase", inferred)
+    return _weekday_miss(marker, coord, f"{inferred!r} on another day", found=inferred)
 
 
 def _check_valid_freq(

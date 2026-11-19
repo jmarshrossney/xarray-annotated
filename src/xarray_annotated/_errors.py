@@ -53,7 +53,8 @@ class ContractError(Exception):
         kind: Why it failed, as listed on `Violation`.
         declared: The marker that failed, or `None` when `facet` is.
         found: What the array has for that facet, as described on `Violation`.
-        hint: What to do about it, as it appears in the message.
+        hint: What to do about it, as it appears in the message, or `None` when the
+            only fix is to change the data or the declaration.
     """
 
     name: str | None

@@ -33,9 +33,11 @@ _log = logging.getLogger("xarray_annotated.units")
 _MAX_UNIT_LEN = 256
 
 _ATTACH_UNIT = (
-    "Attach the unit where the data enters the pipeline "
-    "(`.assign_attrs(units=...)`), or switch checking off with "
-    "`xra.enabled(False)`."
+    "Attach the unit where the data enters the pipeline (`.assign_attrs(units=...)`)."
+)
+
+_RELABEL_UNIT = (
+    "Correct the label where the data enters the pipeline (`.assign_attrs(units=...)`)."
 )
 
 _STATE_UNIT = (
@@ -152,10 +154,11 @@ def assert_valid_unit(unit: str | Unit, context: str) -> None:
         get_registry().Unit(unit)
     except Exception as exc:
         # The registry raises several error types for bad input; normalise them.
-        raise ValueError(
+        message = (
             f"{context}: declared unit {unit!r} is not a recognised "
-            f"unit ({type(exc).__name__}: {exc}){_cf_hint(unit)}"
-        ) from exc
+            f"unit ({type(exc).__name__}: {exc})."
+        )
+        raise ValueError(f"{message} {_cf_hint(unit)}".rstrip()) from exc
 
 
 def units_compatible(a: str | Unit, b: str | Unit) -> bool:
@@ -277,7 +280,7 @@ def _own_unit(
         da: The array to read.
         declared: The declared unit string, for error messages, if there is one.
         where: Names the array in error messages.
-        remedy: What to do about a missing or unreadable unit.
+        remedy: What to do about an over-long or unparseable unit.
         error: What to raise, as a check and an operation raise different things.
         missing: What to do about a missing unit, if not `remedy`.
         site: The `name`, `qualname` and `role` a `ContractError` reports.
@@ -336,18 +339,19 @@ def _own_unit(
         # validated than a missing one; refuse it with a message rather than letting
         # an opaque parse error escape.
         about = f"({expected}): " if expected else ": "
+        hint = _cf_hint(have, " ") + remedy
         raise fail(
             f"{where} has unparseable 'units' attribute {have!r} "
-            f"{about}{type(exc).__name__}: {exc}{_cf_hint(have)}. {remedy}",
+            f"{about}{type(exc).__name__}: {exc}. {hint}",
             "unit_unparseable",
             str(have),
-            remedy,
+            hint,
         ) from exc
     return have, quantified is not None
 
 
 def _refuse(
-    have: str, declared: str, where: str, hint: str, fix: str, site: dict[str, Any]
+    have: str, declared: str, where: str, hint: str, site: dict[str, Any]
 ) -> NoReturn:
     """Raise for a unit that is not the declared one, by whether the two convert.
 
@@ -355,8 +359,8 @@ def _refuse(
         have: The array's unit.
         declared: The declared unit.
         where: Names the array in the message.
-        hint: What to do about a unit that converts.
-        fix: What to do about one that does not.
+        hint: What to do about a unit that converts.  One that does not gets no
+            hint, as the fix is to change the data or the declaration.
         site: The `name`, `qualname` and `role` the error reports.
 
     Raises:
@@ -370,10 +374,9 @@ def _refuse(
         raise UnitError(
             f"{where}: unit {have!r} ({registry.Unit(have).dimensionality}) cannot "
             f"convert to declared {declared!r} "
-            f"({registry.Unit(declared).dimensionality}). {fix}",
+            f"({registry.Unit(declared).dimensionality}).",
             **fields,
             kind="unit_incompatible",
-            hint=fix,
         ) from err
     raise UnitError(
         f"{where}: unit {have!r} differs from declared {declared!r}. {hint}",
@@ -395,7 +398,9 @@ def _check_input_unit(
     declared = str(declared)
     where = _label(name, qualname, "input")
     site = _site(name, qualname, "input")
-    have, _ = _own_unit(da, declared, where, _ATTACH_UNIT, UnitError, site=site)
+    have, _ = _own_unit(
+        da, declared, where, _RELABEL_UNIT, UnitError, _ATTACH_UNIT, site
+    )
     if not units_equal(have, declared):
         _refuse(
             have,
@@ -403,7 +408,6 @@ def _check_input_unit(
             where,
             f"Converting would change the values; if that is correct for this "
             f"quantity, pass xra.units.convert(da, {declared!r}).",
-            "Fix the data or the declaration.",
             site,
         )
 
@@ -483,7 +487,7 @@ def quantify(da: xr.DataArray) -> xr.DataArray:
         [1013.25]
     """
     have, quantified = _own_unit(
-        da, None, "the array to quantify", _ATTACH_UNIT, ValueError
+        da, None, "the array to quantify", _RELABEL_UNIT, ValueError, _ATTACH_UNIT
     )
     if quantified:
         return da
@@ -570,7 +574,7 @@ def convert(da: xr.DataArray, unit: str | Unit) -> xr.DataArray:
     unit = str(unit)
     assert_valid_unit(unit, "convert")
     have, quantified = _own_unit(
-        da, unit, "the array to convert", _ATTACH_UNIT, ValueError
+        da, unit, "the array to convert", _RELABEL_UNIT, ValueError, _ATTACH_UNIT
     )
     same = units_equal(have, unit)
     if same and not quantified:
@@ -629,7 +633,7 @@ def _check_output_unit(
             f"as a new label does not change the values."
         )
     )
-    _refuse(have, declared, where, hint, "Fix the body or the declaration.", site)
+    _refuse(have, declared, where, hint, site)
 
 
 def check_output_units(

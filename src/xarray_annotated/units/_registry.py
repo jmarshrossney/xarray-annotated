@@ -98,19 +98,23 @@ def _label_format() -> str | None:
     return "cf" if _using_cf else None
 
 
-def _cf_hint(unit: str) -> str:
-    """Suggest `use_cf_units` when a unit likely needs the CF registry.
+def _cf_hint(unit: str, sep: str = "") -> str:
+    """Suggest `use_cf_units` when a unit may need the CF registry.
 
-    Returns a parenthetical hint only when cf-xarray is installed but not yet
-    active, i.e. exactly the case where switching registries would fix a parse
-    failure. Empty string otherwise.
+    Suggests it only when cf-xarray is installed but not yet active, the one case
+    where switching registries could fix a parse failure.  Whether it would is not
+    tried, as that builds the CF registry, so the sentence is conditional.
 
     Args:
         unit: The unit string that failed to parse.
+        sep: Joins the sentence to what follows it.
 
     Returns:
-        A hint string, or `""` when the hint is not applicable.
+        A sentence followed by `sep`, or `""` when the hint is not applicable.
     """
     if _using_cf or importlib.util.find_spec("cf_xarray") is None:
         return ""
-    return f" (call use_cf_units() to enable CF/UDUNITS units like {unit!r})"
+    return (
+        f"If {unit!r} is a CF/UDUNITS unit, call xra.units.use_cf_units() to "
+        f"enable them.{sep}"
+    )
